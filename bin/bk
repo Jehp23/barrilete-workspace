@@ -174,10 +174,12 @@ watch_claimed() {  # ¿hay otro bk watch vivo mirando esta ventana?
   [ -n "$pid" ] && [ "$pid" != "$$" ] && kill -0 "$pid" 2>/dev/null
 }
 watch_pick() {
-  local w
-  for w in $(tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null); do
+  # Solo ventanas con un agente vivo: las que quedaron en una shell (agente terminado) no cuentan
+  local w cmd
+  while read -r w cmd; do
+    case "$cmd" in zsh|bash|sh|fish|-zsh|login) continue ;; esac
     watch_claimed "$w" || { echo "$w"; return; }
-  done
+  done < <(tmux list-windows -t "$SESSION" -F '#{window_name} #{pane_current_command}' 2>/dev/null)
 }
 watch() {
   need_tmux
@@ -192,6 +194,12 @@ watch() {
     # Elegir / validar la ventana
     if [ -n "$win" ] && ! has_window "$win"; then
       rm -f "$WATCH_DIR/$win"; win=""
+    fi
+    # En modo automático, si el agente terminó (quedó una shell), pasar al siguiente
+    if [ -n "$win" ] && [ -z "$fixed" ]; then
+      case "$(tmux display-message -p -t "$SESSION:$win" '#{pane_current_command}' 2>/dev/null)" in
+        zsh|bash|sh|fish|-zsh|login) rm -f "$WATCH_DIR/$win"; win="" ;;
+      esac
     fi
     if [ -z "$win" ]; then
       if [ -n "$fixed" ]; then has_window "$fixed" && win="$fixed"; else win=$(watch_pick); fi
