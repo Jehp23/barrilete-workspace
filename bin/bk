@@ -39,6 +39,8 @@ uso: bk [comando] [--dry-run]
   learn             registra desvíos de los agentes en Obsidian y propone lecciones
   lessons           lecciones por revisar (status: proposed) en el vault
   mode [work|chill] modo de la barra (sin argumento: el actual)
+  song [estación]   radio techno/house en segundo plano (bk song help)
+  theme [day|night|auto]  tema de Ghostty: violeta pastel / violeta oscuro / según macOS
 
 Los comandos de agentes se corren dentro de un proyecto Barrilete.
 EOF
@@ -373,6 +375,44 @@ lessons() {
     || printf '\n%s por revisar en %s/agents/lessons (status: accepted + regla → INDEX.md; retired → descartar)\n' "$n" "$vault"
 }
 
+# ---------- tema de Ghostty ----------
+GHOSTTY_CONFIG="${BK_GHOSTTY_CONFIG:-$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty}"
+THEME_DAY="$WS/dotfiles/ghostty/bk-day"   # violeta pastel (versionado)
+THEME_NIGHT="Shades Of Purple"            # violeta oscuro, viene con Ghostty
+
+theme() {
+  local want="${1:-status}" line cur
+  [ -f "$GHOSTTY_CONFIG" ] || die "no encuentro la config de Ghostty ($GHOSTTY_CONFIG)"
+  case "$want" in
+    day)    line="theme = $THEME_DAY" ;;
+    night)  line="theme = $THEME_NIGHT" ;;
+    auto)   line="theme = light:$THEME_DAY,dark:$THEME_NIGHT" ;;
+    status)
+      cur=$(sed -n 's/^theme = //p' "$GHOSTTY_CONFIG" | tail -1)
+      case "$cur" in
+        "$THEME_DAY")   echo day ;;
+        "$THEME_NIGHT") echo night ;;
+        light:*)        echo "auto (sigue a macOS)" ;;
+        "")             echo "sin tema de bk" ;;
+        *)              echo "otro: $cur" ;;
+      esac
+      return ;;
+    *) die "bk theme [day|night|auto]" ;;
+  esac
+  # Reemplazar solo líneas `theme = ...` sin tocar el resto (comentarios incluidos)
+  local tmp; tmp=$(mktemp)
+  awk -v l="$line" 'BEGIN { done = 0 }
+       /^theme[[:space:]]*=/ { if (!done) { print l; done = 1 } ; next }
+       { print }
+       END { if (!done) print l }' "$GHOSTTY_CONFIG" > "$tmp"
+  cat "$tmp" > "$GHOSTTY_CONFIG"; rm -f "$tmp"   # cat: conserva permisos y enlaces del archivo
+  # Ghostty recarga la config con SIGUSR2: aplica a todas las ventanas abiertas sin reiniciar
+  # (ps y no pkill: pgrep no siempre ve el proceso de la app)
+  local pids; pids=$(ps -axo pid=,ucomm= | awk '$2 == "ghostty" { print $1 }')
+  if [ -n "$pids" ] && kill -USR2 $pids 2>/dev/null; then echo "tema: $want"
+  else echo "tema: $want (Ghostty no está abierto: se aplica al abrirlo)"; fi
+}
+
 # ---------- comandos de agentes ----------
 cmd_plan() {
   local idea="$*"; [ -n "$idea" ] || die 'bk plan "<idea>"'
@@ -477,6 +517,8 @@ case "${1:-}" in
   learn)       shift; exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
   mode)        shift; exec "$HOME/.config/sketchybar/mode.sh" "${1:-status}" ;;
+  song)        shift; exec "$WS/lib/song.sh" "$@" ;;
+  theme)       shift; theme "${1:-status}" ;;
   "")          workspace ;;
   dash)        dash ;;
   _layout)     ws_layout ;;

@@ -1,0 +1,24 @@
+# bk-day: violeta pastel (modo day de `bk theme`). Fondo lavanda, texto y ANSI oscurecidos
+# hasta contraste >= 4.5 (normales) / 3.5 (brillantes) sobre el fondo.
+background = #e6daf5
+foreground = #2b1d3f
+cursor-color = #8b3fc7
+cursor-text = #e6daf5
+selection-background = #c9b3ec
+selection-foreground = #2b1d3f
+palette = 0=#2b1d3f
+palette = 1=#b4235a
+palette = 2=#296e46
+palette = 3=#7b5e00
+palette = 4=#3b5bb5
+palette = 5=#8639c3
+palette = 6=#1b6b7b
+palette = 7=#5b4b72
+palette = 8=#6e5a8a
+palette = 9=#cd3971
+palette = 10=#348153
+palette = 11=#8c6b00
+palette = 12=#4e6eca
+palette = 13=#9a4ad7
+palette = 14=#287e8e
+palette = 15=#3a2a52

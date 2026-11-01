@@ -21,3 +21,4 @@ ICON_ERR="󰅖"
 ICON_TOKENS=""   # nf-fa-bolt: tokens del día
 ICON_LESSON="󰌵"  # nf-md-lightbulb: lecciones por revisar
 ICON_BRANCH=""   # nf-dev-git_branch: rama sin checks
+ICON_MUSIC="󰝚"   # nf-md-music: bk song sonando

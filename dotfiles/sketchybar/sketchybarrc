@@ -1,6 +1,6 @@
 #!/bin/bash
 # SketchyBar — setup para ingeniería agéntica
-#   izquierda : espacios + app activa
+#   izquierda : música (bk song, solo mientras suena) + espacios + app activa
 #   notch-izq : agentes de Claude Code (popup con sesiones) + subagentes/herramienta
 #   derecha   : GitHub (PRs / CI) · sistema (cpu/ram/gpu) · volumen · batería · reloj
 # Backup de la config anterior: ~/.config/sketchybar.bak-*
@@ -42,6 +42,19 @@ sketchybar --default "${default[@]}"
 
 ##### Eventos propios #####
 sketchybar --add event agent_update
+sketchybar --add event song_update   # lo dispara `bk song` al arrancar/pausar/cortar
+
+##### Izquierda: música (bk song) — primero, así no se mueve con el nombre de la app #####
+sketchybar --add item song left \
+           --set song icon="$ICON_MUSIC" icon.color=$MAUVE drawing=off \
+                 label.drawing=off icon.padding_left=8 icon.padding_right=8 \
+                 update_freq=15 updates=on popup.align=left \
+                 script="$PLUGIN_DIR/song.sh" \
+           --subscribe song song_update mouse.clicked system_woke \
+           --add item song.station popup.song \
+           --set song.station icon="$ICON_MUSIC" icon.color=$MAUVE background.drawing=off \
+           --add item song.title popup.song \
+           --set song.title icon.drawing=off label.color=$SUBTEXT background.drawing=off
 
 ##### Izquierda: espacios #####
 # Click: Ctrl+N (requiere activar "Cambiar al escritorio N" en
