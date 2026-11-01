@@ -177,11 +177,12 @@ watch_claimed() {  # ¿hay otro bk watch vivo mirando esta ventana?
 }
 watch_pick() {
   # Solo ventanas con un agente vivo: las que quedaron en una shell (agente terminado) no cuentan
-  local w cmd
-  while read -r w cmd; do
+  local w dead cmd
+  while read -r w dead cmd; do
+    [ "$dead" = 1 ] && continue   # remain-on-exit: el agente salió y quedó el pane muerto
     case "$cmd" in zsh|bash|sh|fish|-zsh|login) continue ;; esac
     watch_claimed "$w" || { echo "$w"; return; }
-  done < <(tmux list-windows -t "$SESSION" -F '#{window_name} #{pane_current_command}' 2>/dev/null)
+  done < <(tmux list-windows -t "$SESSION" -F '#{window_name} #{pane_dead} #{pane_current_command}' 2>/dev/null)
 }
 watch() {
   need_tmux
@@ -199,8 +200,8 @@ watch() {
     fi
     # En modo automático, si el agente terminó (quedó una shell), pasar al siguiente
     if [ -n "$win" ] && [ -z "$fixed" ]; then
-      case "$(tmux display-message -p -t "$SESSION:$win" '#{pane_current_command}' 2>/dev/null)" in
-        zsh|bash|sh|fish|-zsh|login) rm -f "$WATCH_DIR/$win"; win="" ;;
+      case "$(tmux display-message -p -t "$SESSION:$win" '#{?pane_dead,dead,#{pane_current_command}}' 2>/dev/null)" in
+        dead|zsh|bash|sh|fish|-zsh|login) rm -f "$WATCH_DIR/$win"; win="" ;;
       esac
     fi
     if [ -z "$win" ]; then
@@ -220,8 +221,13 @@ watch() {
     [ -n "$state" ] && hdr+=$(jq -r '"  ·  \(.role // "-")  ·  \(.model // "-")  ·  \(.state // "-")\(if .tool then " (\(.tool))" else "" end)"' "$state" 2>/dev/null)
     {
       printf '\033[H\033[1;35m%s\033[0m\033[K\n' "${hdr:0:$cols}"
+      # Sin el pie de Claude Code (caja del prompt + "auto mode"): en un panel chico se comía todo
       tmux capture-pane -p -e -t "$SESSION:$win" 2>/dev/null \
-        | grep -v '^[[:space:]]*$' | tail -n $((lines - 2)) \
+        | grep -v '^[[:space:]]*$' \
+        | awk '{ l[NR] = $0; t = $0; gsub(/\033\[[0-9;?]*[A-Za-z]/, "", t)
+                 if (t ~ /^─────/) { s2 = s1; s1 = NR } }
+               END { n = (s2 ? s2 - 1 : NR); for (i = 1; i <= n; i++) print l[i] }' \
+        | tail -n $((lines - 2)) \
         | while IFS= read -r l; do printf '%s\033[0m\033[K\n' "$l"; done
       printf '\033[J'
     }
@@ -266,7 +272,7 @@ workspace() {
            "claude; exec \$SHELL")
     # Franja de abajo a todo el ancho: estado + radio (si está bk song)
     local dashp
-    dashp=$(tmux split-window -d -P -F '#{pane_id}' -f -v -l 9 -t "$chat" -c "$dir" "bk dash")
+    dashp=$(tmux split-window -d -P -F '#{pane_id}' -f -v -l 12 -t "$chat" -c "$dir" "bk dash")
     [ -x "$WS/lib/song.sh" ] && \
       tmux split-window -d -h -l 34% -t "$dashp" -c "$dir" "bk song ui; exec \$SHELL" >/dev/null
     # Columna derecha: N espejos de agentes (cada uno toma el próximo agente libre)
