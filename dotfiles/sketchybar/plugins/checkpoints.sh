@@ -19,6 +19,15 @@ if [ "$SENDER" = "mouse.clicked" ]; then
   sketchybar --set agents.ckpt popup.drawing=toggle
 fi
 
+# Lock: dos corridas a la vez reconstruían el popup en paralelo ("agents.ckpt.N already exists")
+LOCK_UI="${TMPDIR:-/tmp}/sketchybar_ckpt_ui.lock"
+for _ in $(seq 1 60); do
+  mkdir "$LOCK_UI" 2>/dev/null && break
+  LOCK_TS=$(stat -f %m "$LOCK_UI" 2>/dev/null) && [ $(( $(date +%s) - LOCK_TS )) -gt 30 ] && rmdir "$LOCK_UI" 2>/dev/null
+  sleep 0.05
+done
+trap 'rmdir "$LOCK_UI" 2>/dev/null' EXIT
+
 # ---- PRs listos (caché de 110 s; un solo fetch a la vez, en segundo plano si hay caché) ----
 fetch_prs() {
   local lock="${TMPDIR:-/tmp}/sketchybar_ckpt_fetch.lock"
@@ -29,15 +38,22 @@ fetch_prs() {
         nodes { ... on PullRequest {
           number title url reviewDecision
           repository { nameWithOwner }
-          reviews { totalCount }
-          commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+          reviews(last: 1) { totalCount nodes { body submittedAt } }
+          commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
         } } }
       asked: search(query: "is:pr is:open review-requested:@me archived:false", type: ISSUE, first: 20) {
         nodes { ... on PullRequest { number title url repository { nameWithOwner } } } } }' 2>/dev/null \
   | jq '[(.data.mine.nodes[]
+          # /review-pr publica siempre como comentario, aunque tenga bloqueantes: hay que leer la última
+          # review. Listo = CI verde, última review sin sección "Bloqueante/Blocking" y sin commits
+          # posteriores a esa review (si hubo arreglos, el kit pide revisar de nuevo).
+          | .reviews.nodes[0] as $r
+          | .commits.nodes[0].commit as $c
           | select(.reviews.totalCount > 0
                    and .reviewDecision != "CHANGES_REQUESTED"
-                   and (.commits.nodes[0].commit.statusCheckRollup.state // "SUCCESS") == "SUCCESS")
+                   and ($c.statusCheckRollup.state // "SUCCESS") == "SUCCESS"
+                   and (($r.body // "") | test("(^|\\n)#+\\s*(Bloqueantes?|Blocking|Blockers?)\\b"; "i") | not)
+                   and (($c.committedDate // "") <= ($r.submittedAt // "")))
           | {kind: "merge", repo: .repository.nameWithOwner, number, title, url}),
          (.data.asked.nodes[] | {kind: "review", repo: .repository.nameWithOwner, number, title, url})]' \
     > "$CACHE.tmp" 2>/dev/null \
@@ -81,7 +97,7 @@ NL=${#LESSONS[@]}
 
 if [ "$NP" -eq 0 ] && [ "$NR" -eq 0 ] && [ "$NV" -eq 0 ] && [ "$NL" -eq 0 ]; then
   sketchybar --set agents.ckpt drawing=off popup.drawing=off
-  sketchybar --remove '/agents\.ckpt\.[0-9]+/' >/dev/null 2>&1
+  sketchybar --remove '/agents\.ckpt\.[0-9]*/' >/dev/null 2>&1
   exit 0
 fi
 
@@ -96,7 +112,7 @@ sketchybar --set agents.ckpt drawing=on icon.drawing=off label="$LABEL" label.co
            background.border_width=2 background.border_color=$MAUVE
 
 # ---- Popup ----
-sketchybar --remove '/agents\.ckpt\.[0-9]+/' >/dev/null 2>&1
+sketchybar --remove '/agents\.ckpt\.[0-9]*/' >/dev/null 2>&1
 i=0
 # Filas compactas y sin píldora de fondo: "<qué> · <dónde> · <título>"
 ROW=(background.drawing=off icon.padding_left=10 label.padding_right=12)
