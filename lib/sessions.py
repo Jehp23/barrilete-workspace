@@ -131,7 +131,10 @@ def load():
     # Ventanas de agentes muertas (el agente salió y la ventana quedó): para poder cerrarlas
     for pid, pane in panes.items():
         if pane["session"] == SESSION and pane["dead"] and not any(r.get("pane") == pid for r in rows_open):
-            rows_open.append({"sid": None, "cwd": "", "proj": "", "title": "el agente terminó (ventana abierta)",
+            # Claude deja impreso "claude --resume <id>" al salir: con eso se puede revivir
+            m = re.search(r"claude --resume ([0-9a-f-]{36})", sh("tmux", "capture-pane", "-p", "-t", pid))
+            rows_open.append({"sid": m.group(1) if m else None, "cwd": "", "proj": "",
+                              "title": "terminó · enter lo retoma acá" if m else "terminó (ventana abierta)",
                               "mtime": 0, "state": "ended", "target": pane["target"], "window": pane["window"],
                               "pane": pid, "dead": True})
     try:
@@ -179,6 +182,12 @@ STATE_TXT = {"working": "trabajando", "waiting": "te espera", "done": "listo", "
 def open_row(r):
     """Devuelve (mensaje_error | None, comando tmux a ejecutar después de cerrar curses)."""
     in_tmux = bool(os.environ.get("TMUX"))
+    if r.get("dead"):
+        # Pane muerto (remain-on-exit): no acepta teclas. Revivirlo con la misma sesión de Claude.
+        if not r.get("sid"):
+            return "esa ventana terminó y no sé qué sesión era: cerrala con x", None
+        go = (["tmux", "switch-client", "-t", r["target"]] if in_tmux else ["tmux", "attach", "-t", r["target"]])
+        return None, [["tmux", "respawn-pane", "-k", "-t", r["pane"], f"claude --resume {r['sid']}"], go]
     if r.get("target"):
         tgt = r["target"]
         if in_tmux:
