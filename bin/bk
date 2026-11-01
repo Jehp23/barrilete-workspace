@@ -274,7 +274,7 @@ workspace() {
     local dashp
     dashp=$(tmux split-window -d -P -F '#{pane_id}' -f -v -l 12 -t "$chat" -c "$dir" "bk dash")
     [ -x "$WS/lib/song.sh" ] && \
-      tmux split-window -d -h -l 34% -t "$dashp" -c "$dir" "bk song ui; exec \$SHELL" >/dev/null
+      tmux split-window -d -h -l 34% -t "$dashp" -c "$dir" "sleep 1.5; bk song ui; exec \$SHELL" >/dev/null
     # Columna derecha: N espejos de agentes (cada uno toma el próximo agente libre)
     right=$(tmux split-window -d -P -F '#{pane_id}' -h -l 42% -t "$chat" -c "$dir" "bk watch")
     for ((i = 1; i < n; i++)); do
@@ -296,8 +296,30 @@ workspace() {
     tmux set-option -w -t "$WS_SESSION:main" pane-border-status top >/dev/null
     tmux set-option -w -t "$WS_SESSION:main" pane-border-format ' #{pane_title} ' >/dev/null
     tmux select-pane -t "$chat"
+    # La sesión nace con el tamaño de la terminal que la crea; al conectarse o cambiar de tamaño
+    # tmux le da todo el sobrante a un solo pane. Reacomodar con proporciones fijas.
+    tmux set-hook -t "$WS_SESSION" client-attached "run-shell -b 'bk _layout'"
+    tmux set-hook -t "$WS_SESSION" client-resized "run-shell -b 'bk _layout'"
   fi
   if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$WS_SESSION"; else exec tmux attach -t "$WS_SESSION"; fi
+}
+
+# Proporciones del workspace: franja de abajo 13 filas, columna derecha 40 %, espejos parejos
+ws_layout() {
+  set +euo pipefail
+  local t="$WS_SESSION:main" W H dash watches=() p n each i
+  read -r W H < <(tmux display-message -p -t "$t" '#{window_width} #{window_height}')
+  [ -n "$W" ] || return 0
+  dash=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk dash/{print $1; exit}')
+  while read -r p; do watches+=("$p"); done < <(tmux list-panes -t "$t" -F '#{pane_top} #{pane_id} #{pane_start_command}' \
+                                                 | awk '/bk watch/{print $1, $2}' | sort -n | awk '{print $2}')
+  [ -n "$dash" ] && tmux resize-pane -t "$dash" -y 13
+  n=${#watches[@]}
+  [ "$n" -gt 0 ] || return 0
+  tmux resize-pane -t "${watches[0]}" -x $((W * 40 / 100))
+  # Alto disponible de la columna = alto de la ventana - franja - bordes
+  each=$(( (H - 13 - 1 - n) / n ))
+  for ((i = 0; i < n - 1; i++)); do tmux resize-pane -t "${watches[$i]}" -y "$each"; done
 }
 
 stop() {
@@ -463,6 +485,7 @@ case "${1:-}" in
   mode)        shift; exec "$HOME/.config/sketchybar/mode.sh" "${1:-status}" ;;
   "")          workspace ;;
   dash)        dash ;;
+  _layout)     ws_layout ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;
 esac
