@@ -22,3 +22,9 @@ barandas, verificaciones fallidas, contratos de subagentes (patrones automático
 e interrupciones (para leer en el resumen del día). Un patrón repetido ≥3 veces en 14 días propone una lección;
 las que marcás `accepted` con su regla pasan a `agents/INDEX.md`, que Claude Code importa desde `~/.claude/CLAUDE.md`.
 `bk lessons` lista las que esperan revisión; la barra las muestra como checkpoint (󰌵).
+
+## Dotfiles
+- `dotfiles/tmux.conf` → `~/.config/tmux/tmux.conf`
+- `dotfiles/sketchybar/` → `~/.config/sketchybar` (centro de control: agentes, checkpoints, tokens, GitHub, modos work/chill)
+
+Ambos son enlaces simbólicos: se editan acá y quedan versionados.

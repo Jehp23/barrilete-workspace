@@ -1,0 +1,131 @@
+#!/bin/bash
+# SketchyBar — setup para ingeniería agéntica
+#   izquierda : espacios + app activa
+#   notch-izq : agentes de Claude Code (popup con sesiones) + subagentes/herramienta
+#   derecha   : GitHub (PRs / CI) · sistema (cpu/ram/gpu) · volumen · batería · reloj
+# Backup de la config anterior: ~/.config/sketchybar.bak-*
+
+PLUGIN_DIR="$CONFIG_DIR/plugins"
+source "$CONFIG_DIR/colors.sh"
+source "$CONFIG_DIR/icons.sh"
+
+FONT="Hack Nerd Font"
+
+##### Barra #####
+sketchybar --bar position=top height=36 blur_radius=30 color=$BAR_COLOR \
+                 padding_left=10 padding_right=10 shadow=on y_offset=0 \
+                 topmost=off sticky=on
+
+##### Defaults #####
+default=(
+  updates=when_shown
+  padding_left=3
+  padding_right=3
+  icon.font="$FONT:Bold:15.0"
+  label.font="$FONT:Bold:13.0"
+  icon.color=$TEXT
+  label.color=$TEXT
+  icon.padding_left=6
+  icon.padding_right=4
+  label.padding_left=4
+  label.padding_right=6
+  background.color=$ITEM_BG
+  background.corner_radius=8
+  background.height=26
+  popup.background.color=$POPUP_BG
+  popup.background.border_color=$BORDER
+  popup.background.border_width=1
+  popup.background.corner_radius=10
+  popup.blur_radius=30
+)
+sketchybar --default "${default[@]}"
+
+##### Eventos propios #####
+sketchybar --add event agent_update
+
+##### Izquierda: espacios #####
+# Click: Ctrl+N (requiere activar "Cambiar al escritorio N" en
+# Ajustes > Teclado > Atajos > Mission Control, y permiso de Accesibilidad para sketchybar)
+KEYCODES=(18 19 20 21 23 22 26 28 25 29)
+for i in {1..10}; do
+  sketchybar --add space space.$i left \
+             --set space.$i space=$i icon="$i" \
+                   icon.padding_left=9 icon.padding_right=9 \
+                   label.drawing=off \
+                   background.color=$ITEM_BG \
+                   script="$PLUGIN_DIR/space.sh" \
+                   click_script="osascript -e 'tell application \"System Events\" to key code ${KEYCODES[$((i-1))]} using control down'"
+done
+
+sketchybar --add item front_app left \
+           --set front_app icon="$ICON_APPLE" icon.color=$BLUE \
+                 background.drawing=off padding_left=8 \
+                 script="$PLUGIN_DIR/front_app.sh" \
+           --subscribe front_app front_app_switched
+
+##### Agentes: a la izquierda del notch #####
+# Posición `q` = pegado al borde izquierdo del notch (en `center` quedaba tapado).
+# Los items `q` crecen hacia la izquierda: el primero que se agrega queda junto al notch.
+sketchybar --add item agents.sub q \
+           --set agents.sub icon="$ICON_SUBAGENT" icon.color=$TEAL \
+                 drawing=off \
+           --add item agents q \
+           --set agents icon="$ICON_ROBOT" \
+                 label="sin agentes" \
+                 update_freq=60 updates=on \
+                 popup.align=center \
+                 script="$PLUGIN_DIR/agents.sh" \
+           --subscribe agents agent_update mouse.clicked system_woke \
+           --add item agents.ckpt q \
+           --set agents.ckpt icon="$ICON_WAIT" drawing=off \
+                 update_freq=120 updates=on \
+                 popup.align=center \
+                 script="$PLUGIN_DIR/checkpoints.sh" \
+           --subscribe agents.ckpt agent_update mouse.clicked system_woke \
+           --add item agents.tok q \
+           --set agents.tok icon="$ICON_TOKENS" icon.color=$YELLOW drawing=off \
+                 update_freq=120 updates=on \
+                 script="$PLUGIN_DIR/tokens.sh" \
+           --subscribe agents.tok system_woke
+
+##### Derecha (se agregan de derecha a izquierda) #####
+sketchybar --add item clock right \
+           --set clock update_freq=10 icon="$ICON_CLOCK" icon.color=$BLUE \
+                 script="$PLUGIN_DIR/clock.sh" \
+           --add item battery right \
+           --set battery update_freq=120 icon.color=$GREEN \
+                 script="$PLUGIN_DIR/battery.sh" \
+           --subscribe battery system_woke power_source_change \
+           --add item volume right \
+           --set volume icon.color=$PEACH script="$PLUGIN_DIR/volume.sh" \
+           --subscribe volume volume_change
+
+# Separadores invisibles: el fondo de un bracket incluye el padding (3 pt) de sus
+# items, así que sin esto los grupos quedan a 0–3 pt en vez de los 6 pt del resto.
+SPACER=(padding_left=0 padding_right=0 icon.drawing=off label.drawing=off background.drawing=off)
+
+# Sistema (agrupado)
+sketchybar --add item spacer.sys right --set spacer.sys "${SPACER[@]}" width=3
+SYS=(background.drawing=off icon.padding_left=6 icon.padding_right=2 label.padding_right=6 icon.color=$SUBTEXT)
+sketchybar --add item gpu right --set gpu "${SYS[@]}" update_freq=5 icon="$ICON_GPU" script="$PLUGIN_DIR/gpu.sh" \
+           --add item ram right --set ram "${SYS[@]}" update_freq=5 icon="$ICON_RAM" script="$PLUGIN_DIR/ram.sh" \
+           --add item cpu right --set cpu "${SYS[@]}" update_freq=3 icon="$ICON_CPU" script="$PLUGIN_DIR/cpu.sh" \
+           --add bracket system cpu ram gpu \
+           --set system background.color=$ITEM_BG background.corner_radius=8 background.height=26
+
+# GitHub (agrupado)
+sketchybar --add item spacer.gh right --set spacer.gh "${SPACER[@]}" width=6
+GH=(background.drawing=off icon.padding_left=6 icon.padding_right=2 label.padding_right=6)
+sketchybar --add item github.ci right \
+           --set github.ci "${GH[@]}" icon="$ICON_GITHUB" label="…" \
+           --add item github.prs right \
+           --set github.prs "${GH[@]}" icon="$ICON_PR" label="…" \
+                 update_freq=120 updates=on script="$PLUGIN_DIR/github.sh" \
+           --subscribe github.prs system_woke agent_update \
+           --add bracket github github.prs github.ci \
+           --set github background.color=$ITEM_BG background.corner_radius=8 background.height=26
+
+sketchybar --update
+
+# Modo work/chill guardado (ver mode.sh). Va al final: oculta items ya creados.
+"$CONFIG_DIR/mode.sh" apply >/dev/null
