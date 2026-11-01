@@ -18,6 +18,7 @@ uso: bk [comando] [--dry-run]
 
   (sin comando)     el workspace del proyecto de esta carpeta: chat + riel (sesión tmux "bk-<proyecto>";
                     si ya existe, vuelve a ella). Uno por proyecto, cada uno en su escritorio
+  rerun [--go] [pr…]  volver a correr los checks de Actions que fallaron (sin --go: solo muestra)
   open [proyecto]   abrir el workspace de otro proyecto en una ventana nueva (sin argumento: los abiertos)
   plan "<idea>"     planner: /plan-feature en la raíz del proyecto
   run <issue>       routing.py elige el rol → prepare.sh crea worktree → implementer en tmux
@@ -315,6 +316,35 @@ resolve_project() {
         -not -path '*/.*' 2>/dev/null | head -1)
   [ -n "$d" ] && echo "$d"
 }
+# bk rerun [--go] [pr…]: vuelve a correr los checks de GitHub Actions que fallaron en los PRs
+# abiertos del repo actual (o en los PRs dados). Sin --go solo muestra qué correría.
+cmd_rerun() {
+  local go=0 prs=() n url run
+  while [ $# -gt 0 ]; do
+    case "$1" in --go) go=1 ;; *) prs+=("${1#\#}") ;; esac; shift
+  done
+  [ ${#prs[@]} -gt 0 ] || read -r -a prs < <(gh pr list --state open --json number -q '[.[].number] | join(" ")')
+  [ ${#prs[@]} -gt 0 ] || die "no hay PRs abiertos en este repo"
+  local runs=() seen=" "
+  for n in "${prs[@]}"; do
+    while IFS=$'\t' read -r name state url; do
+      [ "$state" = fail ] || continue
+      run=$(sed -nE 's#.*/actions/runs/([0-9]+)/job/.*#\1#p' <<<"$url")
+      [ -n "$run" ] || { info "#$n $name: no es de GitHub Actions ($url), lo salteo"; continue; }
+      printf '  #%-5s %-24s run %s\n' "$n" "$name" "$run"
+      case "$seen" in *" $run "*) ;; *) seen+="$run "; runs+=("$run") ;; esac
+    done < <(gh pr checks "$n" 2>/dev/null | awk -F'\t' '{print $1"\t"$2"\t"$4}')
+  done
+  [ ${#runs[@]} -gt 0 ] || { info "ningún check fallido para volver a correr"; return; }
+  if [ "$go" -eq 0 ]; then
+    echo; info "${#runs[@]} corridas para volver a correr. Para hacerlo: bk rerun --go ${prs[*]}"
+    return
+  fi
+  for run in "${runs[@]}"; do
+    if gh run rerun "$run" --failed >/dev/null 2>&1; then echo "  ↻ $run"; else echo "  ✗ $run (gh run rerun falló)"; fi
+  done
+}
+
 cmd_open() {
   local q="${1:-}"
   if [ -z "$q" ]; then
@@ -577,6 +607,7 @@ case "${1:-}" in
   theme)       shift; theme "${1:-status}" ;;
   ""|ws)       shift || true; workspace "${1:-}" ;;
   open)        shift; cmd_open "${1:-}" ;;
+  rerun)       shift; cmd_rerun "$@" ;;
   dash)        dash ;;
   rail)        exec python3 "$WS/lib/rail.py" ;;
   changes)     exec python3 "$WS/lib/changes.py" ;;

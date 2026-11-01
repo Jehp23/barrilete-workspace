@@ -21,6 +21,8 @@ ENTRIES = [
     ("Vistas", "Cambios sin commitear", "changes", None, "view"),
     ("Vistas", "Sesiones de Claude", "s", None, "view"),
     ("Vistas", "Ver la pantalla de un agente", "peek", "ventana", "show"),
+    ("GitHub", "Ver checks fallidos para re-correr", "rerun", None, "show"),
+    ("GitHub", "Re-correr los checks fallidos", "rerun --go", None, "show"),
     ("Sesión", "Lista de agentes", "ls", None, "show"),
     ("Sesión", "Tokens y costo de hoy", "tokens", None, "show"),
     ("Sesión", "Roles y modelos", "roles", None, "show"),
