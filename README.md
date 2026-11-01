@@ -15,3 +15,10 @@ bk roles           bk mode [work|chill]
 - Provider `codex`: preparado pero sin probar, y sin las barandas de `guardrails.py` (son hooks de Claude Code).
 
 Instalación: `ln -sf ~/barrilete-workspace/bin/bk ~/.local/bin/bk` y `brew install tmux`.
+
+## Retroalimentación (`bk learn`)
+`lib/learn.py` lee los transcripts y registra desvíos en el vault de Obsidian (`~/Documents/Obsidian Vault/agents`):
+barandas, verificaciones fallidas, contratos de subagentes (patrones automáticos) y tus correcciones, rechazos
+e interrupciones (para leer en el resumen del día). Un patrón repetido ≥3 veces en 14 días propone una lección;
+las que marcás `accepted` con su regla pasan a `agents/INDEX.md`, que Claude Code importa desde `~/.claude/CLAUDE.md`.
+`bk lessons` lista las que esperan revisión; la barra las muestra como checkpoint (󰌵).

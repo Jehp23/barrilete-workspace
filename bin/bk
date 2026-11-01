@@ -26,6 +26,8 @@ uso: bk <comando> [--dry-run]
   stop <ventana>    cerrar la ventana del agente (el worktree queda)
   roles             qué provider/modelo corre cada rol en este proyecto
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
+  learn             registra desvíos de los agentes en Obsidian y propone lecciones
+  lessons           lecciones por revisar (status: proposed) en el vault
   mode [work|chill] modo de la barra (sin argumento: el actual)
 
 Los comandos de agentes se corren dentro de un proyecto Barrilete.
@@ -146,6 +148,19 @@ roles() {
   done
 }
 
+lessons() {
+  local vault="${BARRILETE_VAULT:-$HOME/Documents/Obsidian Vault}" f n=0
+  for f in "$vault"/agents/lessons/*.md; do
+    [ -e "$f" ] || continue
+    grep -q '^status:[[:space:]]*proposed' "$f" || continue
+    printf '  %s  (%s veces)  %s\n' "$(basename "$f" .md)" \
+      "$(sed -nE 's/^count:[[:space:]]*([0-9]+).*/\1/p' "$f")" "$(sed -nE 's/^scope:[[:space:]]*([^[:space:]]+).*/\1/p' "$f")"
+    n=$((n+1))
+  done
+  [ "$n" -eq 0 ] && echo "no hay lecciones por revisar" \
+    || printf '\n%s por revisar en %s/agents/lessons (status: accepted + regla → INDEX.md; retired → descartar)\n' "$n" "$vault"
+}
+
 # ---------- comandos de agentes ----------
 cmd_plan() {
   local idea="$*"; [ -n "$idea" ] || die 'bk plan "<idea>"'
@@ -216,6 +231,8 @@ case "${1:-}" in
   stop)        shift; stop "${1:-}" ;;
   roles)       roles ;;
   tokens)      exec python3 "$WS/lib/usage.py" ;;
+  learn)       shift; exec python3 "$WS/lib/learn.py" "$@" ;;
+  lessons)     lessons ;;
   mode)        shift; exec "$HOME/.config/sketchybar/mode.sh" "${1:-status}" ;;
   -h|--help|help|"") usage ;;
   *) usage >&2; exit 2 ;;
