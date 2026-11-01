@@ -27,6 +27,8 @@ uso: bk [comando] [--dry-run]
   orchestrate       orchestrator: /orchestrate (reparte hasta 3 issues como subagentes)
   ls                agentes: issue · rol · modelo · estado
   go <ventana>      saltar a un agente (i42, pr57, plan, orch)
+  s                 sesiones de Claude estilo Orca: abiertas (saltar) y recientes de todas las
+                    carpetas (retomar con claude --resume). En tmux: prefijo + s
   peek [ventana] [n] ver qué hace un agente sin entrar (sin ventana: todos, últimas líneas)
   say <ventana> "…" escribirle a un agente como si estuvieras en su ventana (aprobaciones incluidas)
   watch [ventana]   pantalla de un agente en vivo, solo lectura (sin ventana: toma el próximo
@@ -476,6 +478,7 @@ case "${1:-}" in
   "")          workspace ;;
   dash)        dash ;;
   _layout)     ws_layout ;;
+  s|sessions)  exec python3 "$WS/lib/sessions.py" ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;
 esac
