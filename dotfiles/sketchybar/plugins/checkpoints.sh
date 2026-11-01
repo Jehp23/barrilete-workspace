@@ -52,7 +52,8 @@ fetch_prs() {
           | select(.reviews.totalCount > 0
                    and .reviewDecision != "CHANGES_REQUESTED"
                    and ($c.statusCheckRollup.state // "SUCCESS") == "SUCCESS"
-                   and (($r.body // "") | test("(^|\\n)#+\\s*(Bloqueantes?|Blocking|Blockers?)\\b"; "i") | not)
+                   # La sección existe siempre: bloquea solo si no dice "Ninguno/None"
+                   and (($r.body // "") | test("(^|\\n)#+\\s*(Bloqueantes?|Blocking|Blockers?)\\b[^\\n]*\\n\\s*(?!(Ningun[oa]|None|No hay|Sin bloqueantes)\\b)\\S"; "i") | not)
                    and (($c.committedDate // "") <= ($r.submittedAt // "")))
           | {kind: "merge", repo: .repository.nameWithOwner, number, title, url}),
          (.data.asked.nodes[] | {kind: "review", repo: .repository.nameWithOwner, number, title, url})]' \
