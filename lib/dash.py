@@ -15,6 +15,7 @@ C = {"mauve": "\033[38;5;183m", "green": "\033[38;5;114m", "yellow": "\033[38;5;
      "red": "\033[38;5;210m", "blue": "\033[38;5;111m", "gray": "\033[38;5;245m"}
 STATE_STYLE = {  # estado -> (texto, color)
     "working": ("● trabajando", C["yellow"]), "waiting": ("● te espera", C["red"]),
+    "background": ("◐ 2º plano", C["yellow"]),
     "done": ("✓ listo", C["green"]), "idle": ("· libre", C["gray"]),
 }
 
@@ -68,7 +69,7 @@ def agents():
             items.append(json.load(open(f)))
         except Exception:
             pass
-    order = {"waiting": 0, "working": 1, "done": 2, "idle": 3}
+    order = {"waiting": 0, "working": 1, "background": 1, "done": 2, "idle": 3}
     items.sort(key=lambda a: (order.get(a.get("state"), 9), -a.get("ts", 0)))
     rows, colors, now = [], [], time.time()
     for a in items:

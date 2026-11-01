@@ -105,15 +105,41 @@ if [ -z "$MODEL" ] && [ "$TRANSCRIPT" != "-" ] && [ -f "$TRANSCRIPT" ]; then
   fi
 fi
 
+# "done" falso: el turno terminó pero quedan comandos en segundo plano (red.sh, CI…).
+# Lanzados = backgroundTaskId en el transcript; terminados = los que ya avisaron (<task-id>).
+# Un pendiente cuenta solo si algún proceso tiene abierto su archivo de salida (si la sesión se
+# reinició, el comando murió sin avisar y no debe quedar "en segundo plano" para siempre).
+BG=0
+if [ "$STATE" = "done" ] && [ "$TRANSCRIPT" != "-" ] && [ -f "$TRANSCRIPT" ]; then
+  BG=$(python3 - "$TRANSCRIPT" "$SID" <<'PY' 2>/dev/null
+import glob, re, subprocess, sys
+t, sid = sys.argv[1:]
+d = open(t, errors="replace").read()
+started = set(re.findall(r'"backgroundTaskId":"([A-Za-z0-9_-]+)"', d))
+finished = set(re.findall(r"<task-id>([A-Za-z0-9_-]+)</task-id>", d))
+n = 0
+for tid in started - finished:
+    for out in glob.glob(f"/private/tmp/claude-*/*/{sid}/tasks/{tid}.output"):
+        if subprocess.run(["/usr/sbin/lsof", "-t", out], capture_output=True).stdout.strip():
+            n += 1
+            break
+print(n)
+PY
+)
+  [[ "$BG" =~ ^[0-9]+$ ]] || BG=0
+  [ "$BG" -gt 0 ] && STATE="background"
+fi
+
 [ "$EVENT" = "SessionStart" ] || [ "$EVENT" = "Stop" ] && RESET_SUB=1 || RESET_SUB=0
 [ "$TOOL" = "-" ] && TOOL_ARG="-" || TOOL_ARG="$TOOL"
 [ "$CWD" = "-" ] && CWD=""
 
 jq --arg state "$STATE" --arg cwd "$CWD" --arg tool "$TOOL_ARG" \
    --arg phase "$PHASE" --arg role "$ROLE" --arg ref "$REF" --arg model "$MODEL" \
-   --arg pane "${TMUX_PANE:-}" \
+   --arg pane "${TMUX_PANE:-}" --argjson bg "${BG:-0}" \
    --argjson d "$DELTA" --argjson reset "$RESET_SUB" '
   (if $state != "" then .state = $state else . end)
+  | .background = $bg
   | (if $cwd != "" then .cwd = $cwd else . end)
   | .ts = (now | floor)
   | (if $tool != "-" then .tool = $tool else . end)

@@ -40,7 +40,7 @@ else
 fi
 
 read -r WORKING WAITING DONE ERROR TOTAL SUBS < <(printf '%s' "$DATA" | jq -r '
-  [ (map(select(.state=="working"))|length),
+  [ (map(select(.state=="working" or .state=="background"))|length),
     (map(select(.state=="waiting"))|length),
     (map(select(.state=="done" or .state=="idle"))|length),
     (map(select(.state=="error"))|length),
@@ -91,6 +91,7 @@ i=0
 while IFS=$'\t' read -r STATE CWD TOOL SUB TS PHASE REF ROLE MODEL; do
   case "$STATE" in
     working) IC=$ICON_DOT;  C=$YELLOW; TXT="trabajando" ;;
+    background) IC=$ICON_DOT; C=$YELLOW; TXT="en segundo plano (turno terminado)" ;;
     waiting) IC=$ICON_WAIT; C=$RED;    TXT="esperando permiso"
              [ "$TOOL" = "confianza" ] && TXT="esperando que confíes en la carpeta" ;;
     error)   IC=$ICON_ERR;  C=$PEACH;  TXT="error" ;;
