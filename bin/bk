@@ -14,8 +14,10 @@ info() { printf '\033[2m%s\033[0m\n' "$*"; }
 
 usage() {
   cat <<'EOF'
-uso: bk <comando> [--dry-run]
+uso: bk [comando] [--dry-run]
 
+  (sin comando)     abrir el workspace: chat con el orquestador + agentes en vivo + estado
+                    (sesión tmux "bk"; si ya existe, vuelve a ella. BK_WATCH=N paneles de agentes)
   plan "<idea>"     planner: /plan-feature en la raíz del proyecto
   run <issue>       routing.py elige el rol → prepare.sh crea worktree → implementer en tmux
                     (--role implementer|implementer-light para forzarlo)
@@ -227,6 +229,71 @@ watch() {
   done
 }
 
+# ---------- workspace (bk sin argumentos) ----------
+# Estado en vivo para la franja de abajo: agentes + tokens del día
+dash() {
+  set +euo pipefail
+  trap 'printf "\033[?25h"; exit 0' INT TERM
+  printf '\033[?25l\033[2J'
+  while :; do
+    {
+      printf '\033[H'
+      ls_agents 2>/dev/null | while IFS= read -r l; do printf '%s\033[K\n' "$l"; done
+      printf '\033[K\n'
+      python3 "$WS/lib/usage.py" 2>/dev/null | head -2 | while IFS= read -r l; do printf '\033[2m%s\033[0m\033[K\n' "$l"; done
+      printf '\033[J'
+    }
+    sleep 5
+  done
+}
+
+# Layout (sesión tmux "bk"):
+#   ┌──────────────────────────┬──────────────┐
+#   │                          │ bk watch     │
+#   │  chat con el orquestador │ bk watch     │
+#   │  (claude)                │ bk watch     │
+#   ├──────────────────────────┴───┬──────────┤
+#   │ bk dash (agentes + tokens)   │ radio    │
+#   └──────────────────────────────┴──────────┘
+WS_SESSION="${BK_WS_SESSION:-bk}"
+workspace() {
+  need_tmux
+  if ! tmux has-session -t "$WS_SESSION" 2>/dev/null; then
+    local dir="$PWD" n="${BK_WATCH:-3}" cols lines chat right i
+    cols=$(tput cols 2>/dev/null || echo 200); lines=$(tput lines 2>/dev/null || echo 50)
+    # El chat sobrevive a un /exit: vuelve a una shell en la misma carpeta
+    chat=$(tmux new-session -d -P -F '#{pane_id}' -s "$WS_SESSION" -n main -c "$dir" -x "$cols" -y "$lines" \
+           "claude; exec \$SHELL")
+    # Franja de abajo a todo el ancho: estado + radio (si está bk song)
+    local dashp
+    dashp=$(tmux split-window -d -P -F '#{pane_id}' -f -v -l 9 -t "$chat" -c "$dir" "bk dash")
+    [ -x "$WS/lib/song.sh" ] && \
+      tmux split-window -d -h -l 34% -t "$dashp" -c "$dir" "bk song ui; exec \$SHELL" >/dev/null
+    # Columna derecha: N espejos de agentes (cada uno toma el próximo agente libre)
+    right=$(tmux split-window -d -P -F '#{pane_id}' -h -l 42% -t "$chat" -c "$dir" "bk watch")
+    for ((i = 1; i < n; i++)); do
+      right=$(tmux split-window -d -P -F '#{pane_id}' -v -l $((100 * (n - i) / (n - i + 1)))% -t "$right" -c "$dir" "bk watch")
+    done
+    # Títulos fijos en el borde (que claude y compañía no los pisen)
+    local p
+    for p in $(tmux list-panes -t "$WS_SESSION:main" -F '#{pane_id}'); do
+      tmux set-option -p -t "$p" allow-set-title off >/dev/null 2>&1
+    done
+    tmux select-pane -t "$chat" -T "chat · orquestador"
+    tmux select-pane -t "$dashp" -T "agentes · tokens"
+    for p in $(tmux list-panes -t "$WS_SESSION:main" -F '#{pane_id} #{pane_start_command}' | awk '/bk watch/{print $1}'); do
+      tmux select-pane -t "$p" -T "agente en vivo"
+    done
+    for p in $(tmux list-panes -t "$WS_SESSION:main" -F '#{pane_id} #{pane_start_command}' | awk '/song/{print $1}'); do
+      tmux select-pane -t "$p" -T "radio"
+    done
+    tmux set-option -w -t "$WS_SESSION:main" pane-border-status top >/dev/null
+    tmux set-option -w -t "$WS_SESSION:main" pane-border-format ' #{pane_title} ' >/dev/null
+    tmux select-pane -t "$chat"
+  fi
+  if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$WS_SESSION"; else exec tmux attach -t "$WS_SESSION"; fi
+}
+
 stop() {
   need_tmux
   local win="${1:?bk stop <ventana>}" panes
@@ -388,6 +455,8 @@ case "${1:-}" in
   learn)       shift; exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
   mode)        shift; exec "$HOME/.config/sketchybar/mode.sh" "${1:-status}" ;;
-  -h|--help|help|"") usage ;;
+  "")          workspace ;;
+  dash)        dash ;;
+  -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;
 esac
