@@ -4,10 +4,46 @@ Workspace personal de agentes sobre [Barrilete Kit](https://github.com/lautioliv
 Los agentes corren en la sesión tmux `agents`; Sketchybar muestra su estado (rol, modelo, issue) y los checkpoints.
 
 ```
-bk plan "<idea>"   bk run <issue>   bk review <pr>   bk orchestrate
+bk                 (workspace)      bk s             (sesiones)
+bk plan "<idea>"   bk run <issue>   bk review <pr>   bk fix <pr> "…"   bk orchestrate
 bk ls              bk go <ventana>  bk stop <ventana>
+bk peek [ventana]  bk say <ventana> "…"   bk watch [ventana|--all]
 bk roles           bk mode [work|chill]   bk song [estación]   bk theme [day|night|auto]
 ```
+
+## Workspace (`bk`)
+`bk` sin argumentos abre la sesión tmux `bk` (o vuelve a ella si ya existe):
+
+```
+┌──────────────────────────┬──────────────────┐
+│                          │ agentes en vivo  │
+│  chat · orquestador      │ (bk watch --all) │
+│  (claude)                ├──────────────────┤
+│                          │ radio            │
+├──────────────────────────┴──────────────────┤
+│ agentes · tokens (bk dash: dos tablas)      │
+└─────────────────────────────────────────────┘
+```
+
+- **Chat**: un `claude` donde hablás con los agentes (mensajes entre sesiones) y les respondés con `bk say`.
+- **Agentes en vivo**: un panel que se reparte entre los agentes que trabajan (encabezado con rol/modelo/estado
+  y lo último que dijeron); los terminados van abajo en una línea. Solo lectura.
+- **Tablas**: agentes ordenados por urgencia y uso del día por modelo (`lib/dash.py`).
+- Las proporciones se reacomodan solas al conectarse o redimensionar (hooks de tmux → `bk _layout`).
+
+## Sesiones (`bk s` · `C-a s`)
+Selector estilo Orca (`lib/sessions.py`): arriba las sesiones abiertas (Enter salta a su pane; un agente que
+terminó se revive con `claude --resume` en el mismo pane), abajo las recientes de todas las carpetas
+(Enter las retoma en una ventana nueva de `agents`, en su carpeta). `/` busca, `x` cierra ventanas de agentes.
+Una sesión abierta fuera de tmux aparece como `afuera` y no se duplica.
+
+## Hablar con los agentes sin entrar
+- `bk peek [ventana]`: la pantalla de un agente (sin ventana: las últimas líneas de todos).
+- `bk say <ventana> "…"`: escribe en su ventana como si fuera tu teclado, así que vale como tu respuesta
+  (aprobar un plan, publicar una review). Pensado para que lo corras vos (`! bk say …` desde el chat):
+  un agente no aprueba en tu nombre.
+- `bk watch [ventana]`: espejo en vivo de un agente; sin ventana toma el próximo libre.
+- `bk fix <pr> "instrucción"`: implementer sobre la rama de un PR abierto, reusando su worktree.
 
 - `bk run` reusa el kit: `routing.py` elige el rol y `prepare.sh --worktree` asigna el issue y crea el worktree.
 - `roles.yml` dice qué provider/modelo corre cada rol; un proyecto lo pisa con `.barrilete/roles.yml`.
