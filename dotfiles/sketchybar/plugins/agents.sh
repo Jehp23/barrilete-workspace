@@ -91,7 +91,8 @@ i=0
 while IFS=$'\t' read -r STATE CWD TOOL SUB TS PHASE REF ROLE MODEL; do
   case "$STATE" in
     working) IC=$ICON_DOT;  C=$YELLOW; TXT="trabajando" ;;
-    waiting) IC=$ICON_WAIT; C=$RED;    TXT="esperando permiso" ;;
+    waiting) IC=$ICON_WAIT; C=$RED;    TXT="esperando permiso"
+             [ "$TOOL" = "confianza" ] && TXT="esperando que confíes en la carpeta" ;;
     error)   IC=$ICON_ERR;  C=$PEACH;  TXT="error" ;;
     *)       IC=$ICON_DONE; C=$GREEN;  TXT="listo" ;;
   esac

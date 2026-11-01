@@ -86,14 +86,29 @@ launch() {
   has_window "$win" && die "ya existe la ventana '$win' (bk go $win, o bk stop $win)"
   local env=(-e "BARRILETE_ROLE=$role" -e "BARRILETE_MODEL=$model" -e "BARRILETE_PROVIDER=$provider")
   [ -n "$ref" ] && env+=(-e "BARRILETE_ISSUE=$ref")
+  local pane
   if tmux has-session -t "$SESSION" 2>/dev/null; then
-    tmux new-window -d -t "$SESSION:" -n "$win" -c "$dir" "${env[@]}" "$full"
+    pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$SESSION:" -n "$win" -c "$dir" "${env[@]}" "$full")
   else
-    tmux new-session -d -s "$SESSION" -n "$win" -c "$dir" "${env[@]}" "$full"
+    pane=$(tmux new-session -d -P -F '#{pane_id}' -s "$SESSION" -n "$win" -c "$dir" "${env[@]}" "$full")
   fi
   # La ventana queda abierta si el agente termina, para leer lo último
   tmux set-option -w -t "$SESSION:$win" remain-on-exit on >/dev/null
+  pre_register "$win" "$pane" "$dir" "$role" "$model" "$ref"
   info "lanzado → bk go $win"
+}
+
+# Registra al agente en la barra apenas se lanza. Claude Code no corre hooks hasta que aceptás
+# el diálogo de confianza de la carpeta (cada worktree es nueva), así que sin esto el agente
+# sería invisible justo cuando te necesita. El hook real (SessionStart) borra este registro.
+pre_register() {
+  local win="$1" pane="$2" dir="$3" role="$4" model="$5" ref="$6"
+  mkdir -p "$STATE_DIR"
+  jq -n --arg cwd "$dir" --arg role "$role" --arg model "$model" --arg ref "$ref" --arg pane "$pane" '
+    {state: "waiting", tool: "confianza", cwd: $cwd, role: $role, model: $model, pane: $pane,
+     subagents: 0, ts: (now | floor)} + (if $ref != "" then {ref: $ref} else {} end)' \
+    > "$STATE_DIR/bk-$win.json"
+  sketchybar --trigger agent_update >/dev/null 2>&1 || true
 }
 
 go() {
@@ -132,7 +147,8 @@ ls_agents() {
     def nz: if . == null or . == "" then "-" else tostring end;
     sort_by(-.ts) | .[]
     | [ ($map[.pane // ""] // "-"),
-        (.cwd | split("/") | last),
+        (.cwd | split("/") as $p | if ($p[-2] // "" | endswith("-wt"))
+           then "\($p[-2] | sub("-wt$"; ""))#\($p[-1])" else $p[-1] end),
         (.ref|nz), (.role|nz),
         ((.model // "") | sub("^claude-";"") | sub("-[0-9]{8}$";"") | nz),
         (if .phase == "plan_pending" and (.state == "done" or .state == "idle") then "plan esperando tu sí"

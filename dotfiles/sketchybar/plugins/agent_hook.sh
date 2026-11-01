@@ -33,6 +33,12 @@ F="$DIR/$SID.json"
 
 trigger() { sketchybar --trigger agent_update >/dev/null 2>&1 & }
 
+# bk registra al agente antes de que Claude Code corra hooks (bk-<ventana>.json, "esperando
+# confianza"). Cuando la sesión real arranca en ese mismo pane, ese registro previo sobra.
+if [ -n "$TMUX_PANE" ] && { [ "$EVENT" = "SessionStart" ] || [ "$EVENT" = "UserPromptSubmit" ]; }; then
+  grep -l "\"pane\": *\"$TMUX_PANE\"" "$DIR"/bk-*.json 2>/dev/null | xargs rm -f 2>/dev/null
+fi
+
 if [ "$EVENT" = "SessionEnd" ]; then
   rm -f "$F"; trigger; exit 0
 fi
