@@ -112,7 +112,8 @@ fi
 BG=0
 if [ "$STATE" = "done" ] && [ "$TRANSCRIPT" != "-" ] && [ -f "$TRANSCRIPT" ]; then
   BG=$(python3 - "$TRANSCRIPT" "$SID" <<'PY' 2>/dev/null
-import glob, re, subprocess, sys
+import glob, json, re, subprocess, sys, time
+from datetime import datetime
 t, sid = sys.argv[1:]
 d = open(t, errors="replace").read()
 started = set(re.findall(r'"backgroundTaskId":"([A-Za-z0-9_-]+)"', d))
@@ -123,6 +124,21 @@ for tid in started - finished:
         if subprocess.run(["/usr/sbin/lsof", "-t", out], capture_output=True).stdout.strip():
             n += 1
             break
+# Monitor: {"taskId", "timeoutMs"} sin archivo de salida; vivo si no avisó y no venció su timeout
+for line in d.splitlines():
+    if '"timeoutMs"' not in line or '"taskId"' not in line:
+        continue
+    try:
+        o = json.loads(line)
+        r = o.get("toolUseResult") or {}
+        if r.get("taskId") in finished or "timeoutMs" not in r:
+            continue
+        t0 = datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).timestamp()
+        limit = 3600 if r.get("persistent") else r["timeoutMs"] / 1000
+        if time.time() < t0 + limit:
+            n += 1
+    except Exception:
+        pass
 print(n)
 PY
 )
