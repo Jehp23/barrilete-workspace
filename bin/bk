@@ -1,0 +1,220 @@
+#!/bin/bash
+# bk — workspace de agentes Barrilete desde la terminal.
+# Cada agente corre en una ventana de la sesión tmux "agents", con BARRILETE_ROLE/MODEL/ISSUE
+# en el entorno (la barra de Sketchybar lo etiqueta con eso).
+set -euo pipefail
+
+WS="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+SESSION="${BK_SESSION:-agents}"
+STATE_DIR="$HOME/.cache/sketchybar/agents"
+DRY=0
+
+die()  { printf 'bk: %s\n' "$*" >&2; exit 1; }
+info() { printf '\033[2m%s\033[0m\n' "$*"; }
+
+usage() {
+  cat <<'EOF'
+uso: bk <comando> [--dry-run]
+
+  plan "<idea>"     planner: /plan-feature en la raíz del proyecto
+  run <issue>       routing.py elige el rol → prepare.sh crea worktree → implementer en tmux
+                    (--role implementer|implementer-light para forzarlo)
+  review <pr>       reviewer: /review-pr en la raíz del proyecto
+  orchestrate       orchestrator: /orchestrate (reparte hasta 3 issues como subagentes)
+  ls                agentes: issue · rol · modelo · estado
+  go <ventana>      saltar a un agente (i42, pr57, plan, orch)
+  stop <ventana>    cerrar la ventana del agente (el worktree queda)
+  roles             qué provider/modelo corre cada rol en este proyecto
+  mode [work|chill] modo de la barra (sin argumento: el actual)
+
+Los comandos de agentes se corren dentro de un proyecto Barrilete.
+EOF
+}
+
+# ---------- proyecto y roles ----------
+project_root() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || die "no estás en un repo git"
+  [ -f "$root/scripts/agents/guardrails.py" ] || die "$root no es un proyecto Barrilete (falta scripts/agents/guardrails.py)"
+  printf '%s' "$root"
+}
+
+# role_spec <rol> [root] -> "provider/modelo"
+role_spec() {
+  local role="$1" root="${2:-}" f spec=""
+  for f in ${root:+"$root/.barrilete/roles.yml"} "$WS/roles.yml"; do
+    [ -f "$f" ] || continue
+    spec=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*([^#[:space:]]+).*/\1/p" "$f" | head -1)
+    [ -n "$spec" ] && break
+  done
+  [ -n "$spec" ] || die "el rol '$role' no está en roles.yml"
+  printf '%s' "$spec"
+}
+
+# agent_cmd <provider> <modelo> <prompt> -> comando a correr en el pane
+agent_cmd() {
+  local provider="$1" model="$2" prompt="$3"
+  case "$provider" in
+    claude) printf 'claude --model %q %q' "$model" "$prompt" ;;
+    codex)
+      command -v codex >/dev/null || die "provider codex: Codex CLI no está instalado"
+      # Codex no lee .claude/settings.json: las barandas de guardrails.py NO aplican acá.
+      printf 'codex -m %q %q' "$model" "$prompt" ;;
+    *) die "provider desconocido: $provider (claude | codex)" ;;
+  esac
+}
+
+# ---------- tmux ----------
+need_tmux() { command -v tmux >/dev/null || die "falta tmux (brew install tmux)"; }
+
+has_window() { tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "$1"; }
+
+# launch <ventana> <dir> <rol> <ref> <comando>
+launch() {
+  local win="$1" dir="$2" role="$3" ref="$4" cmd="$5" spec provider model
+  spec=$(role_spec "$role" "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)")
+  provider=${spec%%/*}; model=${spec#*/}
+  local full; full=$(agent_cmd "$provider" "$model" "$cmd")
+
+  printf '%-8s %s · %s/%s\n  dir: %s\n  cmd: %s\n' "$win" "$role" "$provider" "$model" "$dir" "$full"
+  [ "$DRY" -eq 1 ] && { info "(dry-run: no se lanzó nada)"; return 0; }
+
+  need_tmux
+  has_window "$win" && die "ya existe la ventana '$win' (bk go $win, o bk stop $win)"
+  local env=(-e "BARRILETE_ROLE=$role" -e "BARRILETE_MODEL=$model" -e "BARRILETE_PROVIDER=$provider")
+  [ -n "$ref" ] && env+=(-e "BARRILETE_ISSUE=$ref")
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    tmux new-window -d -t "$SESSION:" -n "$win" -c "$dir" "${env[@]}" "$full"
+  else
+    tmux new-session -d -s "$SESSION" -n "$win" -c "$dir" "${env[@]}" "$full"
+  fi
+  # La ventana queda abierta si el agente termina, para leer lo último
+  tmux set-option -w -t "$SESSION:$win" remain-on-exit on >/dev/null
+  info "lanzado → bk go $win"
+}
+
+go() {
+  need_tmux
+  local win="${1:-}"
+  local target="$SESSION${win:+:$win}"
+  tmux has-session -t "$SESSION" 2>/dev/null || die "no hay agentes (sesión tmux '$SESSION' vacía)"
+  [ -z "$win" ] || has_window "$win" || die "no existe la ventana '$win' (bk ls)"
+  if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$target"; else exec tmux attach -t "$target"; fi
+}
+
+stop() {
+  need_tmux
+  local win="${1:?bk stop <ventana>}" panes
+  has_window "$win" || die "no existe la ventana '$win'"
+  panes=$(tmux list-panes -t "$SESSION:$win" -F '#{pane_id}')
+  tmux kill-window -t "$SESSION:$win"
+  # Matar el pane no siempre dispara SessionEnd: limpiar el estado de la barra a mano
+  for p in $panes; do
+    grep -l "\"pane\": *\"$p\"" "$STATE_DIR"/*.json 2>/dev/null | xargs rm -f
+  done
+  sketchybar --trigger agent_update >/dev/null 2>&1 || true
+  info "cerrada $win (el worktree, si había, queda: cleanup.sh lo limpia cuando el issue cierre)"
+}
+
+ls_agents() {
+  local files=("$STATE_DIR"/*.json)
+  # Ventanas tmux por pane, para mostrar a qué ventana saltar
+  local map='{}'
+  if command -v tmux >/dev/null && tmux has-session -t "$SESSION" 2>/dev/null; then
+    map=$(tmux list-panes -s -t "$SESSION" -F '#{pane_id} #{window_name}' \
+          | jq -R 'split(" ") | {(.[0]): .[1]}' | jq -s 'add // {}')
+  fi
+  if [ ! -e "${files[0]}" ]; then echo "sin agentes"; return; fi
+  jq -s -r --argjson map "$map" '
+    def nz: if . == null or . == "" then "-" else tostring end;
+    sort_by(-.ts) | .[]
+    | [ ($map[.pane // ""] // "-"),
+        (.cwd | split("/") | last),
+        (.ref|nz), (.role|nz),
+        ((.model // "") | sub("^claude-";"") | sub("-[0-9]{8}$";"") | nz),
+        (if .phase == "plan_pending" and (.state == "done" or .state == "idle") then "plan esperando tu sí"
+         else .state end),
+        "\((now - .ts) / 60 | floor)m" ] | @tsv' "${files[@]}" \
+  | { printf 'VENTANA\tPROYECTO\tREF\tROL\tMODELO\tESTADO\tHACE\n'; cat; } | column -t -s $'\t'
+}
+
+roles() {
+  local root; root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  for r in planner orchestrator implementer implementer-light reviewer; do
+    printf '%-18s %s\n' "$r" "$(role_spec "$r" "$root")"
+  done
+}
+
+# ---------- comandos de agentes ----------
+cmd_plan() {
+  local idea="$*"; [ -n "$idea" ] || die 'bk plan "<idea>"'
+  local root; root=$(project_root)
+  launch plan "$root" planner "" "/plan-feature $idea"
+}
+
+cmd_review() {
+  local pr="${1:?bk review <pr>}"; pr=${pr#\#}
+  local root; root=$(project_root)
+  launch "pr$pr" "$root" reviewer "#$pr" "/review-pr $pr"
+}
+
+cmd_orchestrate() {
+  local root; root=$(project_root)
+  launch orch "$root" orchestrator "" "/orchestrate"
+}
+
+cmd_run() {
+  local n="" role=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --role) role="${2:?--role necesita un valor}"; shift 2 ;;
+      *) n="${1#\#}"; shift ;;
+    esac
+  done
+  [[ "$n" =~ ^[0-9]+$ ]] || die "bk run <issue>"
+  local root; root=$(project_root)
+
+  if [ -z "$role" ]; then
+    local out
+    out=$(cd "$root" && .claude/skills/orchestrate/routing.py "$n") || die "routing.py falló para #$n"
+    case "$(sed -n 1p <<<"$out")" in
+      haiku)  role=implementer-light ;;
+      sonnet) role=implementer ;;
+      *) die "routing.py devolvió algo inesperado: $out" ;;
+    esac
+    info "routing: $(sed -n 2p <<<"$out")"
+  fi
+
+  if [ "$DRY" -eq 1 ]; then
+    launch "i$n" "<worktree de prepare.sh>" "$role" "#$n" "/implement-issue $n"
+    return
+  fi
+
+  # Mismo camino que /orchestrate: fetch una vez, prepare.sh valida, asigna y crea el worktree
+  git -C "$root" fetch -q origin
+  local prep wt
+  prep=$(cd "$root" && .claude/skills/implement-issue/prepare.sh "$n" --worktree 2>&1) \
+    || { printf '%s\n' "$prep" >&2; die "prepare.sh rechazó #$n (ver arriba)"; }
+  wt=$(sed -nE 's/^Worktree: (.+)$/\1/p' <<<"$prep" | tail -1)
+  [ -d "$wt" ] || { printf '%s\n' "$prep" >&2; die "prepare.sh no informó el worktree"; }
+  launch "i$n" "$wt" "$role" "#$n" "/implement-issue $n"
+}
+
+# ---------- main ----------
+ARGS=()
+for a in "$@"; do [ "$a" = "--dry-run" ] && DRY=1 || ARGS+=("$a"); done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+case "${1:-}" in
+  plan)        shift; cmd_plan "$@" ;;
+  run)         shift; cmd_run "$@" ;;
+  review)      shift; cmd_review "$@" ;;
+  orchestrate) cmd_orchestrate ;;
+  ls)          ls_agents ;;
+  go)          shift; go "${1:-}" ;;
+  stop)        shift; stop "${1:-}" ;;
+  roles)       roles ;;
+  mode)        shift; exec "$HOME/.config/sketchybar/mode.sh" "${1:-status}" ;;
+  -h|--help|help|"") usage ;;
+  *) usage >&2; exit 2 ;;
+esac
