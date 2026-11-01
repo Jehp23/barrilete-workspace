@@ -24,7 +24,7 @@ GREEN = rgb("8CCB8A")     # listo
 RED = rgb("F07178")       # te espera / error
 TEXT = rgb("E8DCE3")
 MUTED = rgb("7E6E78")
-FRAME = rgb("5A4652")     # marco de tarjetas inactivas
+FRAME = rgb("7A5F6E")     # marco de tarjetas inactivas
 
 
 def cw(ch):

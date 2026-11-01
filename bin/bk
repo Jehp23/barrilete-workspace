@@ -306,8 +306,9 @@ ws_footer() {
   act=$(jq -s '[.[] | select(.state=="working" or .state=="background" or .state=="waiting")] | length' "$STATE_DIR"/*.json 2>/dev/null)
   tot=$(ls "$STATE_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
   u=$(python3 "$WS/lib/usage.py" --json 2>/dev/null | jq -r '"\(.tokens/1000000*10|floor/10)M · $\(.cost_usd)"' 2>/dev/null)
-  printf '#[fg=#a99cf5]∗ %s activos#[fg=#7e6e78]/%s · #[fg=#e8dce3]%s #[fg=#7e6e78]≈API · #[fg=#d7a0b8]alt+k comandos' \
-    "${act:-0}" "${tot:-0}" "${u:-—}"
+  local word=activos; [ "${act:-0}" = 1 ] && word=activo
+  printf '#[fg=#a99cf5]∗ %s %s #[fg=#7e6e78]de %s · #[fg=#e8dce3]%s #[fg=#7e6e78]≈API' \
+    "${act:-0}" "$word" "${tot:-0}" "${u:-—}"
 }
 
 # Proporciones: riel derecho 34 % (mínimo 46 columnas)
