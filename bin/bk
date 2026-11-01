@@ -17,7 +17,7 @@ usage() {
 uso: bk [comando] [--dry-run]
 
   (sin comando)     abrir el workspace: chat con el orquestador + agentes en vivo + estado
-                    (sesión tmux "bk"; si ya existe, vuelve a ella. BK_WATCH=N paneles de agentes)
+                    (sesión tmux "bk"; si ya existe, vuelve a ella)
   plan "<idea>"     planner: /plan-feature en la raíz del proyecto
   run <issue>       routing.py elige el rol → prepare.sh crea worktree → implementer en tmux
                     (--role implementer|implementer-light para forzarlo)
@@ -32,7 +32,7 @@ uso: bk [comando] [--dry-run]
   peek [ventana] [n] ver qué hace un agente sin entrar (sin ventana: todos, últimas líneas)
   say <ventana> "…" escribirle a un agente como si estuvieras en su ventana (aprobaciones incluidas)
   watch [ventana]   pantalla de un agente en vivo, solo lectura (sin ventana: toma el próximo
-                    agente que nadie esté mirando; ideal para dejar paneles fijos)
+                    agente que nadie esté mirando; --all: todos en un panel, como en el workspace)
   stop <ventana>    cerrar la ventana del agente (el worktree queda)
   roles             qué provider/modelo corre cada rol en este proyecto
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
@@ -188,6 +188,8 @@ watch_pick() {
 }
 watch() {
   need_tmux
+  # Columna del workspace: todos los agentes en un panel que se reparte solo
+  [ "${1:-}" = "--all" ] && exec python3 "$WS/lib/agents_view.py"
   # Bucle infinito: que un grep vacío o una ventana que desaparece no lo corten
   set +euo pipefail
   local fixed="${1:-}" pane hdr lines cols state
@@ -254,7 +256,7 @@ WS_SESSION="${BK_WS_SESSION:-bk}"
 workspace() {
   need_tmux
   if ! tmux has-session -t "$WS_SESSION" 2>/dev/null; then
-    local dir="$PWD" n="${BK_WATCH:-3}" cols lines chat right i
+    local dir="$PWD" cols lines chat right
     cols=$(tput cols 2>/dev/null || echo 200); lines=$(tput lines 2>/dev/null || echo 50)
     # El chat sobrevive a un /exit: vuelve a una shell en la misma carpeta
     chat=$(tmux new-session -d -P -F '#{pane_id}' -s "$WS_SESSION" -n main -c "$dir" -x "$cols" -y "$lines" \
@@ -262,11 +264,8 @@ workspace() {
     # Franja de abajo a todo el ancho: las dos tablas de estado
     local dashp
     dashp=$(tmux split-window -d -P -F '#{pane_id}' -f -v -l 9 -t "$chat" -c "$dir" "bk dash")
-    # Columna derecha: N espejos de agentes (cada uno toma el próximo agente libre)
-    right=$(tmux split-window -d -P -F '#{pane_id}' -h -l 42% -t "$chat" -c "$dir" "bk watch")
-    for ((i = 1; i < n; i++)); do
-      right=$(tmux split-window -d -P -F '#{pane_id}' -v -l $((100 * (n - i) / (n - i + 1)))% -t "$right" -c "$dir" "bk watch")
-    done
+    # Columna derecha: todos los agentes en un panel que se reparte solo (0 = estado vacío)
+    right=$(tmux split-window -d -P -F '#{pane_id}' -h -l 40% -t "$chat" -c "$dir" "bk watch --all")
     # Radio abajo de la columna (si está bk song); arranca cuando el layout ya tiene su tamaño
     [ -x "$WS/lib/song.sh" ] && \
       tmux split-window -d -v -l 12 -t "$right" -c "$dir" "sleep 1.5; bk song ui; exec \$SHELL" >/dev/null
@@ -277,14 +276,11 @@ workspace() {
     done
     tmux select-pane -t "$chat" -T "chat · orquestador"
     tmux select-pane -t "$dashp" -T "agentes · tokens"
-    for p in $(tmux list-panes -t "$WS_SESSION:main" -F '#{pane_id} #{pane_start_command}' | awk '/bk watch/{print $1}'); do
-      tmux select-pane -t "$p" -T "agente en vivo"
-    done
+    tmux select-pane -t "$right" -T "agentes en vivo"
     for p in $(tmux list-panes -t "$WS_SESSION:main" -F '#{pane_id} #{pane_start_command}' | awk '/song/{print $1}'); do
       tmux select-pane -t "$p" -T "radio"
     done
-    tmux set-option -w -t "$WS_SESSION:main" pane-border-status top >/dev/null
-    tmux set-option -w -t "$WS_SESSION:main" pane-border-format ' #{pane_title} ' >/dev/null
+    ws_style
     tmux select-pane -t "$chat"
     # La sesión nace con el tamaño de la terminal que la crea; al conectarse o cambiar de tamaño
     # tmux le da todo el sobrante a un solo pane. Reacomodar con proporciones fijas.
@@ -294,24 +290,30 @@ workspace() {
   if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$WS_SESSION"; else exec tmux attach -t "$WS_SESSION"; fi
 }
 
-# Proporciones del workspace: franja de abajo 9 filas, columna derecha 40 %, radio 12, espejos parejos
+# Bordes: título visible, el panel activo resaltado en violeta
+ws_style() {
+  local t="$WS_SESSION:main"
+  tmux set-option -w -t "$t" pane-border-status top >/dev/null
+  tmux set-option -w -t "$t" pane-border-lines single >/dev/null
+  tmux set-option -w -t "$t" pane-border-style 'fg=#3e3b5c' >/dev/null
+  tmux set-option -w -t "$t" pane-active-border-style 'fg=#b4a4f4' >/dev/null
+  tmux set-option -w -t "$t" pane-border-format \
+    '#{?pane_active,#[fg=#1e1d2f bg=#b4a4f4 bold],#[fg=#a6a3c4 bg=#2d2b45]} #{pane_title} #[default]' >/dev/null
+}
+
+# Proporciones del workspace: franja de abajo 9 filas, columna derecha 40 %, radio 12
 ws_layout() {
   set +euo pipefail
-  local t="$WS_SESSION:main" W H dash radio watches=() p n each i used=0
-  read -r W H < <(tmux display-message -p -t "$t" '#{window_width} #{window_height}')
+  local t="$WS_SESSION:main" W dash radio right
+  W=$(tmux display-message -p -t "$t" '#{window_width}')
   [ -n "$W" ] || return 0
   dash=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk dash/{print $1; exit}')
-  while read -r p; do watches+=("$p"); done < <(tmux list-panes -t "$t" -F '#{pane_top} #{pane_id} #{pane_start_command}' \
-                                                 | awk '/bk watch/{print $1, $2}' | sort -n | awk '{print $2}')
   radio=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/song ui/{print $1; exit}')
+  right=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk watch/{print $1; exit}')
   [ -n "$dash" ] && tmux resize-pane -t "$dash" -y 9
-  [ -n "$radio" ] && { tmux resize-pane -t "$radio" -y 12; used=13; }
-  n=${#watches[@]}
-  [ "$n" -gt 0 ] || return 0
-  tmux resize-pane -t "${watches[0]}" -x $((W * 40 / 100))
-  # Alto disponible de la columna = alto de la ventana - franja - bordes
-  each=$(( (H - 9 - 1 - used - n) / n ))
-  for ((i = 0; i < n - 1; i++)); do tmux resize-pane -t "${watches[$i]}" -y "$each"; done
+  [ -n "$right" ] && tmux resize-pane -t "$right" -x $((W * 40 / 100))
+  [ -n "$radio" ] && tmux resize-pane -t "$radio" -y 12
+  return 0
 }
 
 stop() {
