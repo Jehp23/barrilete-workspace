@@ -25,6 +25,7 @@ uso: bk <comando> [--dry-run]
   go <ventana>      saltar a un agente (i42, pr57, plan, orch)
   stop <ventana>    cerrar la ventana del agente (el worktree queda)
   roles             qué provider/modelo corre cada rol en este proyecto
+  tokens            tokens del día y costo equivalente en API, por modelo y proyecto
   mode [work|chill] modo de la barra (sin argumento: el actual)
 
 Los comandos de agentes se corren dentro de un proyecto Barrilete.
@@ -214,6 +215,7 @@ case "${1:-}" in
   go)          shift; go "${1:-}" ;;
   stop)        shift; stop "${1:-}" ;;
   roles)       roles ;;
+  tokens)      exec python3 "$WS/lib/usage.py" ;;
   mode)        shift; exec "$HOME/.config/sketchybar/mode.sh" "${1:-status}" ;;
   -h|--help|help|"") usage ;;
   *) usage >&2; exit 2 ;;
