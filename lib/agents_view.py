@@ -8,6 +8,9 @@ Se redibuja cada segundo. Solo lectura: para escribirles, bk say o el chat.
 """
 import glob, json, os, re, subprocess, sys, time, unicodedata
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import gentle as G
+
 SESSION = os.environ.get("BK_SESSION", "agents")
 STATE = os.path.expanduser("~/.cache/sketchybar/agents")
 SHELLS = {"zsh", "bash", "sh", "fish", "-zsh", "login"}
@@ -82,7 +85,7 @@ def agents():
 
 
 def body(pane):
-    lines = [l for l in sh("tmux", "capture-pane", "-p", "-e", "-t", pane).splitlines() if visible(l).strip()]
+    lines = [l for l in sh("tmux", "capture-pane", "-p", "-e", "-S", "-200", "-t", pane).splitlines() if visible(l).strip()]
     seps = [i for i, l in enumerate(lines) if visible(l).startswith("─────")]
     if len(seps) >= 2:          # caja del prompt de Claude Code: fuera
         lines = lines[: seps[-2]]
@@ -113,29 +116,35 @@ def frame(W, H):
     live, ended = agents()
     out = []
     if not live:
-        mid = max(0, H // 2 - 3 - len(ended))
+        mid = max(0, H // 2 - 4)
         out += [""] * mid
-        out += [f"  {GRAY}sin agentes trabajando{RST}", "",
-                f"  {BLUE}bk run <issue>{RST}   {GRAY}implementer{RST}",
-                f"  {BLUE}bk review <pr>{RST}   {GRAY}reviewer{RST}",
-                f"  {BLUE}C-a s{RST}            {GRAY}retomar una sesión{RST}"]
+        out += G.card("Agents", [f"{G.MUTED}nadie trabajando{G.RST}", "",
+                                 f"{G.PETAL}bk run <issue>{G.RST}   {G.MUTED}implementer{G.RST}",
+                                 f"{G.PETAL}bk review <pr>{G.RST}   {G.MUTED}reviewer{G.RST}",
+                                 f"{G.PETAL}alt+k{G.RST}            {G.MUTED}todos los comandos{G.RST}"],
+                      min(W, 60), glyph="∗")
     else:
         room = H - (len(ended) + 1 if ended else 0)
-        shown = live[: max(1, room // 5)]            # cada sección necesita al menos 5 filas
+        shown = live[: max(1, room // 6)]
         each = room // len(shown)
         for k, a in enumerate(shown):
-            last = k == len(shown) - 1
-            n = room - each * k if last else each      # la última se queda con el resto
-            sec = [header(a, W)]
-            content = n - 1 - (0 if last else 1)        # menos encabezado y separador
+            n = room - each * k if k == len(shown) - 1 else each
+            s_ = a["state"]
+            txt, col = STATE_STYLE.get(s_.get("state"), (s_.get("state") or "", GRAY))
+            if s_.get("tool") == "confianza":
+                txt, col = "● confiá la carpeta", RED
+            busy = s_.get("state") in ("working", "background")
+            frame_c = G.RED if s_.get("state") == "waiting" else G.IRIS if busy else G.FRAME
+            content = n - 2
             lines = body(a["pane"])[-content:] if content > 0 else []
-            sec += [""] * (content - len(lines)) + [cut(l, W) for l in lines]
-            if not last:
-                sec.append(f"{GRAY}{'╌' * W}{RST}")
-            out += sec
+            rows = [""] * (content - len(lines)) + lines
+            mins = int((time.time() - s_.get("ts", time.time())) // 60)
+            right = " · ".join(x for x in (model(s_.get("model")), txt.strip("●◐✓· "), f"{mins}m") if x)
+            title = f"{a['win']} {G.MUTED}· {s_.get('role') or 'agente'}"
+            out += G.card(title, rows, W, color=frame_c, accent=G.IRIS if busy else G.ROSE, glyph="∗", right=right)
     if ended:
         out = out[: H - len(ended) - 1] + [""] * max(0, H - len(ended) - 1 - len(out))
-        out.append(f"{GRAY}terminados · C-a s para retomar o cerrar{RST}")
+        out.append(f"{GRAY}terminados · alt+s para retomar o cerrar{RST}")
         out += [cut(f"  {GRAY}✓ {a['win']}{RST}", W) for a in ended]
     return out[:H]
 

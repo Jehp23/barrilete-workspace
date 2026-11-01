@@ -27,6 +27,8 @@ uso: bk [comando] [--dry-run]
   orchestrate       orchestrator: /orchestrate (reparte hasta 3 issues como subagentes)
   ls                agentes: issue · rol · modelo · estado
   go <ventana>      saltar a un agente (i42, pr57, plan, orch)
+  changes           lo que los agentes dejaron sin commitear, con diff (alt+g)
+  palette | k       todos los comandos con búsqueda (alt+k)
   s                 sesiones de Claude estilo Orca: abiertas (saltar) y recientes de todas las
                     carpetas (retomar con claude --resume). En tmux: prefijo + s
   peek [ventana] [n] ver qué hace un agente sin entrar (sin ventana: todos, últimas líneas)
@@ -245,76 +247,78 @@ watch() {
 # Estado en vivo para la franja de abajo: tablas de agentes y uso del día (lib/dash.py)
 dash() { exec python3 "$WS/lib/dash.py"; }
 
-# Layout (sesión tmux "bk"):
-#   ┌──────────────────────────┬──────────────┐
-#   │                          │ bk watch     │
-#   │  chat con el orquestador │ bk watch     │
-#   │  (claude)                │ bk watch     │
-#   │                          │ radio        │
-#   ├──────────────────────────┴──────────────┤
-#   │ bk dash: tabla de agentes · uso del día │
-#   └─────────────────────────────────────────┘
+# Layout (sesión tmux "bk"), a lo gentle-shell:
+#   ┌───────────────────────────────┬──────────────────┐
+#   │                               │ ✿ Status         │
+#   │  chat con el orquestador      │ ∗ Agents         │
+#   │  (claude)                     │ ◆ Checkpoints    │
+#   │                               │ ✎ Changes        │
+#   │                               │ ♫ radio · atajos │
+#   └───────────────────────────────┴──────────────────┘
+#    ✿ bk · repo rama · agentes · tokens/costo de hoy        (barra de tmux = footer)
+# Overlays (popups): alt+a agentes · alt+g cambios · alt+k comandos · alt+s sesiones
 WS_SESSION="${BK_WS_SESSION:-bk}"
 workspace() {
   need_tmux
   if ! tmux has-session -t "$WS_SESSION" 2>/dev/null; then
-    local dir="$PWD" cols lines chat right
+    local dir="$PWD" cols lines chat rail
     cols=$(tput cols 2>/dev/null || echo 200); lines=$(tput lines 2>/dev/null || echo 50)
     # El chat sobrevive a un /exit: vuelve a una shell en la misma carpeta
     chat=$(tmux new-session -d -P -F '#{pane_id}' -s "$WS_SESSION" -n main -c "$dir" -x "$cols" -y "$lines" \
            "claude; exec \$SHELL")
-    # Franja de abajo a todo el ancho: las dos tablas de estado
-    local dashp
-    dashp=$(tmux split-window -d -P -F '#{pane_id}' -f -v -l 9 -t "$chat" -c "$dir" "bk dash")
-    # Columna derecha: todos los agentes en un panel que se reparte solo (0 = estado vacío)
-    right=$(tmux split-window -d -P -F '#{pane_id}' -h -l 40% -t "$chat" -c "$dir" "bk watch --all")
-    # Radio abajo de la columna (si está bk song); arranca cuando el layout ya tiene su tamaño
-    [ -x "$WS/lib/song.sh" ] && \
-      tmux split-window -d -v -l 12 -t "$right" -c "$dir" "sleep 1.5; bk song ui; exec \$SHELL" >/dev/null
-    # Títulos fijos en el borde (que claude y compañía no los pisen)
+    rail=$(tmux split-window -d -P -F '#{pane_id}' -h -l 34% -t "$chat" -c "$dir" "bk rail")
     local p
-    for p in $(tmux list-panes -t "$WS_SESSION:main" -F '#{pane_id}'); do
-      tmux set-option -p -t "$p" allow-set-title off >/dev/null 2>&1
-    done
-    tmux select-pane -t "$chat" -T "chat · orquestador"
-    tmux select-pane -t "$dashp" -T "agentes · tokens"
-    tmux select-pane -t "$right" -T "agentes en vivo"
-    for p in $(tmux list-panes -t "$WS_SESSION:main" -F '#{pane_id} #{pane_start_command}' | awk '/song/{print $1}'); do
-      tmux select-pane -t "$p" -T "radio"
-    done
+    for p in "$chat" "$rail"; do tmux set-option -p -t "$p" allow-set-title off >/dev/null 2>&1; done
+    tmux select-pane -t "$chat" -T "✿ chat"
+    tmux select-pane -t "$rail" -T "rail"
     ws_style
     tmux select-pane -t "$chat"
-    # La sesión nace con el tamaño de la terminal que la crea; al conectarse o cambiar de tamaño
-    # tmux le da todo el sobrante a un solo pane. Reacomodar con proporciones fijas.
+    # La sesión nace con el tamaño de la terminal que la crea: reacomodar al conectarse/redimensionar
     tmux set-hook -t "$WS_SESSION" client-attached "run-shell -b 'bk _layout'"
     tmux set-hook -t "$WS_SESSION" client-resized "run-shell -b 'bk _layout'"
   fi
   if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$WS_SESSION"; else exec tmux attach -t "$WS_SESSION"; fi
 }
 
-# Bordes: título visible, el panel activo resaltado en violeta
+# Paleta gentle (rosa sobre oscuro): bordes finos, sin título en el riel, footer en la barra de tmux
 ws_style() {
-  local t="$WS_SESSION:main"
-  tmux set-option -w -t "$t" pane-border-status top >/dev/null
+  local t="$WS_SESSION:main" s="$WS_SESSION"
+  tmux set-option -w -t "$t" pane-border-status off >/dev/null
   tmux set-option -w -t "$t" pane-border-lines single >/dev/null
-  tmux set-option -w -t "$t" pane-border-style 'fg=#3e3b5c' >/dev/null
-  tmux set-option -w -t "$t" pane-active-border-style 'fg=#b4a4f4' >/dev/null
-  tmux set-option -w -t "$t" pane-border-format \
-    '#{?pane_active,#[fg=#1e1d2f bg=#b4a4f4 bold],#[fg=#a6a3c4 bg=#2d2b45]} #{pane_title} #[default]' >/dev/null
+  tmux set-option -w -t "$t" pane-border-style 'fg=#3a2a35' >/dev/null
+  tmux set-option -w -t "$t" pane-active-border-style 'fg=#f095c8' >/dev/null
+  tmux set-option -t "$s" status-position bottom >/dev/null
+  tmux set-option -t "$s" status-style 'bg=default,fg=#7e6e78' >/dev/null
+  tmux set-option -t "$s" status-interval 10 >/dev/null
+  tmux set-option -t "$s" status-left-length 80 >/dev/null
+  tmux set-option -t "$s" status-right-length 120 >/dev/null
+  tmux set-option -t "$s" window-status-format '' >/dev/null
+  tmux set-option -t "$s" window-status-current-format '' >/dev/null
+  tmux set-option -t "$s" status-left \
+    '#[fg=#f095c8,bold] ✿ bk #[fg=#7e6e78,nobold]· #[fg=#e8dcE3]#{b:pane_current_path} #[fg=#d7a0b8]#(git -C "#{pane_current_path}" branch --show-current 2>/dev/null)' >/dev/null
+  tmux set-option -t "$s" status-right '#(bk _footer) ' >/dev/null
 }
 
-# Proporciones del workspace: franja de abajo 9 filas, columna derecha 40 %, radio 12
+# Footer: agentes activos · tokens y costo de hoy (usa el caché incremental de usage.py)
+ws_footer() {
+  set +euo pipefail
+  local act tot u
+  act=$(jq -s '[.[] | select(.state=="working" or .state=="background" or .state=="waiting")] | length' "$STATE_DIR"/*.json 2>/dev/null)
+  tot=$(ls "$STATE_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
+  u=$(python3 "$WS/lib/usage.py" --json 2>/dev/null | jq -r '"\(.tokens/1000000*10|floor/10)M · $\(.cost_usd)"' 2>/dev/null)
+  printf '#[fg=#a99cf5]∗ %s activos#[fg=#7e6e78]/%s · #[fg=#e8dce3]%s #[fg=#7e6e78]≈API · #[fg=#d7a0b8]alt+k comandos' \
+    "${act:-0}" "${tot:-0}" "${u:-—}"
+}
+
+# Proporciones: riel derecho 34 % (mínimo 46 columnas)
 ws_layout() {
   set +euo pipefail
-  local t="$WS_SESSION:main" W dash radio right
+  local t="$WS_SESSION:main" W rail w
   W=$(tmux display-message -p -t "$t" '#{window_width}')
   [ -n "$W" ] || return 0
-  dash=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk dash/{print $1; exit}')
-  radio=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/song ui/{print $1; exit}')
-  right=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk watch/{print $1; exit}')
-  [ -n "$dash" ] && tmux resize-pane -t "$dash" -y 9
-  [ -n "$right" ] && tmux resize-pane -t "$right" -x $((W * 40 / 100))
-  [ -n "$radio" ] && tmux resize-pane -t "$radio" -y 12
+  rail=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk rail/{print $1; exit}')
+  w=$((W * 34 / 100)); [ "$w" -lt 46 ] && w=46
+  [ -n "$rail" ] && tmux resize-pane -t "$rail" -x "$w"
   return 0
 }
 
@@ -521,7 +525,11 @@ case "${1:-}" in
   theme)       shift; theme "${1:-status}" ;;
   "")          workspace ;;
   dash)        dash ;;
+  rail)        exec python3 "$WS/lib/rail.py" ;;
+  changes)     exec python3 "$WS/lib/changes.py" ;;
+  palette|k)   exec python3 "$WS/lib/palette.py" ;;
   _layout)     ws_layout ;;
+  _footer)     ws_footer ;;
   s|sessions)  exec python3 "$WS/lib/sessions.py" ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;
