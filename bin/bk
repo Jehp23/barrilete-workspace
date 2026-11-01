@@ -20,9 +20,15 @@ uso: bk <comando> [--dry-run]
   run <issue>       routing.py elige el rol → prepare.sh crea worktree → implementer en tmux
                     (--role implementer|implementer-light para forzarlo)
   review <pr>       reviewer: /review-pr en la raíz del proyecto
+  fix <pr> "…"      implementer sobre la rama de un PR abierto (su worktree), con la instrucción dada
+                    (--role implementer-light para usar el liviano)
   orchestrate       orchestrator: /orchestrate (reparte hasta 3 issues como subagentes)
   ls                agentes: issue · rol · modelo · estado
   go <ventana>      saltar a un agente (i42, pr57, plan, orch)
+  peek [ventana] [n] ver qué hace un agente sin entrar (sin ventana: todos, últimas líneas)
+  say <ventana> "…" escribirle a un agente como si estuvieras en su ventana (aprobaciones incluidas)
+  watch [ventana]   pantalla de un agente en vivo, solo lectura (sin ventana: toma el próximo
+                    agente que nadie esté mirando; ideal para dejar paneles fijos)
   stop <ventana>    cerrar la ventana del agente (el worktree queda)
   roles             qué provider/modelo corre cada rol en este proyecto
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
@@ -55,14 +61,18 @@ role_spec() {
 }
 
 # agent_cmd <provider> <modelo> <prompt> -> comando a correr en el pane
+# Comillas simples a mano: el printf %q de bash 3.2 rompe los acentos (í → $'\255')
+sq() { local s=${1//\'/\'\\\'\'}; printf "'%s'" "$s"; }
+
 agent_cmd() {
   local provider="$1" model="$2" prompt="$3"
+  prompt=$(sq "$prompt")
   case "$provider" in
-    claude) printf 'claude --model %q %q' "$model" "$prompt" ;;
+    claude) printf 'claude --model %q %s' "$model" "$prompt" ;;
     codex)
       command -v codex >/dev/null || die "provider codex: Codex CLI no está instalado"
       # Codex no lee .claude/settings.json: las barandas de guardrails.py NO aplican acá.
-      printf 'codex -m %q %q' "$model" "$prompt" ;;
+      printf 'codex -m %q %s' "$model" "$prompt" ;;
     *) die "provider desconocido: $provider (claude | codex)" ;;
   esac
 }
@@ -118,6 +128,95 @@ go() {
   tmux has-session -t "$SESSION" 2>/dev/null || die "no hay agentes (sesión tmux '$SESSION' vacía)"
   [ -z "$win" ] || has_window "$win" || die "no existe la ventana '$win' (bk ls)"
   if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$target"; else exec tmux attach -t "$target"; fi
+}
+
+# Ver la pantalla de un agente sin entrar. Sin ventana: un resumen de todas.
+peek() {
+  need_tmux
+  tmux has-session -t "$SESSION" 2>/dev/null || die "no hay agentes (sesión tmux '$SESSION' vacía)"
+  local win="${1:-}" n="${2:-}"
+  if [ -n "$win" ]; then
+    has_window "$win" || die "no existe la ventana '$win' (bk ls)"
+    tmux capture-pane -p -J -t "$SESSION:$win" -S "-${n:-60}"
+    return
+  fi
+  local w
+  for w in $(tmux list-windows -t "$SESSION" -F '#{window_name}'); do
+    printf '\033[1;35m── %s\033[0m\n' "$w"
+    # Sin líneas vacías ni el marco del prompt de Claude Code, para que entre en pantalla
+    tmux capture-pane -p -J -t "$SESSION:$w" -S -80 | grep -v '^[[:space:]]*$' | grep -v '^[─╭╰│ ]*$' | tail -n "${n:-8}"
+    echo
+  done
+}
+
+# Escribir en la ventana de un agente: es tu teclado, así que vale como tu respuesta
+# (planes, "publicá", confianza…). Pensado para que lo corras vos; un agente no debería
+# usarlo para aprobar en tu nombre.
+say() {
+  need_tmux
+  local win="${1:?bk say <ventana> \"mensaje\"}"; shift
+  local msg="$*"
+  [ -n "$msg" ] || die "falta el mensaje"
+  has_window "$win" || die "no existe la ventana '$win' (bk ls)"
+  tmux send-keys -t "$SESSION:$win" -l -- "$msg"
+  sleep 0.2
+  tmux send-keys -t "$SESSION:$win" Enter
+  info "→ $win: $msg   (bk peek $win para ver la respuesta)"
+}
+
+# Espejo en vivo de un agente (solo lectura). Sin ventana, cada `bk watch` "reclama" un agente
+# que no esté mirando otro panel, y cuando ese agente se cierra pasa al siguiente.
+WATCH_DIR="$HOME/.cache/barrilete/watch"
+watch_claimed() {  # ¿hay otro bk watch vivo mirando esta ventana?
+  local f="$WATCH_DIR/$1" pid
+  [ -f "$f" ] || return 1
+  pid=$(cat "$f" 2>/dev/null)
+  [ -n "$pid" ] && [ "$pid" != "$$" ] && kill -0 "$pid" 2>/dev/null
+}
+watch_pick() {
+  local w
+  for w in $(tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null); do
+    watch_claimed "$w" || { echo "$w"; return; }
+  done
+}
+watch() {
+  need_tmux
+  # Bucle infinito: que un grep vacío o una ventana que desaparece no lo corten
+  set +euo pipefail
+  local fixed="${1:-}" pane hdr lines cols state
+  win=""   # global: el trap de salida la necesita para liberar el reclamo
+  mkdir -p "$WATCH_DIR"
+  trap 'printf "\033[?25h"; [ -n "$win" ] && [ "$(cat "$WATCH_DIR/$win" 2>/dev/null)" = "$$" ] && rm -f "$WATCH_DIR/$win"; exit 0' INT TERM EXIT
+  printf '\033[?25l\033[2J'
+  while :; do
+    # Elegir / validar la ventana
+    if [ -n "$win" ] && ! has_window "$win"; then
+      rm -f "$WATCH_DIR/$win"; win=""
+    fi
+    if [ -z "$win" ]; then
+      if [ -n "$fixed" ]; then has_window "$fixed" && win="$fixed"; else win=$(watch_pick); fi
+      [ -n "$win" ] && [ -z "$fixed" ] && echo $$ > "$WATCH_DIR/$win"
+    fi
+    lines=$(tput lines); cols=$(tput cols)
+    if [ -z "$win" ]; then
+      printf '\033[H\033[2J\033[2m  %s\033[0m' "${fixed:+esperando $fixed…}"
+      [ -z "$fixed" ] && printf '\033[2m  sin agentes libres para mirar (bk run / bk review)\033[0m'
+      sleep 2; continue
+    fi
+    # Encabezado: ventana · rol · modelo · estado (del estado de la barra)
+    pane=$(tmux list-panes -t "$SESSION:$win" -F '#{pane_id}' 2>/dev/null | head -1)
+    state=$(grep -l "\"pane\": *\"$pane\"" "$STATE_DIR"/*.json 2>/dev/null | head -1)
+    hdr="$win"
+    [ -n "$state" ] && hdr+=$(jq -r '"  ·  \(.role // "-")  ·  \(.model // "-")  ·  \(.state // "-")\(if .tool then " (\(.tool))" else "" end)"' "$state" 2>/dev/null)
+    {
+      printf '\033[H\033[1;35m%s\033[0m\033[K\n' "${hdr:0:$cols}"
+      tmux capture-pane -p -e -t "$SESSION:$win" 2>/dev/null \
+        | grep -v '^[[:space:]]*$' | tail -n $((lines - 2)) \
+        | while IFS= read -r l; do printf '%s\033[0m\033[K\n' "$l"; done
+      printf '\033[J'
+    }
+    sleep 1
+  done
 }
 
 stop() {
@@ -195,6 +294,33 @@ cmd_orchestrate() {
   launch orch "$root" orchestrator "" "/orchestrate"
 }
 
+# Retomar un PR abierto: mismo worktree/rama del implementer original (o uno nuevo si no existe).
+cmd_fix() {
+  local n="" role="implementer" msg=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --role) role="${2:?--role necesita un valor}"; shift 2 ;;
+      *) if [ -z "$n" ]; then n="${1#\#}"; else msg+="${msg:+ }$1"; fi; shift ;;
+    esac
+  done
+  [[ "$n" =~ ^[0-9]+$ ]] && [ -n "$msg" ] || die "bk fix <pr> \"instrucción\""
+  local root branch wt issue win
+  root=$(project_root)
+  branch=$(cd "$root" && gh pr view "$n" --json headRefName,state -q 'select(.state=="OPEN") | .headRefName') \
+    || die "no pude leer el PR #$n"
+  [ -n "$branch" ] || die "el PR #$n no está abierto"
+  # El worktree que ya tiene esa rama; si no hay, uno nuevo al lado de los de prepare.sh
+  wt=$(git -C "$root" worktree list --porcelain | awk -v b="refs/heads/$branch" '/^worktree /{w=$2} $0=="branch "b{print w}')
+  if [ -z "$wt" ]; then
+    wt="$(dirname "$root")/$(basename "$root")-wt/pr$n"
+    [ "$DRY" -eq 1 ] || { git -C "$root" fetch -q origin "$branch" && git -C "$root" worktree add -q "$wt" "$branch"; } \
+      || die "no pude crear el worktree de $branch"
+  fi
+  issue=$(sed -nE 's#^claude/([0-9]+)-.*#\1#p' <<<"$branch")
+  win="f$n"
+  launch "$win" "$wt" "$role" "#${issue:-$n}" "Retomás el PR #$n (rama $branch, ya hecha por otro implementer). Seguí el flujo de /implement-issue ${issue:-} para correcciones de un PR existente (TDD, red.sh, verify, cuerpo del PR) y no abras otro PR. Tarea: $msg"
+}
+
 cmd_run() {
   local n="" role=""
   while [ $# -gt 0 ]; do
@@ -241,9 +367,13 @@ case "${1:-}" in
   plan)        shift; cmd_plan "$@" ;;
   run)         shift; cmd_run "$@" ;;
   review)      shift; cmd_review "$@" ;;
+  fix)         shift; cmd_fix "$@" ;;
   orchestrate) cmd_orchestrate ;;
   ls)          ls_agents ;;
   go)          shift; go "${1:-}" ;;
+  peek)        shift; peek "${1:-}" "${2:-}" ;;
+  say)         shift; say "$@" ;;
+  watch)       shift; watch "${1:-}" ;;
   stop)        shift; stop "${1:-}" ;;
   roles)       roles ;;
   tokens)      exec python3 "$WS/lib/usage.py" ;;
