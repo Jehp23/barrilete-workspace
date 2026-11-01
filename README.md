@@ -12,7 +12,11 @@ bk roles           bk mode [work|chill]   bk song [estación]   bk theme [day|ni
 ```
 
 ## Workspace (`bk`)
-`bk` sin argumentos abre la sesión tmux `bk` (o vuelve a ella si ya existe):
+Uno por proyecto: `bk` en la carpeta de un proyecto abre (o retoma) la sesión tmux `bk-<proyecto>`;
+`bk open <proyecto|ruta>` lo abre en una ventana nueva de Ghostty, en el escritorio donde estás.
+Así cada escritorio de macOS tiene su proyecto. El riel, el footer y `alt+a` muestran solo los agentes,
+cambios, checkpoints y tokens de ese proyecto (el repo y sus worktrees `<repo>-wt/*`); los agentes
+siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspaces abiertos.
 
 ```
 ┌──────────────────────────┬──────────────────┐

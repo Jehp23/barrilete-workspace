@@ -19,6 +19,15 @@ LESSONS = os.path.join(os.environ.get("BARRILETE_VAULT", os.path.expanduser("~/D
 SHELLS = {"zsh", "bash", "sh", "fish", "-zsh", "login"}
 
 _usage = {"t": 0, "data": None}
+PROJECT = os.environ.get("BK_PROJECT", "")
+
+
+def in_project(path):
+    """¿Esta carpeta es del proyecto del workspace (el repo o sus worktrees de prepare.sh)?"""
+    if not PROJECT:
+        return True
+    p = (path or "").rstrip("/")
+    return p == PROJECT or p.startswith(PROJECT + "/") or p.startswith(PROJECT + "-wt/")
 
 
 def sh(*a, cwd=None):
@@ -75,11 +84,13 @@ def states():
 def agents(by_pane):
     live, ended = [], []
     for l in sh("tmux", "list-panes", "-s", "-t", SESSION, "-F",
-                "#{window_name}\t#{pane_id}\t#{pane_dead}\t#{pane_current_command}").splitlines():
+                "#{window_name}\t#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{pane_current_path}").splitlines():
         p = l.split("\t")
-        if len(p) != 4:
+        if len(p) != 5:
             continue
         a = {"win": p[0], "pane": p[1], "s": by_pane.get(p[1], {})}
+        if not in_project(a["s"].get("cwd") or p[4]):
+            continue
         (ended if p[2] == "1" or p[3] in SHELLS else live).append(a)
     return live, ended
 
@@ -98,11 +109,17 @@ def card_status(W, cwd, live):
     dirty = len([l for l in sh("git", "-C", cwd, "status", "--porcelain").splitlines() if l.strip()])
     u = usage()
     working = sum(1 for a in live if a["s"].get("state") in ("working", "background", "waiting"))
-    rows = [
-        f"{TEXT}{BOLD}{repo}{RST}  {PETAL}{br or '—'}{RST}" + (f" {AMBER}±{dirty}{RST}" if dirty else ""),
-        f"{MUTED}hoy{RST} {TEXT}{human(u.get('tokens', 0))}{RST} {MUTED}tok ·{RST} "
-        f"{AMBER}${u.get('cost_usd', 0):.2f}{RST} {MUTED}≈API{RST}",
-    ]
+    rows = [f"{TEXT}{BOLD}{repo}{RST}  {PETAL}{br or '—'}{RST}" + (f" {AMBER}±{dirty}{RST}" if dirty else "")]
+    if PROJECT:
+        # usage.py agrupa por carpeta: "<proyecto>" y sus worktrees "<proyecto>#<n>"
+        name = os.path.basename(PROJECT)
+        pt = sum(v["tokens"] for k, v in u.get("by_project", {}).items() if k == name or k.startswith(name + "#"))
+        pc = sum(v["cost"] for k, v in u.get("by_project", {}).items() if k == name or k.startswith(name + "#"))
+        rows.append(f"{MUTED}hoy acá{RST} {TEXT}{human(pt)}{RST} {MUTED}tok ·{RST} {AMBER}${pc:.2f}{RST}"
+                    f"  {MUTED}total ${u.get('cost_usd', 0):.2f}{RST}")
+    else:
+        rows.append(f"{MUTED}hoy{RST} {TEXT}{human(u.get('tokens', 0))}{RST} {MUTED}tok ·{RST} "
+                    f"{AMBER}${u.get('cost_usd', 0):.2f}{RST} {MUTED}≈API{RST}")
     right = f"{len(live)} agente{'s' if len(live) != 1 else ''}" + (f" · {working} activo{'s' if working != 1 else ''}" if working else "")
     return card("Status", rows, W, right=right)
 
@@ -137,12 +154,20 @@ def card_agents(W, live, ended):
 def card_checkpoints(W, all_states):
     rows = []
     for s in all_states:
+        if not in_project(s.get("cwd")):
+            continue
         if s.get("phase") == "plan_pending" and s.get("state") in ("done", "idle"):
             rows.append(f"{RED}●{RST} plan por aprobar {MUTED}· {os.path.basename(s.get('cwd', ''))}{RST}")
     try:
         prs = json.load(open(PRS))
     except Exception:
         prs = []
+    others = 0
+    if PROJECT:
+        url = sh("git", "-C", PROJECT, "remote", "get-url", "origin").strip()
+        repo = url.rstrip("/").removesuffix(".git").split("/")[-1].split(":")[-1] if url else os.path.basename(PROJECT)
+        mine = [p for p in prs if p.get("repo", "").split("/")[-1] == repo]
+        others, prs = len(prs) - len(mine), mine
     for p in prs:
         if p.get("kind", "merge") == "merge":
             rows.append(f"{GREEN}●{RST} mergear {TEXT}{p['repo'].split('/')[-1]}#{p['number']}{RST} {MUTED}{p['title']}{RST}")
@@ -156,9 +181,12 @@ def card_checkpoints(W, all_states):
         if "status: proposed" in head:
             title = next((l[2:] for l in head.splitlines() if l.startswith("# ")), os.path.basename(f))
             rows.append(f"{AMBER}󰌵{RST} lección {MUTED}{title}{RST}")
+    n = len(rows)
+    if others:
+        rows.append(f"{MUTED}+{others} en otros proyectos{RST}")
     if not rows:
         return []
-    return card(f"Checkpoints {MUTED}· {len(rows)} tuyos", rows, W, color=FRAME, glyph="◆")
+    return card(f"Checkpoints {MUTED}· {n} tuyos", rows, W, color=FRAME, glyph="◆")
 
 
 def card_changes(W, roots, max_rows):

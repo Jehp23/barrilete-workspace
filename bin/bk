@@ -16,8 +16,9 @@ usage() {
   cat <<'EOF'
 uso: bk [comando] [--dry-run]
 
-  (sin comando)     abrir el workspace: chat con el orquestador + agentes en vivo + estado
-                    (sesión tmux "bk"; si ya existe, vuelve a ella)
+  (sin comando)     el workspace del proyecto de esta carpeta: chat + riel (sesión tmux "bk-<proyecto>";
+                    si ya existe, vuelve a ella). Uno por proyecto, cada uno en su escritorio
+  open [proyecto]   abrir el workspace de otro proyecto en una ventana nueva (sin argumento: los abiertos)
   plan "<idea>"     planner: /plan-feature en la raíz del proyecto
   run <issue>       routing.py elige el rol → prepare.sh crea worktree → implementer en tmux
                     (--role implementer|implementer-light para forzarlo)
@@ -101,7 +102,14 @@ launch() {
   [ "$DRY" -eq 1 ] && { info "(dry-run: no se lanzó nada)"; return 0; }
 
   need_tmux
-  has_window "$win" && die "ya existe la ventana '$win' (bk go $win, o bk stop $win)"
+  if has_window "$win"; then
+    # Misma ventana en otro proyecto (#12 de abra y #12 del kit): prefijar con el proyecto
+    local other mine
+    other=$(project_of "$(tmux display-message -p -t "$SESSION:$win" '#{pane_current_path}')")
+    mine=$(project_of "$dir")
+    if [ "$other" != "$mine" ]; then win="${mine:0:8}-$win"; fi
+    has_window "$win" && die "ya existe la ventana '$win' (bk go $win, o bk stop $win)"
+  fi
   local env=(-e "BARRILETE_ROLE=$role" -e "BARRILETE_MODEL=$model" -e "BARRILETE_PROVIDER=$provider")
   [ -n "$ref" ] && env+=(-e "BARRILETE_ISSUE=$ref")
   local pane
@@ -257,16 +265,33 @@ dash() { exec python3 "$WS/lib/dash.py"; }
 #   └───────────────────────────────┴──────────────────┘
 #    ✿ bk · repo rama · agentes · tokens/costo de hoy        (barra de tmux = footer)
 # Overlays (popups): alt+a agentes · alt+g cambios · alt+k comandos · alt+s sesiones
-WS_SESSION="${BK_WS_SESSION:-bk}"
+# Un workspace por proyecto: sesión tmux "bk-<proyecto>", cada una en su ventana de Ghostty
+# (y su escritorio de macOS). Los agentes siguen en la sesión "agents"; el riel y el footer
+# muestran solo los del proyecto (BK_PROJECT en el entorno de la sesión).
+project_top() {  # raíz del proyecto: el repo, o el repo principal si es un worktree de prepare.sh
+  local top; top=$(git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null) || { (cd "${1:-$PWD}" && pwd); return; }
+  case "$(basename "$(dirname "$top")")" in
+    *-wt) local main; main="$(dirname "$(dirname "$top")")/$(basename "$(dirname "$top")" | sed 's/-wt$//')"
+          [ -d "$main" ] && { echo "$main"; return; } ;;
+  esac
+  echo "$top"
+}
+project_of() { basename "$(project_top "$1")" | tr '.:' '__'; }
+WS_SESSION="${BK_WS_SESSION:-}"
+
 workspace() {
   need_tmux
+  local dir; dir=$(cd "${1:-$PWD}" && pwd) || die "no existe $1"
+  local top; top=$(project_top "$dir")
+  WS_SESSION="${WS_SESSION:-bk-$(project_of "$dir")}"
   if ! tmux has-session -t "$WS_SESSION" 2>/dev/null; then
-    local dir="$PWD" cols lines chat rail
+    local cols lines chat rail
     cols=$(tput cols 2>/dev/null || echo 200); lines=$(tput lines 2>/dev/null || echo 50)
     # El chat sobrevive a un /exit: vuelve a una shell en la misma carpeta
     chat=$(tmux new-session -d -P -F '#{pane_id}' -s "$WS_SESSION" -n main -c "$dir" -x "$cols" -y "$lines" \
-           "claude; exec \$SHELL")
-    rail=$(tmux split-window -d -P -F '#{pane_id}' -h -l 34% -t "$chat" -c "$dir" "bk rail")
+           -e "BK_PROJECT=$top" "claude; exec \$SHELL")
+    tmux set-environment -t "$WS_SESSION" BK_PROJECT "$top"
+    rail=$(tmux split-window -d -P -F '#{pane_id}' -h -l 34% -t "$chat" -c "$dir" -e "BK_PROJECT=$top" "bk rail")
     local p
     for p in "$chat" "$rail"; do tmux set-option -p -t "$p" allow-set-title off >/dev/null 2>&1; done
     tmux select-pane -t "$chat" -T "✿ chat"
@@ -274,10 +299,33 @@ workspace() {
     ws_style
     tmux select-pane -t "$chat"
     # La sesión nace con el tamaño de la terminal que la crea: reacomodar al conectarse/redimensionar
-    tmux set-hook -t "$WS_SESSION" client-attached "run-shell -b 'bk _layout'"
-    tmux set-hook -t "$WS_SESSION" client-resized "run-shell -b 'bk _layout'"
+    tmux set-hook -t "$WS_SESSION" client-attached "run-shell -b 'bk _layout #{session_name}'"
+    tmux set-hook -t "$WS_SESSION" client-resized "run-shell -b 'bk _layout #{session_name}'"
   fi
   if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$WS_SESSION"; else exec tmux attach -t "$WS_SESSION"; fi
+}
+
+# bk open <proyecto|ruta>: ventana nueva de Ghostty con el workspace de ese proyecto, en el
+# escritorio donde estás. Sin argumento: lista los workspaces abiertos.
+resolve_project() {
+  local q="$1" d
+  [ -d "$q" ] && { (cd "$q" && pwd); return; }
+  for d in "$HOME/$q" "$HOME"/*/"$q"; do [ -d "$d" ] && { echo "$d"; return; }; done
+  d=$(find "$HOME" -maxdepth 3 -type d -name "$q" -not -path '*/Library/*' -not -path '*/node_modules/*' \
+        -not -path '*/.*' 2>/dev/null | head -1)
+  [ -n "$d" ] && echo "$d"
+}
+cmd_open() {
+  local q="${1:-}"
+  if [ -z "$q" ]; then
+    tmux list-sessions -F '#{session_name}	#{?session_attached,abierto,en segundo plano}	#{session_path}' 2>/dev/null \
+      | awk -F'\t' '$1 ~ /^bk/ {printf "  %-24s %-18s %s\n", $1, $2, $3}'
+    echo; info "bk open <proyecto|ruta> abre uno en una ventana nueva (en el escritorio actual)"
+    return
+  fi
+  local dir; dir=$(resolve_project "$q"); [ -n "$dir" ] || die "no encuentro el proyecto '$q' (pasá la ruta)"
+  open -na Ghostty.app --args --working-directory="$dir" -e /bin/zsh -lc "bk ws"
+  info "abriendo $(project_of "$dir") en una ventana nueva → $dir"
 }
 
 # Paleta gentle (rosa sobre oscuro): bordes finos, sin título en el riel, footer en la barra de tmux
@@ -295,16 +343,19 @@ ws_style() {
   tmux set-option -t "$s" window-status-format '' >/dev/null
   tmux set-option -t "$s" window-status-current-format '' >/dev/null
   tmux set-option -t "$s" status-left \
-    '#[fg=#f095c8,bold] ✿ bk #[fg=#7e6e78,nobold]· #[fg=#e8dcE3]#{b:pane_current_path} #[fg=#d7a0b8]#(git -C "#{pane_current_path}" branch --show-current 2>/dev/null)' >/dev/null
-  tmux set-option -t "$s" status-right '#(bk _footer) ' >/dev/null
+    '#[fg=#f095c8,bold] ✿ #{s/^bk-//:session_name} #[fg=#7e6e78,nobold]· #[fg=#e8dcE3]#{b:pane_current_path} #[fg=#d7a0b8]#(git -C "#{pane_current_path}" branch --show-current 2>/dev/null)' >/dev/null
+  tmux set-option -t "$s" status-right '#(bk _footer #{session_name}) ' >/dev/null
 }
 
 # Footer: agentes activos · tokens y costo de hoy (usa el caché incremental de usage.py)
 ws_footer() {
   set +euo pipefail
-  local act tot u
-  act=$(jq -s '[.[] | select(.state=="working" or .state=="background" or .state=="waiting")] | length' "$STATE_DIR"/*.json 2>/dev/null)
-  tot=$(ls "$STATE_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
+  local act tot u top
+  top=$(tmux show-environment -t "${1:-}" BK_PROJECT 2>/dev/null | sed -n 's/^BK_PROJECT=//p')
+  local sel='true'
+  [ -n "$top" ] && sel="((.cwd // \"\") as \$c | (\$c == \"$top\" or (\$c | startswith(\"$top/\")) or (\$c | startswith(\"$top-wt/\"))))"
+  act=$(jq -s "[.[] | select($sel) | select(.state==\"working\" or .state==\"background\" or .state==\"waiting\")] | length" "$STATE_DIR"/*.json 2>/dev/null)
+  tot=$(jq -s "[.[] | select($sel)] | length" "$STATE_DIR"/*.json 2>/dev/null)
   u=$(python3 "$WS/lib/usage.py" --json 2>/dev/null | jq -r '"\(.tokens/1000000*10|floor/10)M · $\(.cost_usd)"' 2>/dev/null)
   local word=activos; [ "${act:-0}" = 1 ] && word=activo
   printf '#[fg=#a99cf5]∗ %s %s #[fg=#7e6e78]de %s · #[fg=#e8dce3]%s #[fg=#7e6e78]≈API' \
@@ -314,7 +365,7 @@ ws_footer() {
 # Proporciones: riel derecho 34 % (mínimo 46 columnas)
 ws_layout() {
   set +euo pipefail
-  local t="$WS_SESSION:main" W rail w
+  local t="${1:-$WS_SESSION}:main" W rail w
   W=$(tmux display-message -p -t "$t" '#{window_width}')
   [ -n "$W" ] || return 0
   rail=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk rail/{print $1; exit}')
@@ -524,13 +575,14 @@ case "${1:-}" in
   mode)        shift; exec "$HOME/.config/sketchybar/mode.sh" "${1:-status}" ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
-  "")          workspace ;;
+  ""|ws)       shift || true; workspace "${1:-}" ;;
+  open)        shift; cmd_open "${1:-}" ;;
   dash)        dash ;;
   rail)        exec python3 "$WS/lib/rail.py" ;;
   changes)     exec python3 "$WS/lib/changes.py" ;;
   palette|k)   exec python3 "$WS/lib/palette.py" ;;
-  _layout)     ws_layout ;;
-  _footer)     ws_footer ;;
+  _layout)     ws_layout "${2:-}" ;;
+  _footer)     ws_footer "${2:-}" ;;
   s|sessions)  exec python3 "$WS/lib/sessions.py" ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;

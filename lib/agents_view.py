@@ -68,16 +68,28 @@ def states_by_pane():
     return out
 
 
+PROJECT = os.environ.get("BK_PROJECT", "")
+
+
+def in_project(path):
+    if not PROJECT:
+        return True
+    p = (path or "").rstrip("/")
+    return p == PROJECT or p.startswith(PROJECT + "/") or p.startswith(PROJECT + "-wt/")
+
+
 def agents():
     live, ended = [], []
     st = states_by_pane()
     for l in sh("tmux", "list-panes", "-s", "-t", SESSION, "-F",
-                "#{window_name}\t#{pane_id}\t#{pane_dead}\t#{pane_current_command}").splitlines():
+                "#{window_name}\t#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{pane_current_path}").splitlines():
         p = l.split("\t")
-        if len(p) != 4:
+        if len(p) != 5:
             continue
-        win, pane, dead, cmd = p
+        win, pane, dead, cmd, path = p
         a = {"win": win, "pane": pane, "state": st.get(pane, {})}
+        if not in_project(a["state"].get("cwd") or path):
+            continue
         (ended if dead == "1" or cmd in SHELLS else live).append(a)
     order = {"waiting": 0, "working": 1, "background": 1, "done": 2, "idle": 3}
     live.sort(key=lambda a: order.get(a["state"].get("state"), 9))
