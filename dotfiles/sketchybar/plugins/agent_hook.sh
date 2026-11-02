@@ -112,7 +112,7 @@ fi
 BG=0
 if [ "$STATE" = "done" ] && [ "$TRANSCRIPT" != "-" ] && [ -f "$TRANSCRIPT" ]; then
   BG=$(python3 - "$TRANSCRIPT" "$SID" <<'PY' 2>/dev/null
-import glob, json, re, subprocess, sys, time
+import glob, json, os, re, subprocess, sys, time
 from datetime import datetime
 t, sid = sys.argv[1:]
 d = open(t, errors="replace").read()
@@ -136,6 +136,23 @@ for line in d.splitlines():
         t0 = datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).timestamp()
         limit = 3600 if r.get("persistent") else r["timeoutMs"] / 1000
         if time.time() < t0 + limit:
+            n += 1
+    except Exception:
+        pass
+# Subagentes en segundo plano (Agent con run_in_background, skills "forked" como /code-review):
+# toolUseResult {"agentId", "background": true | "status": "async_launched"}; avisan con <task-id>agentId.
+# Vivo si no avisó y su transcript (<sesión>/subagents/agent-<id>.jsonl) se escribió en los últimos 10 min.
+sub_dir = os.path.join(os.path.dirname(t), sid, "subagents")
+for line in d.splitlines():
+    if '"agentId"' not in line or '"toolUseResult"' not in line:
+        continue
+    try:
+        r = json.loads(line).get("toolUseResult") or {}
+        aid = r.get("agentId")
+        if not aid or aid in finished or not (r.get("background") or r.get("status") == "async_launched"):
+            continue
+        f = os.path.join(sub_dir, f"agent-{aid}.jsonl")
+        if os.path.exists(f) and time.time() - os.path.getmtime(f) < 600:
             n += 1
     except Exception:
         pass
