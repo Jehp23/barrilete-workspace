@@ -83,9 +83,20 @@ def load():
         if sid.startswith("bk-"):
             continue
         try:
-            live[sid] = json.load(open(f))
+            s = json.load(open(f))
         except Exception:
-            pass
+            continue
+        # Corría en un pane de tmux que ya no existe: la ventana se cerró sin que Claude mandara
+        # Stop/SessionEnd y el estado quedó congelado ("trabajando" para siempre). Está muerta:
+        # va a recientes (enter la retoma) y se borra el estado para que la barra no la cuente.
+        # Solo si tmux respondió: sin servidor, `panes` vacío no prueba nada.
+        if panes and s.get("pane") and s["pane"] not in panes:
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+            continue
+        live[sid] = s
     try:
         cache = json.load(open(CACHE))
     except Exception:
@@ -179,32 +190,61 @@ def ago(ts):
 STATE_TXT = {"background": "2º plano", "working": "trabajando", "waiting": "te espera", "done": "listo", "idle": "libre", "ended": "terminó"}
 
 
+def current_workspace():
+    """Workspace bk desde el que se abrió el selector (alt+s / prefijo+s), o None."""
+    if not os.environ.get("TMUX"):
+        return None
+    s = os.environ.get("BK_FROM") or sh("tmux", "display-message", "-p", "#{session_name}").strip()
+    return s if s.startswith("bk") else None
+
+
 def open_row(r):
-    """Devuelve (mensaje_error | None, comando tmux a ejecutar después de cerrar curses)."""
+    """Devuelve (mensaje_error | None, pasos a ejecutar después de cerrar curses).
+
+    Un paso es un comando (lista) o una función sin argumentos. Dentro de un workspace, el agente
+    se trae al lugar del chat (como alt+shift+N; alt+q vuelve), en vez de saltar a la sesión "agents".
+    """
     in_tmux = bool(os.environ.get("TMUX"))
+    ws = current_workspace()
+
+    def show(pane, target):
+        # Agentes de la sesión "agents": al lugar del chat del workspace. Los que ya viven en un
+        # workspace (su chat, o uno de visita): saltar ahí.
+        if ws and target.split(":")[0] == SESSION:
+            return [["bk", "_agent", ws, pane]]
+        if in_tmux:
+            return [["tmux", "switch-client", "-t", pane], ["tmux", "select-window", "-t", pane],
+                    ["tmux", "select-pane", "-t", pane]]
+        return [["tmux", "attach", "-t", pane]]
+
     if r.get("dead"):
         # Pane muerto (remain-on-exit): no acepta teclas. Revivirlo con la misma sesión de Claude.
         if not r.get("sid"):
             return "esa ventana terminó y no sé qué sesión era: cerrala con x", None
-        go = (["tmux", "switch-client", "-t", r["target"]] if in_tmux else ["tmux", "attach", "-t", r["target"]])
-        return None, [["tmux", "respawn-pane", "-k", "-t", r["pane"], f"claude --resume {r['sid']}"], go]
+        return None, [["tmux", "respawn-pane", "-k", "-t", r["pane"], f"claude --resume {r['sid']}"]] \
+            + show(r["pane"], r["target"])
     if r.get("target"):
-        tgt = r["target"]
-        if in_tmux:
-            return None, [["tmux", "switch-client", "-t", tgt], ["tmux", "select-pane", "-t", r["pane"]]]
-        return None, [["tmux", "attach", "-t", tgt]]
+        return None, show(r["pane"], r["target"])
     if r.get("state"):  # abierta pero fuera de tmux (otra ventana de Ghostty): no duplicarla
         return "esa sesión está abierta en otra terminal: retomala ahí", None
     cwd = r["cwd"] if r["cwd"] and os.path.isdir(r["cwd"]) else os.path.expanduser("~")
     name = "r-" + re.sub(r"[^A-Za-z0-9#-]", "", r["proj"])[:12]
-    has = subprocess.run(["tmux", "has-session", "-t", SESSION], capture_output=True).returncode == 0
-    new = (["tmux", "new-window", "-t", SESSION + ":", "-n", name] if has
-           else ["tmux", "new-session", "-d", "-s", SESSION, "-n", name])
-    cmd = new + ["-c", cwd, f"claude --resume {r['sid']}"]
-    after = [cmd, ["tmux", "set-option", "-w", "-t", f"{SESSION}:{name}", "remain-on-exit", "on"]]
-    after.append(["tmux", "switch-client", "-t", f"{SESSION}:{name}"] if in_tmux
-                 else ["tmux", "attach", "-t", f"{SESSION}:{name}"])
-    return None, after
+
+    def resume():
+        has = subprocess.run(["tmux", "has-session", "-t", SESSION], capture_output=True).returncode == 0
+        new = (["tmux", "new-window", "-d", "-t", SESSION + ":", "-n", name] if has
+               else ["tmux", "new-session", "-d", "-s", SESSION, "-n", name])
+        pane = sh(*new, "-P", "-F", "#{pane_id}", "-c", cwd, f"claude --resume {r['sid']}").strip()
+        if not pane:
+            return
+        subprocess.run(["tmux", "set-option", "-w", "-t", pane, "remain-on-exit", "on"], capture_output=True)
+        steps = show(pane, f"{SESSION}:{name}")
+        for cmd in steps:
+            if cmd[:2] == ["tmux", "attach"]:
+                os.execvp("tmux", ["tmux", "attach", "-t", pane])
+            subprocess.run(cmd)
+
+    return None, [resume]
 
 
 def ui(scr):
@@ -322,6 +362,9 @@ def main():
         return
     after = curses.wrapper(ui)
     for cmd in after or []:
+        if callable(cmd):
+            cmd()
+            continue
         if cmd[:2] == ["tmux", "attach"]:
             os.execvp("tmux", cmd)
         subprocess.run(cmd)

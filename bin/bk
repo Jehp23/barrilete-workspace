@@ -335,6 +335,8 @@ workspace() {
     # La sesión nace con el tamaño de la terminal que la crea: reacomodar al conectarse/redimensionar
     tmux set-hook -t "$WS_SESSION" client-attached "run-shell -b 'bk _layout #{session_name}'"
     tmux set-hook -t "$WS_SESSION" client-resized "run-shell -b 'bk _layout #{session_name}'"
+  else
+    ws_chat_pane "$WS_SESSION" >/dev/null   # si el chat se cerró, volver a entrar lo repone
   fi
   if [ -n "${TMUX:-}" ]; then tmux switch-client ${BK_CLIENT:+-c "$BK_CLIENT"} -t "$WS_SESSION"; else exec tmux attach -t "$WS_SESSION"; fi
 }
@@ -381,6 +383,28 @@ cmd_rerun() {
 # bk _agent <sesión> <N|0>: muestra el agente N de la tira en el lugar del chat del workspace (swap-pane:
 # la tira y el riel quedan). 0 devuelve el orquestador. El pane del chat se marca con @bk_ws para
 # reconocerlo aunque esté de visita en la sesión agents.
+# Pane del chat del workspace <sesión>. Si ya no está (la ventana del chat se cerró y quedaron solo
+# el riel y la tira), lo vuelve a crear a la izquierda del riel con un claude nuevo en el proyecto.
+ws_chat_pane() {
+  local s="${1:?}" w="$1:main" chat rail top
+  chat=$(tmux list-panes -t "$w" -F '#{pane_id} #{pane_start_command}' 2>/dev/null \
+         | grep -v -e 'bk rail' -e 'bk sidebar' | head -1 | cut -d' ' -f1)
+  if [ -z "$chat" ]; then
+    rail=$(tmux list-panes -t "$w" -F '#{pane_id} #{pane_start_command}' 2>/dev/null | grep 'bk rail' | head -1 | cut -d' ' -f1)
+    [ -n "$rail" ] || return 0
+    top=$(tmux show-environment -t "$s" BK_PROJECT 2>/dev/null | sed -n 's/^BK_PROJECT=//p')
+    [ -d "$top" ] || top="$HOME"
+    chat=$(tmux split-window -d -P -F '#{pane_id}' -hb -t "$rail" -c "$top" -e "BK_PROJECT=$top" "claude; exec \$SHELL") || return 0
+    tmux set-option -p -t "$chat" allow-set-title off >/dev/null 2>&1
+    tmux select-pane -t "$chat" -T "✿ chat"
+    # La tira va a la izquierda del chat (tira | chat | riel), como al crear el workspace
+    local side; side=$(tmux list-panes -t "$w" -F '#{pane_id} #{pane_start_command}' | grep 'bk sidebar' | head -1 | cut -d' ' -f1)
+    [ -n "$side" ] && tmux move-pane -d -hb -l 5 -s "$side" -t "$chat" 2>/dev/null
+    bk _layout "$s" >/dev/null 2>&1
+  fi
+  echo "$chat"
+}
+
 ws_agent() {
   set +euo pipefail
   local s="${1:?}" n="${2:-0}" w guest chat target
@@ -399,8 +423,8 @@ ws_agent() {
   target=$(tmux list-panes -s -t "$SESSION" -F '#{pane_id} #{@bk_ws}' 2>/dev/null | awk '$2 == "" {print $1}' | sed -n "${n}p")
   fi
   [ -n "$target" ] || { tmux display-message "no hay agente $n"; return; }
-  chat=$(tmux list-panes -t "$w" -F '#{pane_id} #{pane_start_command}' | grep -v -e 'bk rail' -e 'bk sidebar' | head -1 | cut -d' ' -f1)
-  [ -n "$chat" ] || return
+  chat=$(ws_chat_pane "$s")
+  [ -n "$chat" ] || { tmux display-message "no encuentro el lugar del chat en $s"; return; }
   tmux set-option -p -t "$chat" @bk_ws "$s"
   tmux swap-pane -d -s "$target" -t "$chat"
   tmux set-option -w -t "$w" @bk_guest "$target"; tmux set-option -w -t "$w" @bk_chat "$chat"
