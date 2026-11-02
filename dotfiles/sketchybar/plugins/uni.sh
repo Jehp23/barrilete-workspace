@@ -70,6 +70,8 @@ uni.class)
   if [ "$START" -le "$NOW" ]; then WHEN="hasta $(date -r "$END" +%H:%M)"; else WHEN="en $(human_in $(( START - NOW )))"; fi
   C=$TEXT
   echo "$TITLE" | grep -qiE 'parcial|examen|final|recuperatorio' && C=$RED
+  # "SO | Sistemas Operativos · Co1" -> "SO · Co1": la etiqueta de la materia, como en Notion
+  TITLE=$(sed -E 's/^([A-Za-z]+) \| [^·]*(·.*)?$/\1 \2/; s/ +$//; s/  / /g' <<<"$TITLE")
   # El cuándo primero (como en entregas): si hay que recortar por el notch, se pierde el final del nombre
   LABEL="$WHEN · $TITLE"; [ -n "$LOC" ] && LABEL+=" · $LOC"
   echo "$LABEL" >"$LBL/class"
