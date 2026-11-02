@@ -80,9 +80,11 @@ def go(target):
     client = sh("tmux", "display-message", "-p", "-t", pane, "#{client_name}").strip()
     c = ["-c", client] if client else []
     if target.startswith(AGENTS + ":"):
-        # El agente se abre encima, en un popup: el workspace sigue ahí. alt+q (o C-a D) lo cierra.
+        # El agente se ve encima, en un popup de solo lectura (bk watch): q/esc lo cierra, enter va a
+        # su ventana para escribirle. Antes era un tmux dentro del popup y las teclas no le llegaban.
+        win = target.split(":", 1)[1]
         subprocess.Popen(["tmux", "display-popup"] + c + ["-w", "92%", "-h", "88%", "-E",
-                          f"TMUX= tmux attach -t '{target}'"])
+                          f"BK_WATCH_KEYS=1 BK_WATCH_CLIENT='{client}' bk watch '{win}'"])
         return
     subprocess.run(["tmux", "switch-client"] + c + ["-t", target], capture_output=True)
 
