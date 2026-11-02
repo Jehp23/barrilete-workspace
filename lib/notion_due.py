@@ -6,7 +6,7 @@ publicada). Config en ~/.config/bk/uni.json:
   {"notion": {"site": "https://<algo>.notion.site", "space": "<id>", "collection": "<id>", "view": "<id>",
               "props": {"date": "gwfJ", "status": "Rwoy", "time": "Y\\\\Qv", "type": "uO}D"}}}
 Salida: una línea por entrega sin terminar (Estado distinto de "Listo"), ordenadas por fecha:
-  <AAAA-MM-DD>\t<HH:MM o vacío>\t<tipo>\t<estado>\t<nombre>\t<url de la página en notion.site>
+  <AAAA-MM-DD>\t<HH:MM o vacío>\t<tipo>\t<estado>\t<nombre>\t<link: notion:// (app) o notion.so>
 --overdue incluye las vencidas; sin eso, solo de hoy en adelante. Caché de 5 minutos.
 """
 import json, os, sys, time, urllib.request
@@ -74,9 +74,14 @@ def main():
     today = date.today().isoformat()
     pend = [r for r in rows(data, n["props"]) if r[0] and r[3].lower() != "listo"
             and ("--overdue" in sys.argv or r[0] >= today)]
-    site = n["site"].rstrip("/")
+    # Abrir en la app de Notion (editable, con tu cuenta) si está instalada; si no, notion.so en el navegador.
+    # La copia pública de notion.site es de solo lectura: no se usa para abrir.
+    if os.path.isdir("/Applications/Notion.app") and n.get("open", "app") == "app":
+        base = "notion://www.notion.so"
+    else:
+        base = "https://www.notion.so"
     for d, t, ty, st, name, pid in sorted(pend):
-        print(f"{d}\t{t}\t{ty}\t{st}\t{name}\t{site}/{pid}")
+        print(f"{d}\t{t}\t{ty}\t{st}\t{name}\t{base}/{pid}")
 
 
 if __name__ == "__main__":
