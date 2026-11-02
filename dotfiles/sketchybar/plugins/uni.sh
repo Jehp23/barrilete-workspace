@@ -65,22 +65,47 @@ uni.class)
   fit_uni
   ;;
 uni.due)
-  F="$VAULT/uni/entregas.md"
-  NEXT=$(grep -E '^\s*- \[ \] [0-9]{4}-[0-9]{2}-[0-9]{2}' "$F" 2>/dev/null | sed -E 's/^\s*- \[ \] //' | sort | head -1)
+  # Fuente: la base "Entregas" de Notion (si hay ~/.config/bk/uni.json) o <vault>/uni/entregas.md
+  [ "$SENDER" = "mouse.clicked" ] && sketchybar --set "$NAME" popup.drawing=toggle
+  if [ -f "$HOME/.config/bk/uni.json" ]; then
+    ALL=$(python3 "$WS/lib/notion_due.py" --overdue 2>/dev/null)
+  else
+    ALL=$(grep -E '^\s*- \[ \] [0-9]{4}-[0-9]{2}-[0-9]{2}' "$VAULT/uni/entregas.md" 2>/dev/null \
+          | sed -E 's/^\s*- \[ \] ([0-9-]+) (.*)$/\1\t\t\t\t\2/' | sort)
+  fi
+  # Campos vacíos -> "-": con IFS=tab, bash junta tabs seguidos y corre las columnas
+  ALL=$(sed -e $'s/\t\t/\t-\t/g' -e $'s/\t\t/\t-\t/g' -e $'s/\t$/\t-/' <<<"$ALL")
+  TODAY=$(date +%Y-%m-%d)
+  NEXT=$(awk -F'\t' -v t="$TODAY" '$1 >= t' <<<"$ALL" | head -1)
+  LATE=$(awk -F'\t' -v t="$TODAY" '$1 < t' <<<"$ALL" | grep -c . )
+  # Popup: vencidas (rojo) y las próximas 6
+  sketchybar --remove '/uni\.due\.[0-9]*/' >/dev/null 2>&1
+  i=0
+  while IFS=$'\t' read -r D T TY ST NM; do
+    [ -n "$D" ] || continue
+    [ "$T" = - ] && T=""; [ "$ST" = - ] && ST=""
+    [ "$D" \< "$TODAY" ] && C=$RED || C=$TEXT
+    sketchybar --add item uni.due.$i popup.uni.due \
+               --set uni.due.$i background.drawing=off icon.drawing=off label.padding_left=10 label.padding_right=12 \
+                     label="$(date -j -f %Y-%m-%d "$D" '+%d/%m' 2>/dev/null)${T:+ $T}  $NM${ST:+ · $ST}" label.color=$C
+    i=$((i+1)); [ $i -ge 10 ] && break
+  done < <( { awk -F'\t' -v t="$TODAY" '$1 < t' <<<"$ALL"; awk -F'\t' -v t="$TODAY" '$1 >= t' <<<"$ALL" | head -6; } )
   if [ -z "$NEXT" ]; then
-    echo "sin entregas" >"$LBL/due"
+    echo "sin entregas${LATE:+ · $LATE vencidas}" | sed 's/ · 0 vencidas//' >"$LBL/due"
     sketchybar --set "$NAME" label.color=$SUBTEXT; fit_uni; exit 0
   fi
-  DAY=${NEXT%% *}; WHAT=${NEXT#* }
+  IFS=$'\t' read -r DAY HOUR TYPE STATE WHAT <<<"$NEXT"
+  [ "$HOUR" = - ] && HOUR=""; [ "$TYPE" = - ] && TYPE=""; [ "$STATE" = - ] && STATE=""
   DUE=$(date -j -f %Y-%m-%d "$DAY" +%s 2>/dev/null || echo "$NOW")
-  DAYS=$(( (DUE - $(date -j -f %Y-%m-%d "$(date +%Y-%m-%d)" +%s)) / 86400 ))
-  if   [ "$DAYS" -lt 0 ];  then WHEN="vencida"; C=$RED
-  elif [ "$DAYS" -eq 0 ]; then WHEN="hoy"; C=$RED
+  DAYS=$(( (DUE - $(date -j -f %Y-%m-%d "$TODAY" +%s)) / 86400 ))
+  if   [ "$DAYS" -eq 0 ]; then WHEN="hoy${HOUR:+ $HOUR}"; C=$RED
   elif [ "$DAYS" -eq 1 ]; then WHEN="mañana"; C=$PEACH
   else WHEN="en ${DAYS}d"; C=$TEXT; [ "$DAYS" -le 3 ] && C=$YELLOW; fi
-  # El cuándo va primero: es lo que importa si hay que recortar
-  echo "$WHEN · $WHAT" >"$LBL/due"
-  sketchybar --set "$NAME" label.color=$C
+  # Parciales en el ícono rojo; vencidas sin terminar: contador al final (el detalle, con un clic)
+  IC=$YELLOW; echo "$TYPE $WHAT" | grep -qiE 'parcial|examen|final' && IC=$RED
+  SUFFIX=""; [ "${LATE:-0}" -gt 0 ] && SUFFIX=" +$LATE"
+  echo "$WHEN · $WHAT$SUFFIX" >"$LBL/due"
+  sketchybar --set "$NAME" label.color=$C icon.color=$IC
   fit_uni
   ;;
 uni.pomo)

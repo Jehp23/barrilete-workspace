@@ -45,6 +45,7 @@ uso: bk [comando] [--dry-run]
   learn             registra desvíos de los agentes en Obsidian y propone lecciones
   lessons           lecciones por revisar (status: proposed) en el vault
   mode [work|chill|uni]  modo de la barra (sin argumento: el actual). uni: clase, entregas, pomodoro
+  entregas          entregas sin terminar de Notion (vencidas en rojo, hoy en amarillo)
   focus [min] [qué] pomodoro en la barra (25 min por defecto; stop | status)
   song [estación]   radio techno/house en segundo plano (bk song help)
   theme [day|night|auto]  tema de Ghostty: violeta pastel / violeta oscuro / según macOS
@@ -655,6 +656,9 @@ case "${1:-}" in
   open)        shift; cmd_open "${1:-}" ;;
   rerun)       shift; cmd_rerun "$@" ;;
   focus)       shift; cmd_focus "$@" ;;
+  entregas)    python3 "$WS/lib/notion_due.py" --overdue | awk -F'\t' -v t="$(date +%Y-%m-%d)" '{
+                 c = ($1 < t) ? "\033[31m" : ($1 == t ? "\033[33m" : "")
+                 printf "%s%s  %-5s %-40s %s\033[0m\n", c, $1, $2, $5, ($4 != "" ? "· " $4 : "") }' ;;
   dash)        dash ;;
   rail)        exec python3 "$WS/lib/rail.py" ;;
   sidebar)     exec python3 "$WS/lib/sidebar.py" ;;

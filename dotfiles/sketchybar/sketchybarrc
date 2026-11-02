@@ -118,7 +118,7 @@ UNI=(drawing=off updates=off background.drawing=off icon.padding_left=6 icon.pad
 sketchybar --add item uni.pomo right --set uni.pomo "${UNI[@]}" icon="$ICON_POMO" icon.color=$PEACH \
                  update_freq=1 script="$PLUGIN_DIR/uni.sh" \
            --add item uni.due right --set uni.due "${UNI[@]}" icon="$ICON_DUE" icon.color=$YELLOW \
-                 update_freq=300 script="$PLUGIN_DIR/uni.sh" --subscribe uni.due system_woke \
+                 update_freq=300 popup.align=right script="$PLUGIN_DIR/uni.sh" --subscribe uni.due system_woke mouse.clicked \
            --add item uni.class right --set uni.class "${UNI[@]}" icon="$ICON_CLASS" icon.color=$MAUVE \
                  update_freq=60 script="$PLUGIN_DIR/uni.sh" --subscribe uni.class system_woke
 
