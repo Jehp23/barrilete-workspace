@@ -355,7 +355,16 @@ cmd_open() {
     echo; info "bk open <proyecto|ruta> abre uno en una ventana nueva (en el escritorio actual)"
     return
   fi
-  local dir; dir=$(resolve_project "$q"); [ -n "$dir" ] || die "no encuentro el proyecto '$q' (pasá la ruta)"
+  # Un workspace ya abierto con ese nombre (bk-<q>, o el único que lo contenga): conectarse a ese
+  local sess
+  sess=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -x "bk-$q" \
+         || tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^bk-' | grep -i -- "$q")
+  if [ -n "$sess" ] && [ "$(wc -l <<<"$sess")" -eq 1 ]; then
+    if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$sess"; else
+      open -na Ghostty.app --args -e /bin/zsh -lc "tmux attach -t $sess"; fi
+    info "→ $sess"; return
+  fi
+  local dir; dir=$(resolve_project "$q"); [ -n "$dir" ] || die "no encuentro el proyecto '$q' (pasá la ruta, o bk open para ver los abiertos)"
   open -na Ghostty.app --args --working-directory="$dir" -e /bin/zsh -lc "bk ws"
   info "abriendo $(project_of "$dir") en una ventana nueva → $dir"
 }
