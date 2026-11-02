@@ -22,3 +22,6 @@ ICON_TOKENS=""   # nf-fa-bolt: tokens del día
 ICON_LESSON="󰌵"  # nf-md-lightbulb: lecciones por revisar
 ICON_BRANCH=""   # nf-dev-git_branch: rama sin checks
 ICON_MUSIC="󰝚"   # nf-md-music: bk song sonando
+ICON_CLASS="󰑴"   # nf-md-school: próxima clase (modo uni)
+ICON_DUE="󰃰"     # nf-md-calendar_clock: próxima entrega
+ICON_POMO="󱎫"    # nf-md-timer_outline: pomodoro (bk focus)

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>dev.barrilete.nextevent</string>
+  <key>CFBundleName</key><string>nextevent</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>El modo uni de la barra muestra tu próxima clase o parcial.</string>
+  <key>NSCalendarsUsageDescription</key><string>El modo uni de la barra muestra tu próxima clase o parcial.</string>
+</dict></plist>

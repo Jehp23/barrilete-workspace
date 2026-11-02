@@ -44,7 +44,8 @@ uso: bk [comando] [--dry-run]
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
   learn             registra desvíos de los agentes en Obsidian y propone lecciones
   lessons           lecciones por revisar (status: proposed) en el vault
-  mode [work|chill] modo de la barra (sin argumento: el actual)
+  mode [work|chill|uni]  modo de la barra (sin argumento: el actual). uni: clase, entregas, pomodoro
+  focus [min] [qué] pomodoro en la barra (25 min por defecto; stop | status)
   song [estación]   radio techno/house en segundo plano (bk song help)
   theme [day|night|auto]  tema de Ghostty: violeta pastel / violeta oscuro / según macOS
 
@@ -350,6 +351,22 @@ cmd_rerun() {
   done
 }
 
+# bk focus [min] [qué]: pomodoro en la barra (modo uni). Sin argumentos: 25 min. "stop" lo corta.
+cmd_focus() {
+  local f="$HOME/.cache/bk/focus"
+  mkdir -p "$(dirname "$f")"
+  case "${1:-25}" in
+    stop|off) rm -f "$f"; info "pomodoro cortado" ;;
+    status)   if [ -s "$f" ]; then read -r end label <"$f"; echo "$label: quedan $(( (end - $(date +%s)) / 60 )) min"; else echo "sin pomodoro"; fi ;;
+    *[!0-9]*) die "bk focus [minutos] [qué estudiás] | stop | status" ;;
+    *) local m="$1"; shift || true
+       echo "$(( $(date +%s) + m * 60 )) ${*:-Estudio}" >"$f"
+       [ "$("$HOME/.config/sketchybar/mode.sh" status)" = uni ] || info "(se ve en la barra en modo uni: bk mode uni)"
+       info "🍅 $m min${*:+ de $*}" ;;
+  esac
+  sketchybar --trigger forced >/dev/null 2>&1; sketchybar --update >/dev/null 2>&1 || true
+}
+
 cmd_open() {
   local q="${1:-}"
   if [ -z "$q" ]; then
@@ -637,6 +654,7 @@ case "${1:-}" in
   ""|ws)       shift || true; workspace "${1:-}" ;;
   open)        shift; cmd_open "${1:-}" ;;
   rerun)       shift; cmd_rerun "$@" ;;
+  focus)       shift; cmd_focus "$@" ;;
   dash)        dash ;;
   rail)        exec python3 "$WS/lib/rail.py" ;;
   sidebar)     exec python3 "$WS/lib/sidebar.py" ;;

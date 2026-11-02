@@ -113,6 +113,15 @@ sketchybar --add item clock right \
            --set volume icon.color=$PEACH script="$PLUGIN_DIR/volume.sh" \
            --subscribe volume volume_change
 
+# Modo uni (facultad): próxima clase, próxima entrega y pomodoro. Ocultos salvo en uni (mode.sh).
+UNI=(drawing=off updates=off background.drawing=off icon.padding_left=6 icon.padding_right=4 label.padding_right=6)
+sketchybar --add item uni.pomo right --set uni.pomo "${UNI[@]}" icon="$ICON_POMO" icon.color=$PEACH \
+                 update_freq=1 script="$PLUGIN_DIR/uni.sh" \
+           --add item uni.due right --set uni.due "${UNI[@]}" icon="$ICON_DUE" icon.color=$YELLOW \
+                 update_freq=300 script="$PLUGIN_DIR/uni.sh" --subscribe uni.due system_woke \
+           --add item uni.class right --set uni.class "${UNI[@]}" icon="$ICON_CLASS" icon.color=$MAUVE \
+                 update_freq=60 script="$PLUGIN_DIR/uni.sh" --subscribe uni.class system_woke
+
 # Separadores invisibles: el fondo de un bracket incluye el padding (3 pt) de sus
 # items, así que sin esto los grupos quedan a 0–3 pt en vez de los 6 pt del resto.
 SPACER=(padding_left=0 padding_right=0 icon.drawing=off label.drawing=off background.drawing=off)
@@ -140,5 +149,5 @@ sketchybar --add item github.ci right \
 
 sketchybar --update
 
-# Modo work/chill guardado (ver mode.sh). Va al final: oculta items ya creados.
+# Modo work/chill/uni guardado (ver mode.sh). Va al final: oculta items ya creados.
 "$CONFIG_DIR/mode.sh" apply >/dev/null

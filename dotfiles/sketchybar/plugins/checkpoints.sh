@@ -6,7 +6,7 @@
 # Item: agents.ckpt (se oculta si no hay nada), popup: agents.ckpt.N
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-[ "$(cat "$HOME/.cache/sketchybar/mode" 2>/dev/null)" = "chill" ] && exit 0  # modo chill: no prender nada
+[ "$(cat "$HOME/.cache/sketchybar/mode" 2>/dev/null || echo work)" != "work" ] && exit 0  # solo en work (chill/uni: no prender nada)
 CONFIG_DIR="${CONFIG_DIR:-$HOME/.config/sketchybar}"
 source "$CONFIG_DIR/colors.sh"
 source "$CONFIG_DIR/icons.sh"
