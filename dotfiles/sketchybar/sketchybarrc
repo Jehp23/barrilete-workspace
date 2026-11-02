@@ -79,9 +79,9 @@ sketchybar --add item front_app left \
 # Modo uni: botón al campus virtual (Moodle de la UCASAL). Visible solo en uni (mode.sh).
 CAMPUS_URL="https://ingenieria.campusvirtual.ucasal.edu.ar/login/index.php?loginredirect=1"
 sketchybar --add item uni.campus left \
-           --set uni.campus drawing=off icon="$ICON_CAMPUS" icon.color=$MAUVE label="Campus" \
+           --set uni.campus drawing=off icon="$ICON_CAMPUS" icon.color=$MAUVE label.drawing=off \
                  background.color=$ITEM_BG background.corner_radius=8 background.height=26 \
-                 icon.padding_left=8 label.padding_right=8 \
+                 icon.padding_left=9 icon.padding_right=9 \
                  click_script="open '$CAMPUS_URL'"
 
 ##### Agentes: a la izquierda del notch #####
@@ -126,9 +126,11 @@ UNI=(drawing=off updates=off background.drawing=off icon.padding_left=6 icon.pad
 sketchybar --add item uni.pomo right --set uni.pomo "${UNI[@]}" icon="$ICON_POMO" icon.color=$PEACH \
                  update_freq=1 script="$PLUGIN_DIR/uni.sh" \
            --add item uni.due right --set uni.due "${UNI[@]}" icon="$ICON_DUE" icon.color=$YELLOW \
-                 update_freq=300 popup.align=right script="$PLUGIN_DIR/uni.sh" --subscribe uni.due system_woke mouse.clicked \
-           --add item uni.class right --set uni.class "${UNI[@]}" icon="$ICON_CLASS" icon.color=$MAUVE \
-                 update_freq=60 script="$PLUGIN_DIR/uni.sh" --subscribe uni.class system_woke
+                 update_freq=300 popup.align=right script="$PLUGIN_DIR/uni.sh" --subscribe uni.due system_woke mouse.clicked
+# La próxima clase va a la izquierda (después del botón Campus): ahí hay lugar para verla completa
+sketchybar --add item uni.class left --set uni.class drawing=off updates=off background.drawing=off \
+                 icon="$ICON_CLASS" icon.color=$MAUVE icon.padding_left=10 icon.padding_right=4 label.padding_right=6 \
+                 update_freq=60 script="$PLUGIN_DIR/uni.sh" --subscribe uni.class system_woke \
 
 # Separadores invisibles: el fondo de un bracket incluye el padding (3 pt) de sus
 # items, así que sin esto los grupos quedan a 0–3 pt en vez de los 6 pt del resto.

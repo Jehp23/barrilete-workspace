@@ -15,18 +15,29 @@ NOW=$(date +%s)
 # izquierda) quede a 16 pt del notch. Mismo criterio que github.sh.
 LBL="$HOME/.cache/sketchybar/uni"; mkdir -p "$LBL"
 fit_uni() {
-  local n_r x lim c d
+  # Clase (izquierda): su borde derecho no puede pasar el borde izquierdo del notch.
+  # Entrega (derecha): su borde izquierdo no puede pasar el borde derecho del notch. 16 pt de margen.
+  local n_l n_r x w lim c d f="$HOME/.cache/sketchybar/notch_left"
+  [ -s "$f" ] || osascript -l JavaScript -e 'ObjC.import("AppKit");
+    const r = $.NSScreen.mainScreen.auxiliaryTopLeftArea; r.size.width > 0 ? Math.floor(r.origin.x + r.size.width) : 0' >"$f" 2>/dev/null
+  n_l=$(cat "$f" 2>/dev/null || echo 0)
   n_r=$(cat "$HOME/.cache/sketchybar/notch_right" 2>/dev/null || echo 0)
   c=$(cat "$LBL/class" 2>/dev/null || sketchybar --query uni.class | jq -r .label.value)
   d=$(cat "$LBL/due" 2>/dev/null || sketchybar --query uni.due | jq -r .label.value)
   trunc() { local t="$1" k="$2"; [ ${#t} -gt "$k" ] && echo "${t:0:$((k-1))}…" || echo "$t"; }
-  for lim in "36 30" "28 24" "22 18" "18 14" "14 10" "10 8" "6 5"; do
-    set -- $lim
-    sketchybar --set uni.class label="$(trunc "$c" "$1")" --set uni.due label="$(trunc "$d" "$2")"
-    [ "${n_r:-0}" -eq 0 ] && return
+  for lim in 60 44 34 26 18 10; do
+    sketchybar --set uni.class label="$(trunc "$c" "$lim")"
+    [ "${n_l:-0}" -eq 0 ] && break
     sleep 0.05
-    x=$(sketchybar --query uni.class | jq -r '.bounding_rects[]?.origin[0] // 9999 | floor' | head -1)
-    [ "${x:-9999}" -ge $((n_r + 16)) ] && return
+    read -r x w < <(sketchybar --query uni.class | jq -r '.bounding_rects[]? | "\(.origin[0]|floor) \(.size[0]|floor)"' | head -1)
+    [ $(( ${x:-0} + ${w:-0} )) -le $((n_l - 8)) ] && break
+  done
+  for lim in 44 34 28 22 16 10 6; do
+    sketchybar --set uni.due label="$(trunc "$d" "$lim")"
+    [ "${n_r:-0}" -eq 0 ] && break
+    sleep 0.05
+    x=$(sketchybar --query uni.due | jq -r '.bounding_rects[]?.origin[0] // 9999 | floor' | head -1)
+    [ "${x:-9999}" -ge $((n_r + 16)) ] && break
   done
 }
 
@@ -96,7 +107,7 @@ uni.due)
     echo "sin entregas${LATE:+ · $LATE vencidas}" | sed 's/ · 0 vencidas//' >"$LBL/due"
     sketchybar --set "$NAME" label.color=$SUBTEXT; fit_uni; exit 0
   fi
-  IFS=$'\t' read -r DAY HOUR TYPE STATE WHAT <<<"$NEXT"
+  IFS=$'\t' read -r DAY HOUR TYPE STATE WHAT _URL <<<"$NEXT"
   [ "$HOUR" = - ] && HOUR=""; [ "$TYPE" = - ] && TYPE=""; [ "$STATE" = - ] && STATE=""
   DUE=$(date -j -f %Y-%m-%d "$DAY" +%s 2>/dev/null || echo "$NOW")
   DAYS=$(( (DUE - $(date -j -f %Y-%m-%d "$TODAY" +%s)) / 86400 ))
