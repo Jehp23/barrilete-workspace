@@ -152,6 +152,14 @@ go() {
   if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$target"; else exec tmux attach -t "$target"; fi
 }
 
+# Pane real del agente de la ventana <win>: si alt+shift+N lo llevó al lugar del chat de un workspace,
+# en su ventana quedó el chat de visita (@bk_ws) y el agente está en <workspace>:main (@bk_guest).
+agent_target() {
+  local win="$1" p ws
+  read -r p ws < <(tmux list-panes -t "$SESSION:$win" -F '#{pane_id} #{@bk_ws}' 2>/dev/null | head -1)
+  if [ -n "$ws" ]; then tmux show-options -wqv -t "$ws:main" @bk_guest; else echo "${p:-$SESSION:$win}"; fi
+}
+
 # Ver la pantalla de un agente sin entrar. Sin ventana: un resumen de todas.
 peek() {
   need_tmux
@@ -159,14 +167,14 @@ peek() {
   local win="${1:-}" n="${2:-}"
   if [ -n "$win" ]; then
     has_window "$win" || die "no existe la ventana '$win' (bk ls)"
-    tmux capture-pane -p -J -t "$SESSION:$win" -S "-${n:-60}"
+    tmux capture-pane -p -J -t "$(agent_target "$win")" -S "-${n:-60}"
     return
   fi
   local w
   for w in $(tmux list-windows -t "$SESSION" -F '#{window_name}'); do
     printf '\033[1;35m── %s\033[0m\n' "$w"
     # Sin líneas vacías ni el marco del prompt de Claude Code, para que entre en pantalla
-    tmux capture-pane -p -J -t "$SESSION:$w" -S -80 | grep -v '^[[:space:]]*$' | grep -v '^[─╭╰│ ]*$' | tail -n "${n:-8}"
+    tmux capture-pane -p -J -t "$(agent_target "$w")" -S -80 | grep -v '^[[:space:]]*$' | grep -v '^[─╭╰│ ]*$' | tail -n "${n:-8}"
     echo
   done
 }
@@ -180,9 +188,10 @@ say() {
   local msg="$*"
   [ -n "$msg" ] || die "falta el mensaje"
   has_window "$win" || die "no existe la ventana '$win' (bk ls)"
-  tmux send-keys -t "$SESSION:$win" -l -- "$msg"
+  local tp; tp=$(agent_target "$win")
+  tmux send-keys -t "$tp" -l -- "$msg"
   sleep 0.2
-  tmux send-keys -t "$SESSION:$win" Enter
+  tmux send-keys -t "$tp" Enter
   info "→ $win: $msg   (bk peek $win para ver la respuesta)"
 }
 
@@ -245,7 +254,7 @@ watch() {
     {
       printf '\033[H\033[1;35m%s\033[0m\033[K\n' "${hdr:0:$cols}"
       # Sin el pie de Claude Code (caja del prompt + "auto mode"): en un panel chico se comía todo
-      tmux capture-pane -p -e -t "$SESSION:$win" 2>/dev/null \
+      tmux capture-pane -p -e -t "$(agent_target "$win")" 2>/dev/null \
         | grep -v '^[[:space:]]*$' \
         | awk '{ l[NR] = $0; t = $0; gsub(/\033\[[0-9;?]*[A-Za-z]/, "", t)
                  if (t ~ /^─────/) { s2 = s1; s1 = NR } }
@@ -365,6 +374,34 @@ cmd_rerun() {
   for run in "${runs[@]}"; do
     if gh run rerun "$run" --failed >/dev/null 2>&1; then echo "  ↻ $run"; else echo "  ✗ $run (gh run rerun falló)"; fi
   done
+}
+
+# bk _agent <sesión> <N|0>: muestra el agente N de la tira en el lugar del chat del workspace (swap-pane:
+# la tira y el riel quedan). 0 devuelve el orquestador. El pane del chat se marca con @bk_ws para
+# reconocerlo aunque esté de visita en la sesión agents.
+ws_agent() {
+  set +euo pipefail
+  local s="${1:?}" n="${2:-0}" w guest chat target
+  w="$s:main"
+  case "$s" in bk*) ;; *) tmux display-message "alt+shift+N funciona dentro de un workspace (bk)"; return ;; esac
+  guest=$(tmux show-options -wqv -t "$w" @bk_guest)
+  chat=$(tmux show-options -wqv -t "$w" @bk_chat)
+  if [ -n "$guest" ] && [ -n "$chat" ]; then           # primero devolver el que está de visita
+    tmux swap-pane -d -s "$guest" -t "$chat" 2>/dev/null
+    tmux set-option -wu -t "$w" @bk_guest; tmux set-option -wu -t "$w" @bk_chat
+    tmux set-option -pu -t "$chat" @bk_ws 2>/dev/null
+  fi
+  [ "$n" = 0 ] && { tmux select-pane -t "${chat:-$w}" 2>/dev/null; return; }
+  # El N-ésimo agente, en el mismo orden que la tira (ventanas de "agents", sin chats de workspaces)
+  target=$(tmux list-panes -s -t "$SESSION" -F '#{pane_id} #{@bk_ws}' 2>/dev/null | awk '$2 == "" {print $1}' | sed -n "${n}p")
+  [ -n "$target" ] || { tmux display-message "no hay agente $n"; return; }
+  chat=$(tmux list-panes -t "$w" -F '#{pane_id} #{pane_start_command}' | grep -v -e 'bk rail' -e 'bk sidebar' | head -1 | cut -d' ' -f1)
+  [ -n "$chat" ] || return
+  tmux set-option -p -t "$chat" @bk_ws "$s"
+  tmux swap-pane -d -s "$target" -t "$chat"
+  tmux set-option -w -t "$w" @bk_guest "$target"; tmux set-option -w -t "$w" @bk_chat "$chat"
+  tmux select-pane -t "$target"
+  tmux display-message "agente $n en el lugar del chat · alt+q vuelve al orquestador"
 }
 
 # bk focus [min] [qué]: pomodoro en la barra (modo uni). Sin argumentos: 25 min. "stop" lo corta.
@@ -689,6 +726,7 @@ case "${1:-}" in
   changes)     exec python3 "$WS/lib/changes.py" ;;
   palette|k)   exec python3 "$WS/lib/palette.py" ;;
   _layout)     ws_layout "${2:-}" ;;
+  _agent)      ws_agent "${2:-}" "${3:-0}" ;;
   _footer)     ws_footer "${2:-}" ;;
   _model)      ws_model "${2:-}" ;;
   _style)      WS_SESSION="${2:?}"; ws_style ;;

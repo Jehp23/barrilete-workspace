@@ -63,8 +63,10 @@ def items():
                 state = s
         out.append(("ws", name, name, state))
     for l in sh("tmux", "list-panes", "-s", "-t", AGENTS, "-F",
-                "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}").splitlines():
-        win, pid, cmd, dead = (l.split("\t") + ["", "", "", ""])[:4]
+                "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}").splitlines():
+        win, pid, cmd, dead, ws = (l.split("\t") + ["", "", "", "", ""])[:5]
+        if ws:      # el chat de un workspace, de visita mientras un agente ocupa su lugar
+            continue
         out.append(("ag", win, f"{AGENTS}:{win}", pane_state(st, pid, cmd, dead)))
     return out
 

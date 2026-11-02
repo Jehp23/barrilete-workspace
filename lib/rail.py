@@ -85,9 +85,9 @@ def states():
 def agents(by_pane):
     live, ended = [], []
     for l in sh("tmux", "list-panes", "-s", "-t", SESSION, "-F",
-                "#{window_name}\t#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{pane_current_path}").splitlines():
+                "#{window_name}\t#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{pane_current_path}\t#{@bk_ws}").splitlines():
         p = l.split("\t")
-        if len(p) != 5:
+        if len(p) != 6 or p[5]:      # p[5]: el chat de un workspace, de visita (alt+shift+N)
             continue
         a = {"win": p[0], "pane": p[1], "s": by_pane.get(p[1], {})}
         if not in_project(a["s"].get("cwd") or p[4]):
