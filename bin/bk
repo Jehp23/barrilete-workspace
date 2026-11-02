@@ -114,7 +114,9 @@ bot_env() {
   # gh: config propia con el token del bot (no depende del PATH, que el shell del agente rearma)
   cfg="$HOME/.cache/bk/bot/gh/${slug//\//_}"
   python3 "$WS/lib/ghapp.py" ghconfig "$cfg" "$slug" 2>/dev/null || return 0
-  pgrep -f "ghapp.py keep $cfg" >/dev/null || nohup python3 "$WS/lib/ghapp.py" keep "$cfg" "$slug" >/dev/null 2>&1 &
+  # El renovador lo lanza el server de tmux: así no queda colgado de esta terminal
+  pgrep -f "ghapp.py keep $cfg" >/dev/null ||
+    tmux run-shell -b "python3 $(sq "$WS/lib/ghapp.py") keep $(sq "$cfg") $(sq "$slug") >/dev/null 2>&1" 2>/dev/null
   env+=(-e "GH_CONFIG_DIR=$cfg" -e "BK_BOT=$login"
         -e "GIT_AUTHOR_NAME=$login" -e "GIT_AUTHOR_EMAIL=$email"
         -e "GIT_COMMITTER_NAME=$login" -e "GIT_COMMITTER_EMAIL=$email"
