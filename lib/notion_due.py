@@ -6,7 +6,7 @@ publicada). Config en ~/.config/bk/uni.json:
   {"notion": {"site": "https://<algo>.notion.site", "space": "<id>", "collection": "<id>", "view": "<id>",
               "props": {"date": "gwfJ", "status": "Rwoy", "time": "Y\\\\Qv", "type": "uO}D"}}}
 Salida: una línea por entrega sin terminar (Estado distinto de "Listo"), ordenadas por fecha:
-  <AAAA-MM-DD>\t<HH:MM o vacío>\t<tipo>\t<estado>\t<nombre>
+  <AAAA-MM-DD>\t<HH:MM o vacío>\t<tipo>\t<estado>\t<nombre>\t<url de la página en notion.site>
 --overdue incluye las vencidas; sin eso, solo de hoy en adelante. Caché de 5 minutos.
 """
 import json, os, sys, time, urllib.request
@@ -47,7 +47,7 @@ def rows(data, props):
     for i in ids:
         p = val(bl.get(i, {})).get("properties", {})
         yield dt(p, props["date"]), txt(p, props["time"]), txt(p, props["type"]), txt(p, props["status"]), \
-            txt(p, "title").strip()
+            txt(p, "title").strip(), i.replace("-", "")
 
 
 def main():
@@ -74,8 +74,9 @@ def main():
     today = date.today().isoformat()
     pend = [r for r in rows(data, n["props"]) if r[0] and r[3].lower() != "listo"
             and ("--overdue" in sys.argv or r[0] >= today)]
-    for d, t, ty, st, name in sorted(pend):
-        print(f"{d}\t{t}\t{ty}\t{st}\t{name}")
+    site = n["site"].rstrip("/")
+    for d, t, ty, st, name, pid in sorted(pend):
+        print(f"{d}\t{t}\t{ty}\t{st}\t{name}\t{site}/{pid}")
 
 
 if __name__ == "__main__":

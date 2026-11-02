@@ -81,13 +81,14 @@ uni.due)
   # Popup: vencidas (rojo) y las próximas 6
   sketchybar --remove '/uni\.due\.[0-9]*/' >/dev/null 2>&1
   i=0
-  while IFS=$'\t' read -r D T TY ST NM; do
+  while IFS=$'\t' read -r D T TY ST NM URL; do
     [ -n "$D" ] || continue
     [ "$T" = - ] && T=""; [ "$ST" = - ] && ST=""
     [ "$D" \< "$TODAY" ] && C=$RED || C=$TEXT
     sketchybar --add item uni.due.$i popup.uni.due \
                --set uni.due.$i background.drawing=off icon.drawing=off label.padding_left=10 label.padding_right=12 \
-                     label="$(date -j -f %Y-%m-%d "$D" '+%d/%m' 2>/dev/null)${T:+ $T}  $NM${ST:+ · $ST}" label.color=$C
+                     label="$(date -j -f %Y-%m-%d "$D" '+%d/%m' 2>/dev/null)${T:+ $T}  $NM${ST:+ · $ST}" label.color=$C \
+                     click_script="${URL:+open '$URL'; }sketchybar --set uni.due popup.drawing=off"
     i=$((i+1)); [ $i -ge 10 ] && break
   done < <( { awk -F'\t' -v t="$TODAY" '$1 < t' <<<"$ALL"; awk -F'\t' -v t="$TODAY" '$1 >= t' <<<"$ALL" | head -6; } )
   if [ -z "$NEXT" ]; then
