@@ -7,7 +7,7 @@ publicada). Config en ~/.config/bk/uni.json:
               "props": {"date": "gwfJ", "status": "Rwoy", "time": "Y\\\\Qv", "type": "uO}D"}}}
 Salida: una línea por entrega sin terminar (Estado distinto de "Listo"), ordenadas por fecha:
   <AAAA-MM-DD>\t<HH:MM o vacío>\t<tipo>\t<estado>\t<nombre>\t<link: notion:// (app) o notion.so>
---overdue incluye las vencidas; sin eso, solo de hoy en adelante. Caché de 5 minutos.
+--overdue incluye las vencidas; sin eso, solo de hoy en adelante. Caché de 55 s (la barra consulta cada minuto).
 """
 import json, os, sys, time, urllib.request
 from datetime import date
@@ -57,7 +57,7 @@ def main():
         sys.exit(2)
     data = None
     try:
-        if time.time() - os.path.getmtime(CACHE) < 300:
+        if time.time() - os.path.getmtime(CACHE) < 55:
             data = json.load(open(CACHE))
     except (OSError, ValueError):
         pass
