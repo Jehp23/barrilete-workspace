@@ -20,6 +20,8 @@ ENTRIES = [
     ("Vistas", "Agentes en vivo", "watch --all", None, "view"),
     ("Vistas", "Cambios sin commitear", "changes", None, "view"),
     ("Vistas", "Sesiones de Claude", "s", None, "view"),
+    ("Vistas", "Estadísticas de uso", "stats", None, "view"),
+    ("Vistas", "Personalizar el workspace", "customize", None, "view"),
     ("Vistas", "Ver la pantalla de un agente", "peek", "ventana", "show"),
     ("GitHub", "Ver checks fallidos para re-correr", "rerun", None, "show"),
     ("GitHub", "Re-correr los checks fallidos", "rerun --go", None, "show"),

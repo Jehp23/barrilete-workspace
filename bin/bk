@@ -31,6 +31,8 @@ uso: bk [comando] [--dry-run]
   go <ventana>      saltar a un agente (i42, pr57, plan, orch)
   changes           lo que los agentes dejaron sin commitear, con diff (alt+g)
   palette | k       todos los comandos con búsqueda (alt+k)
+  stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
+  customize         estilo del workspace: tarjetas float/neon, densidad, header, tema (alt+c)
   s                 sesiones de Claude estilo Orca: abiertas (saltar) y recientes de todas las
                     carpetas (retomar con claude --resume). En tmux: prefijo + s
   peek [ventana] [n] ver qué hace un agente sin entrar (sin ventana: todos, últimas líneas)
@@ -360,21 +362,35 @@ cmd_open() {
 
 # Paleta gentle (rosa sobre oscuro): bordes finos, sin título en el riel, footer en la barra de tmux
 ws_style() {
-  local t="$WS_SESSION:main" s="$WS_SESSION"
+  local t="$WS_SESSION:main" s="$WS_SESSION" pal
+  # Colores del tema (day/night) y posición del header, de lib/gentle.py y ~/.config/bk/ui.json
+  pal=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import gentle as g; p = g.P
+print(p["tint"], p["rose"], p["petal"], p["text"], p["muted"], p["frame"], g.ui()["header"])' "$WS/lib")
+  read -r TINT ROSE PETAL TEXT MUTED FRAME HEAD <<<"$pal"
   tmux set-option -w -t "$t" pane-border-status off >/dev/null
   tmux set-option -w -t "$t" pane-border-lines single >/dev/null
-  tmux set-option -w -t "$t" pane-border-style 'fg=#3a2a35' >/dev/null
-  tmux set-option -w -t "$t" pane-active-border-style 'fg=#f095c8' >/dev/null
-  tmux set-option -t "$s" status-position bottom >/dev/null
-  tmux set-option -t "$s" status-style 'bg=default,fg=#7e6e78' >/dev/null
+  tmux set-option -w -t "$t" pane-border-style "fg=#$TINT" >/dev/null
+  tmux set-option -w -t "$t" pane-active-border-style "fg=#$FRAME" >/dev/null
+  # Header a lo Gentle Shell 4: barra con fondo, proyecto · carpeta rama · modelo … uso
+  tmux set-option -t "$s" status-position "${HEAD:-top}" >/dev/null
+  tmux set-option -t "$s" status-style "bg=#$TINT,fg=#$MUTED" >/dev/null
   tmux set-option -t "$s" status-interval 10 >/dev/null
-  tmux set-option -t "$s" status-left-length 80 >/dev/null
+  tmux set-option -t "$s" status-left-length 100 >/dev/null
   tmux set-option -t "$s" status-right-length 120 >/dev/null
   tmux set-option -t "$s" window-status-format '' >/dev/null
   tmux set-option -t "$s" window-status-current-format '' >/dev/null
   tmux set-option -t "$s" status-left \
-    '#[fg=#f095c8,bold] ✿ #{s/^bk-//:session_name} #[fg=#7e6e78,nobold]· #[fg=#e8dcE3]#{b:pane_current_path} #[fg=#d7a0b8]#(git -C "#{pane_current_path}" branch --show-current 2>/dev/null)' >/dev/null
-  tmux set-option -t "$s" status-right '#(bk _footer #{session_name}) ' >/dev/null
+    "#[fg=#$ROSE,bold]  ✿ #{s/^bk-//:session_name} #[fg=#$MUTED,nobold]· #[fg=#$TEXT]#{s|$HOME|~|:pane_current_path} #[fg=#$PETAL,bold]#(git -C '#{pane_current_path}' branch --show-current 2>/dev/null)#[nobold] #[fg=#$MUTED]· #[fg=#$TEXT]#(bk _model #{session_name})" >/dev/null
+  tmux set-option -t "$s" status-right "#(bk _footer #{session_name})  " >/dev/null
+}
+
+# Modelo del chat del workspace (el pane "main.0"), del estado que escribe el hook
+ws_model() {
+  set +euo pipefail
+  local pane m
+  pane=$(tmux list-panes -t "${1:-}:main" -F '#{pane_id} #{pane_start_command}' 2>/dev/null | awk '/claude/{print $1; exit}')
+  m=$(grep -l "\"pane\": *\"$pane\"" "$STATE_DIR"/*.json 2>/dev/null | head -1 | xargs jq -r '.model // empty' 2>/dev/null)
+  printf '%s' "${m:-claude}"
 }
 
 # Footer: agentes activos · tokens y costo de hoy (usa el caché incremental de usage.py)
@@ -388,8 +404,7 @@ ws_footer() {
   tot=$(jq -s "[.[] | select($sel)] | length" "$STATE_DIR"/*.json 2>/dev/null)
   u=$(python3 "$WS/lib/usage.py" --json 2>/dev/null | jq -r '"\(.tokens/1000000*10|floor/10)M · $\(.cost_usd)"' 2>/dev/null)
   local word=activos; [ "${act:-0}" = 1 ] && word=activo
-  printf '#[fg=#a99cf5]∗ %s %s #[fg=#7e6e78]de %s · #[fg=#e8dce3]%s #[fg=#7e6e78]≈API' \
-    "${act:-0}" "$word" "${tot:-0}" "${u:-—}"
+  printf '#[fg=#a99cf5]∗ %s %s#[default] · %s ≈API · usage alt+u' "${act:-0}" "$word" "${u:-—}"
 }
 
 # Proporciones: riel derecho 34 % (mínimo 46 columnas)
@@ -614,6 +629,10 @@ case "${1:-}" in
   palette|k)   exec python3 "$WS/lib/palette.py" ;;
   _layout)     ws_layout "${2:-}" ;;
   _footer)     ws_footer "${2:-}" ;;
+  _model)      ws_model "${2:-}" ;;
+  _style)      WS_SESSION="${2:?}"; ws_style ;;
+  stats)       exec python3 "$WS/lib/stats.py" ;;
+  customize)   exec python3 "$WS/lib/customize.py" ;;
   s|sessions)  exec python3 "$WS/lib/sessions.py" ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;

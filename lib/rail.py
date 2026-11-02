@@ -7,6 +7,7 @@ alt+k comandos, alt+s sesiones.
 import glob, json, os, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import gentle as G
 from gentle import (AMBER, BOLD, FRAME, GREEN, IRIS, MUTED, PETAL, RED, ROSE, RST, TEXT,
                     card, cut, fit, lr, vlen)
 
@@ -102,33 +103,59 @@ STATE_UI = {  # estado -> (glifo, texto, color)
 }
 
 
+def inner(W):
+    return W - 5 if G.ui()["cards"] == "float" else W - 4
+
+
+def roles_profile(top):
+    """Perfil de modelos: rol → modelo, de roles.yml (o el del proyecto)."""
+    out = sh(os.path.join(os.path.dirname(HERE), "bin", "bk"), "roles", cwd=top or None)
+    pairs = []
+    for l in out.splitlines():
+        p = l.split()
+        if len(p) >= 2 and "/" in p[1]:
+            pairs.append((p[0], p[1].split("/")[-1]))
+    short = {"implementer": "impl", "implementer-light": "light", "reviewer": "review",
+             "planner": "plan", "orchestrator": "orq"}
+    return " · ".join(f"{short.get(r, r)} {m}" for r, m in pairs) or "—"
+
+
+_profile = {"t": 0, "v": "—"}
+
+
 def card_status(W, cwd, live):
     top = sh("git", "-C", cwd, "rev-parse", "--show-toplevel").strip()
-    repo = os.path.basename(top) if top else os.path.basename(cwd)
+    path = (PROJECT or top or cwd).replace(os.path.expanduser("~"), "~")
     br = sh("git", "-C", cwd, "branch", "--show-current").strip()
     dirty = len([l for l in sh("git", "-C", cwd, "status", "--porcelain").splitlines() if l.strip()])
+    if time.time() - _profile["t"] > 60:
+        _profile["v"], _profile["t"] = roles_profile(PROJECT or top), time.time()
     u = usage()
-    working = sum(1 for a in live if a["s"].get("state") in ("working", "background", "waiting"))
-    rows = [f"{TEXT}{BOLD}{repo}{RST}  {PETAL}{br or '—'}{RST}" + (f" {AMBER}±{dirty}{RST}" if dirty else "")]
+    n = inner(W)
+    rows = [f"{MUTED}Project{RST}", f" {TEXT}{path}{RST}",
+            f" {MUTED}Branch{RST}  {TEXT}{BOLD}{br or '—'}{RST}" + (f" {AMBER}±{dirty}{RST}" if dirty else ""),
+            f" {MUTED}Profile{RST} {TEXT}{_profile['v']}{RST}", ""]
     if PROJECT:
-        # usage.py agrupa por carpeta: "<proyecto>" y sus worktrees "<proyecto>#<n>"
         name = os.path.basename(PROJECT)
         pt = sum(v["tokens"] for k, v in u.get("by_project", {}).items() if k == name or k.startswith(name + "#"))
         pc = sum(v["cost"] for k, v in u.get("by_project", {}).items() if k == name or k.startswith(name + "#"))
-        rows.append(f"{MUTED}hoy acá{RST} {TEXT}{human(pt)}{RST} {MUTED}tok ·{RST} {AMBER}${pc:.2f}{RST}"
-                    f"  {MUTED}total ${u.get('cost_usd', 0):.2f}{RST}")
+        rows += [f"{MUTED}Usage{RST}", f" {MUTED}hoy acá{RST} {TEXT}{human(pt)}{RST} {MUTED}·{RST} {AMBER}${pc:.2f}{RST}"
+                 f"  {MUTED}total{RST} {TEXT}${u.get('cost_usd', 0):.2f}{RST}"]
     else:
-        rows.append(f"{MUTED}hoy{RST} {TEXT}{human(u.get('tokens', 0))}{RST} {MUTED}tok ·{RST} "
-                    f"{AMBER}${u.get('cost_usd', 0):.2f}{RST} {MUTED}≈API{RST}")
+        rows += [f"{MUTED}Usage{RST}", f" {MUTED}hoy{RST} {TEXT}{human(u.get('tokens', 0))}{RST} {MUTED}tok ·{RST} "
+                 f"{AMBER}${u.get('cost_usd', 0):.2f}{RST} {MUTED}≈API{RST}"]
+    rows += ["", f"{MUTED}Integrations{RST}",
+             f" {ROSE}✿{RST} {TEXT}claude code{RST} {MUTED}· ready{RST}   {PETAL}{RST}{TEXT}gh{RST} {MUTED}· ready{RST}"]
+    working = sum(1 for a in live if a["s"].get("state") in ("working", "background", "waiting"))
     right = f"{len(live)} agente{'s' if len(live) != 1 else ''}" + (f" · {working} activo{'s' if working != 1 else ''}" if working else "")
-    return card("Status", rows, W, right=right)
+    return card("Status", [fit(r, n) for r in rows], W, right=right)
 
 
 def card_agents(W, live, ended):
     if not live and not ended:
         return card("Agents", [f"{MUTED}nadie trabajando · {PETAL}alt+k{MUTED} para lanzar{RST}"], W, glyph="∗")
     rows = []
-    inner = W - 4
+    inner_w = inner(W)
     for a in live:
         s = a["s"]
         g, txt, col = STATE_UI.get(s.get("state"), ("·", s.get("state") or "—", MUTED))
@@ -138,7 +165,7 @@ def card_agents(W, live, ended):
             txt = f"{s['background']} en 2º plano"
         left = f"{col}{g}{RST} {TEXT}{BOLD}{a['win']}{RST} {MUTED}{s.get('role') or ''}{RST}"
         right = f"{PETAL}{model(s.get('model'))}{RST}  {col}{txt}{RST}  {MUTED}{ago(s.get('ts', 0)):>5}{RST}"
-        rows.append(lr(left, right, inner))
+        rows.append(lr(left, right, inner_w))
         if s.get("state") == "working" and s.get("tool") not in (None, "-", "confianza"):
             rows.append(f"  {MUTED}↳ {s['tool']}{RST}")
     for a in ended:
@@ -211,7 +238,7 @@ def card_changes(W, roots, max_rows):
             a, d = num.get(path, ("", ""))
             col = GREEN if code in ("A", "??") else RED if code == "D" else AMBER
             stat = (f"{GREEN}+{a}{RST} {RED}-{d}{RST}" if a and a != "-" else "")
-            rows.append(lr(f"  {col}{'A' if code == '??' else code}{RST} {TEXT}{path}{RST}", stat, W - 4))
+            rows.append(lr(f"  {col}{'A' if code == '??' else code}{RST} {TEXT}{path}{RST}", stat, inner(W)))
             nfiles += 1
     if not rows:
         return card("Changes", [f"{MUTED}sin cambios sin commitear{RST}"], W, glyph="✎")
