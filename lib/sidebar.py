@@ -78,8 +78,13 @@ def go(target):
     # El cliente que mira este pane es el que cambia (no otro cliente conectado a otra ventana)
     pane = os.environ.get("TMUX_PANE", "")
     client = sh("tmux", "display-message", "-p", "-t", pane, "#{client_name}").strip()
-    args = ["tmux", "switch-client"] + (["-c", client] if client else []) + ["-t", target]
-    subprocess.run(args, capture_output=True)
+    c = ["-c", client] if client else []
+    if target.startswith(AGENTS + ":"):
+        # El agente se abre encima, en un popup: el workspace sigue ahí. alt+q (o C-a D) lo cierra.
+        subprocess.Popen(["tmux", "display-popup"] + c + ["-w", "92%", "-h", "88%", "-E",
+                          f"TMUX= tmux attach -t '{target}'"])
+        return
+    subprocess.run(["tmux", "switch-client"] + c + ["-t", target], capture_output=True)
 
 
 def ui(scr):

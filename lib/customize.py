@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bk customize (alt+c): estilo del workspace, a lo /gentle:customize.
+"""bk customize (alt+,): estilo del workspace, a lo /gentle:customize.
 
 Izquierda las categorías, derecha las opciones; se aplica al instante en todos los workspaces
 abiertos (sesiones bk-*): guarda ~/.config/bk/ui.json, rehace el header y reinicia los rieles.
