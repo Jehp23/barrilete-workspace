@@ -106,16 +106,16 @@ has_window() { tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null |
 # Agrega a ${env[@]} del que llama. BK_BOT=0 lo apaga para un lanzamiento.
 bot_env() {
   [ "${BK_BOT:-1}" = 0 ] && return 0
-  (cd "$1" && python3 "$WS/lib/ghapp.py" token >/dev/null 2>&1) || return 0
-  local who login email shim="$HOME/.cache/bk/bot/bin" realgh
+  local slug who login email cfg
+  slug=$(cd "$1" && git remote get-url origin 2>/dev/null | sed -nE 's#.*github\.com[:/]([^/]+/[^/]+)$#\1#p' | sed 's/\.git$//')
+  [ -n "$slug" ] || return 0
   who=$(python3 "$WS/lib/ghapp.py" whoami 2>/dev/null) || return 0
   login=${who%% *}; email=${who##* }
-  realgh=$(PATH="${PATH//$shim:/}" command -v gh) || return 0
-  mkdir -p "$shim"
-  printf '#!/bin/bash\n# gh como el bot de bk (token de la GitHub App, renovado solo)\nt=$(python3 %q token 2>/dev/null) && export GH_TOKEN="$t"\nexec %q "$@"\n' \
-    "$WS/lib/ghapp.py" "$realgh" > "$shim/gh"
-  chmod +x "$shim/gh"
-  env+=(-e "PATH=$shim:$PATH" -e "BK_BOT=$login"
+  # gh: config propia con el token del bot (no depende del PATH, que el shell del agente rearma)
+  cfg="$HOME/.cache/bk/bot/gh/${slug//\//_}"
+  python3 "$WS/lib/ghapp.py" ghconfig "$cfg" "$slug" 2>/dev/null || return 0
+  pgrep -f "ghapp.py keep $cfg" >/dev/null || nohup python3 "$WS/lib/ghapp.py" keep "$cfg" "$slug" >/dev/null 2>&1 &
+  env+=(-e "GH_CONFIG_DIR=$cfg" -e "BK_BOT=$login"
         -e "GIT_AUTHOR_NAME=$login" -e "GIT_AUTHOR_EMAIL=$email"
         -e "GIT_COMMITTER_NAME=$login" -e "GIT_COMMITTER_EMAIL=$email"
         -e "GIT_CONFIG_COUNT=2"

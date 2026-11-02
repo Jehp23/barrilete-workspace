@@ -8,6 +8,8 @@ Cache:  ~/.cache/bk/ghapp/  (token por instalación, se renueva con menos de 10 
   ghapp.py credential get       helper de credenciales de git (git push como el bot)
   ghapp.py whoami               "<slug>[bot] <id>" para firmar los commits
   ghapp.py check                dice si está configurada y a qué repos llega
+  ghapp.py ghconfig DIR [repo]  escribe DIR/hosts.yml para `gh` (GH_CONFIG_DIR=DIR) con el token del bot
+  ghapp.py keep DIR [repo]      renueva DIR/hosts.yml cada 15 min mientras haya un agente usándolo
 
 Sin config o sin acceso al repo sale con 1 y no imprime token: bk lanza al agente como vos.
 El JWT se firma con openssl (RS256), sin dependencias de Python.
@@ -138,6 +140,39 @@ def whoami():
     return w
 
 
+def ghconfig(d, repo):
+    """hosts.yml de gh con el token del bot. La config de gh (alias, editor) se copia de la tuya."""
+    t, w = token(repo), whoami()
+    if not t or not w:
+        return False
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    mine = os.path.expanduser("~/.config/gh/config.yml")
+    if os.path.isfile(mine) and not os.path.exists(os.path.join(d, "config.yml")):
+        with open(mine) as f, open(os.path.join(d, "config.yml"), "w") as g:
+            g.write(f.read())
+    p = os.path.join(d, "hosts.yml")
+    fd = os.open(p + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(f"github.com:\n    oauth_token: {t}\n    user: {w['login']}\n    git_protocol: https\n")
+    os.replace(p + ".tmp", p)
+    return True
+
+
+def users(d):
+    """¿Algún pane de tmux corre con GH_CONFIG_DIR=d? (si no, el renovador termina)."""
+    try:
+        pids = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{pane_pid}"], capture_output=True,
+                              text=True, timeout=5).stdout.split()
+        for pid in pids:
+            env = subprocess.run(["ps", "-E", "-o", "command=", "-p", pid], capture_output=True,
+                                 text=True, timeout=5).stdout
+            if f"GH_CONFIG_DIR={d}" in env:
+                return True
+    except (OSError, subprocess.SubprocessError):
+        return True  # ante la duda, seguir renovando
+    return False
+
+
 def main():
     a = sys.argv[1:]
     try:
@@ -156,6 +191,16 @@ def main():
                 print(f"username=x-access-token\npassword={t}")
         elif a[:1] == ["credential"]:
             pass  # store/erase: nada que guardar
+        elif a[:1] in (["ghconfig"], ["keep"]) and len(a) > 1:
+            d, repo = a[1], (a[2] if len(a) > 2 else repo_here())
+            while True:
+                if not ghconfig(d, repo):
+                    sys.exit(1)
+                if a[0] == "ghconfig":
+                    break
+                time.sleep(900)  # primero esperar: al lanzar, el pane del agente todavía no existe
+                if not users(d):
+                    break
         elif a[:1] == ["whoami"]:
             w = whoami()
             if not w:
