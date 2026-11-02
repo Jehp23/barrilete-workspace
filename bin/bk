@@ -34,6 +34,7 @@ uso: bk [comando] [--dry-run]
   changes           lo que los agentes dejaron sin commitear, con diff (alt+g)
   palette | k       todos los comandos con búsqueda (alt+k)
   stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
+  term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
   bot               verifica la GitHub App de los agentes (~/.config/bk/gh-app.json)
   customize         estilo del workspace: tarjetas float/neon, densidad, header, tema (alt+,)
@@ -124,6 +125,20 @@ bot_env() {
         -e "GIT_CONFIG_KEY_0=credential.helper" -e "GIT_CONFIG_VALUE_0="
         -e "GIT_CONFIG_KEY_1=credential.helper" -e "GIT_CONFIG_VALUE_1=!python3 $WS/lib/ghapp.py credential")
   info "como el bot: $login"
+}
+
+# Terminal rápida (alt+x): una sesión term-<proyecto> que sobrevive al popup. Se abre en la raíz del
+# proyecto del pane; alt+x de nuevo la esconde y vuelve a aparecer como la dejaste.
+ws_term() {
+  local dir="$1" top name
+  # El repo principal también desde un worktree de agente (su .git común está en el repo)
+  top=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+  case "$top" in */.git) top=${top%/.git} ;; *) top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "$dir") ;; esac
+  # Worktrees de agentes (../<repo>-wt/<n>) y la carpeta del chat: la terminal del repo principal
+  name="term-$(basename "$top" | tr -c 'A-Za-z0-9_\n-' '_')"
+  tmux has-session -t "=$name" 2>/dev/null || tmux new-session -d -s "$name" -c "$dir"
+  tmux set -t "$name" status off 2>/dev/null
+  exec env -u TMUX tmux attach -t "=$name"
 }
 
 # launch <ventana> <dir> <rol> <ref> <comando>
@@ -802,6 +817,7 @@ case "${1:-}" in
   dash)        dash ;;
   rail)        exec python3 "$WS/lib/rail.py" ;;
   sidebar)     exec python3 "$WS/lib/sidebar.py" ;;
+  term|t)      shift; ws_term "${1:-$PWD}" ;;
   _nth)        tmux list-sessions -F '#{session_created} #{session_name}' 2>/dev/null \
                  | awk '$2 ~ /^bk/' | sort -n | awk -v n="${2:-1}" 'NR == n {print $2}' ;;
   changes)     exec python3 "$WS/lib/changes.py" ;;
