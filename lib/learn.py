@@ -202,8 +202,11 @@ def user_events(b, ctx, tools, plan, path):
             if "):" in first:
                 first = first.split("):", 1)[1]
             first = first.strip().rstrip(".")
+            # Un hook roto (error de bash/python del propio hook) no es un desvío del agente: es infraestructura
+            infra = re.search(r"syntax error|command not found|No such file or directory|Traceback|unexpected EOF", t)
             typ = "guardrail_block" if re.search(r"baranda|guardrail", t, re.I) else "hook_block"
-            out.append(ev(ctx, typ, norm(first), first))
+            if not infra:
+                out.append(ev(ctx, typ, norm(first), first))
         elif "doesn't want to proceed" in t:
             out.append(ev(ctx, "user_denied", f"rechazado · {tool.split('::')[0]}",
                           tool.split("::", 1)[1] if "::" in tool else tool))
@@ -404,6 +407,71 @@ def write_index():
     return len(rules)
 
 
+# ---------- Retros de Barrilete Kit (rama agents/retros) -> vault ----------
+RETRO_REPOS_CONF = os.path.expanduser("~/.config/bk/retros.json")   # {"repos": ["~/barrilete-kit", ...]}
+RETRO_FETCH_EVERY = 1800                                            # git fetch como mucho cada 30 min
+
+
+def retro_repos():
+    try:
+        repos = json.load(open(RETRO_REPOS_CONF)).get("repos", [])
+    except (OSError, ValueError):
+        repos = ["~/barrilete-kit"]
+    return [os.path.expanduser(r) for r in repos if os.path.isdir(os.path.expanduser(r))]
+
+
+def git(repo, *args):
+    import subprocess
+    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, timeout=60)
+    return r.stdout if r.returncode == 0 else ""
+
+
+def import_retros(state):
+    """Copia cada retro nueva de origin/agents/retros a <vault>/agents/retros/<repo>/ y arma retros.md."""
+    import time as _t
+    out_dir = os.path.join(AG, "retros")
+    new = []
+    for repo in retro_repos():
+        name = os.path.basename(repo.rstrip("/"))
+        key = f"retros_fetch:{repo}"
+        if _t.time() - state.get(key, 0) > RETRO_FETCH_EVERY:
+            git(repo, "fetch", "-q", "origin", "agents/retros")
+            state[key] = _t.time()
+        files = [f for f in git(repo, "ls-tree", "-r", "--name-only", "origin/agents/retros").split()
+                 if f.startswith("retros/") and f.endswith(".md")]
+        for f in files:
+            dest = os.path.join(out_dir, name, os.path.basename(f))
+            if os.path.exists(dest):
+                continue
+            body = git(repo, "show", f"origin/agents/retros:{f}")
+            if not body:
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            # Fuente al pie, para saber de dónde salió (el frontmatter de la retro queda igual)
+            body = body.rstrip() + f"\n\n---\n_Retro de `{name}`, rama `agents/retros`, `{f}`._\n"
+            with open(dest, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            new.append(dest)
+    # Índice: las 40 más recientes, con skill, issue/PR y la primera línea de desvíos
+    notes = sorted(glob.glob(os.path.join(out_dir, "*", "*.md")), key=os.path.basename, reverse=True)[:40]
+    rows = []
+    for n in notes:
+        txt = open(n, encoding="utf-8").read()
+        meta = dict(re.findall(r"^(skill|issue|pr|date|model):\s*(.+)$", txt, re.M))
+        dev = re.search(r"\*\*Deviations:\*\*\s*(.+)", txt) or re.search(r"\*\*Desv[ií]os:\*\*\s*(.+)", txt)
+        rel = os.path.relpath(n, AG)[:-3]
+        rows.append(f"| [[{rel}\\|{meta.get('date', '?')}]] | {os.path.basename(os.path.dirname(n))} | "
+                    f"{meta.get('skill', '?')} | #{meta.get('issue', '?')} | {meta.get('model', '?')} | "
+                    f"{norm(dev.group(1), 110) if dev else ''} |")
+    if rows:
+        write(os.path.join(AG, "retros.md"),
+              "# Retros de los agentes\n\nLo que cada agente anotó al terminar (`retro.sh`, rama `agents/retros` "
+              "de cada repo). Se copian solas desde `bk learn`; las lee `/improve-skills`.\n\n"
+              "| Fecha | Repo | Skill | Issue | Modelo | Desvíos que anotó |\n|---|---|---|---|---|---|\n"
+              + "\n".join(rows) + "\n")
+    return new
+
+
 def main():
     quiet = "--quiet" in sys.argv
     if not os.path.isdir(VAULT):
@@ -428,7 +496,14 @@ def main():
         json.dump(state, f)
     os.replace(STATE + ".tmp", STATE)
 
+    retros = import_retros(state)
+    with open(STATE + ".tmp", "w") as f:
+        json.dump(state, f)
+    os.replace(STATE + ".tmp", STATE)
+
     evs30 = load_events(30)
+    if "--redraw" in sys.argv:          # rehacer las notas de todos los días (después de limpiar eventos)
+        touched |= {e["day"] for e in evs30}
     for day in touched:
         write_day(day, [e for e in evs30 if e["day"] == day])
     since14 = (datetime.now() - timedelta(days=PATTERN_DAYS)).strftime("%Y-%m-%d")
@@ -443,6 +518,8 @@ def main():
               f"{n_rules} reglas en INDEX.md")
         for n in nuevas:
             print(f"  nueva lección propuesta: agents/lessons/{n}.md")
+        if retros:
+            print(f"  {len(retros)} retros nuevas en agents/retros/")
 
 
 if __name__ == "__main__":
