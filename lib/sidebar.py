@@ -142,7 +142,17 @@ def ui(scr):
 
 
 if __name__ == "__main__":
-    try:
-        curses.wrapper(ui)
-    except KeyboardInterrupt:
-        pass
+    # Nunca cerrarse: si algo falla (un clic raro, tmux ocupado), anotar el error y volver a dibujar.
+    # Si el proceso termina, tmux cierra el pane y la tira desaparece del workspace.
+    import traceback
+    log = os.path.expanduser("~/.cache/bk/sidebar.log")
+    while True:
+        try:
+            curses.wrapper(ui)
+        except KeyboardInterrupt:
+            break
+        except Exception:
+            os.makedirs(os.path.dirname(log), exist_ok=True)
+            with open(log, "a") as f:
+                f.write(time.strftime("%F %T ") + traceback.format_exc() + "\n")
+            time.sleep(1)
