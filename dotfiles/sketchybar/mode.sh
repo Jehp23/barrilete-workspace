@@ -29,6 +29,7 @@ DYNAMIC=(agents.sub agents.ckpt agents.tok github.ci)
 POLLING=(cpu ram gpu github.prs agents agents.ckpt agents.tok)
 SPACES=(space.1 space.2 space.3 space.4 space.5 space.6 space.7 space.8 space.9 space.10)
 UNI=(uni.class uni.due uni.pomo)
+UNI_STATIC=(uni.campus)   # sin script: solo se muestra u oculta
 
 # Arma "--set a k=v --set b k=v ..." para una sola llamada a sketchybar
 sets() { local kv="$1"; shift; for it in "$@"; do printf '%s\0' --set "$it" "$kv"; done; }
@@ -39,13 +40,13 @@ if [ "$MODE" = "chill" ] || [ "$MODE" = "uni" ]; then
   { sets drawing=off "${STATIC[@]}" "${DYNAMIC[@]}"; sets updates=off "${POLLING[@]}"; } | run
   if [ "$MODE" = "uni" ]; then
     # Escritorios a la vista; clase y entrega siempre, el pomodoro solo si hay uno corriendo (lo decide uni.sh)
-    { sets drawing=on "${SPACES[@]}" uni.class uni.due; sets updates=on "${UNI[@]}"; } | run
+    { sets drawing=on "${SPACES[@]}" uni.class uni.due "${UNI_STATIC[@]}"; sets updates=on "${UNI[@]}"; } | run
   else
-    { sets drawing=off "${UNI[@]}"; sets updates=off "${UNI[@]}"; } | run
+    { sets drawing=off "${UNI[@]}" "${UNI_STATIC[@]}"; sets updates=off "${UNI[@]}"; } | run
   fi
   sketchybar --update   # el reloj cambia de formato (fuera de work muestra la fecha)
 else
-  { sets drawing=off "${UNI[@]}"; sets updates=off "${UNI[@]}"; } | run
+  { sets drawing=off "${UNI[@]}" "${UNI_STATIC[@]}"; sets updates=off "${UNI[@]}"; } | run
   { sets drawing=on "${STATIC[@]}"; sets updates=on "${POLLING[@]}"; } | run
   # Que cada script recalcule lo suyo (incluye agents.sub, agents.ckpt y github.ci)
   sketchybar --update

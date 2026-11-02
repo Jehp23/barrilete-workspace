@@ -76,6 +76,14 @@ sketchybar --add item front_app left \
                  script="$PLUGIN_DIR/front_app.sh" \
            --subscribe front_app front_app_switched
 
+# Modo uni: botón al campus virtual (Moodle de la UCASAL). Visible solo en uni (mode.sh).
+CAMPUS_URL="https://ingenieria.campusvirtual.ucasal.edu.ar/login/index.php?loginredirect=1"
+sketchybar --add item uni.campus left \
+           --set uni.campus drawing=off icon="$ICON_CAMPUS" icon.color=$MAUVE label="Campus" \
+                 background.color=$ITEM_BG background.corner_radius=8 background.height=26 \
+                 icon.padding_left=8 label.padding_right=8 \
+                 click_script="open '$CAMPUS_URL'"
+
 ##### Agentes: a la izquierda del notch #####
 # Posición `q` = pegado al borde izquierdo del notch (en `center` quedaba tapado).
 # Los items `q` crecen hacia la izquierda: el primero que se agrega queda junto al notch.

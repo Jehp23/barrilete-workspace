@@ -25,3 +25,4 @@ ICON_MUSIC="󰝚"   # nf-md-music: bk song sonando
 ICON_CLASS="󰑴"   # nf-md-school: próxima clase (modo uni)
 ICON_DUE="󰃰"     # nf-md-calendar_clock: próxima entrega
 ICON_POMO="󱎫"    # nf-md-timer_outline: pomodoro (bk focus)
+ICON_CAMPUS="󰖟"  # nf-md-web: campus virtual (modo uni)

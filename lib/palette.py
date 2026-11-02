@@ -33,6 +33,7 @@ ENTRIES = [
     ("Barra", "Modo trabajo", "mode work", None, "show"),
     ("Barra", "Modo chill", "mode chill", None, "show"),
     ("Barra", "Modo uni (facultad)", "mode uni", None, "show"),
+    ("Facultad", "Abrir el campus virtual", "campus", None, "run"),
     ("Facultad", "Entregas pendientes (Notion)", "entregas", None, "show"),
     ("Facultad", "Pomodoro de 25 minutos", "focus 25", None, "show"),
     ("Facultad", "Pomodoro con tema", "focus", "minutos y tema (ej. 50 Álgebra)", "show"),
