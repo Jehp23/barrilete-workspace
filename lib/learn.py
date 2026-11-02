@@ -403,7 +403,8 @@ def write_index():
           "# Lecciones aprendidas de agentes\n\n"
           "Reglas que salieron de desvíos reales y la persona aprobó. Aplican además de AGENTS.md; "
           "si chocan con el AGENTS.md de un proyecto, manda el proyecto.\n\n"
-          + ("\n".join(rules) if rules else "_Todavía no hay lecciones aceptadas._") + "\n")
+          + ("\n".join(rules) if rules else "_Todavía no hay lecciones aceptadas._") + "\n\n"
+          f"Para buscar contexto (retros por issue o por skill, desvíos, patrones): `{AG}/mapa.md`.\n")
     return len(rules)
 
 
@@ -472,6 +473,138 @@ def import_retros(state):
     return new
 
 
+# ---------- Mapa del vault: todo enlazado para que un agente (o vos) navegue ----------
+# Notas hub generadas: agents/mapa.md, skills/<skill>.md, issues/<repo>-<n>.md, repos/<repo>.md.
+# A cada retro, día de desvíos y lección se le agrega un bloque "Relacionado" entre marcadores
+# (<!-- bk:links --> … <!-- /bk:links -->) que se rehace en cada corrida sin tocar el resto de la nota.
+ROLE_SKILL = {"implementer": "implement-issue", "implementer-light": "implement-issue", "reviewer": "review-pr",
+              "planner": "plan-feature", "orchestrator": "orchestrate"}
+LINKS_RE = re.compile(r"\n*<!-- bk:links -->.*?<!-- /bk:links -->\n?", re.S)
+
+
+def write_if_changed(path, text):
+    try:
+        if open(path, encoding="utf-8").read() == text:
+            return
+    except OSError:
+        pass
+    write(path, text)
+
+
+def with_links(path, links):
+    """Rehace el bloque Relacionado de una nota existente."""
+    try:
+        txt = open(path, encoding="utf-8").read()
+    except OSError:
+        return
+    base = LINKS_RE.sub("", txt).rstrip()
+    block = "\n\n<!-- bk:links -->\n## Relacionado\n" + "\n".join(f"- {l}" for l in links) + "\n<!-- /bk:links -->\n"
+    write_if_changed(path, base + block)
+
+
+def retro_meta():
+    out = []
+    for n in glob.glob(os.path.join(AG, "retros", "*", "*.md")):
+        txt = open(n, encoding="utf-8").read()
+        m = dict(re.findall(r"^(skill|issue|pr|date|model|area):\s*(.+?)\s*$", txt, re.M))
+        dev = re.search(r"\*\*(?:Deviations|Desv[ií]os):\*\*\s*(.+)", txt)
+        out.append({"path": n, "rel": os.path.relpath(n, AG)[:-3], "repo": os.path.basename(os.path.dirname(n)),
+                    "skill": m.get("skill", "?"), "issue": m.get("issue", "").lstrip("#"), "pr": m.get("pr", "").lstrip("#"),
+                    "date": m.get("date", os.path.basename(n)[:10]), "model": m.get("model", "?"),
+                    "dev": norm(dev.group(1), 100) if dev else ""})
+    return sorted(out, key=lambda r: (r["date"], r["rel"]))
+
+
+def link_vault():
+    retros = retro_meta()
+    skills, issues, repos = {}, {}, {}
+    for r in retros:
+        skills.setdefault(r["skill"], []).append(r)
+        if r["issue"]:
+            issues.setdefault((r["repo"], r["issue"]), []).append(r)
+        repos.setdefault(r["repo"], []).append(r)
+    days = {os.path.basename(f)[:-3] for f in glob.glob(os.path.join(AG, "deviations", "*.md"))}
+    lessons = {os.path.basename(f)[:-3]: f for f in glob.glob(os.path.join(AG, "lessons", "*.md"))}
+    issue_link = lambda repo, n: f"[[issues/{repo}-{n}|{repo}#{n}]]"
+    row = lambda r: (f"| [[{r['rel']}|{r['date']}]] | {r['skill']} | "
+                     f"{issue_link(r['repo'], r['issue']) if r['issue'] else ''} | {r['model']} | {r['dev']} |")
+    head = "| Fecha | Skill | Issue | Modelo | Desvíos que anotó |\n|---|---|---|---|---|\n"
+
+    # 1) Cada retro -> su skill, issue, repo, día, y la anterior/siguiente del mismo issue
+    for r in retros:
+        links = [f"Skill: [[skills/{r['skill']}|{r['skill']}]]", f"Repo: [[repos/{r['repo']}|{r['repo']}]]"]
+        if r["issue"]:
+            links.append(f"Issue: {issue_link(r['repo'], r['issue'])}")
+            same = issues[(r["repo"], r["issue"])]
+            i = same.index(r)
+            if i > 0:
+                links.append(f"Anterior en este issue: [[{same[i - 1]['rel']}|{same[i - 1]['date']} · {same[i - 1]['skill']}]]")
+            if i < len(same) - 1:
+                links.append(f"Siguiente en este issue: [[{same[i + 1]['rel']}|{same[i + 1]['date']} · {same[i + 1]['skill']}]]")
+        if r["date"] in days:
+            links.append(f"Desvíos de ese día: [[deviations/{r['date']}|{r['date']}]]")
+        links.append("Todas: [[retros]] · [[mapa]]")
+        with_links(r["path"], links)
+
+    # 2) Hubs por skill: retros + lecciones del rol que usa esa skill
+    for sk, rs in skills.items():
+        les = [n for n in lessons if any(n.startswith(role) and ROLE_SKILL.get(role) == sk for role in ROLE_SKILL)]
+        body = (f"---\ntipo: skill\nskill: {sk}\nretros: {len(rs)}\n---\n# Skill `{sk}`\n\n"
+                f"{len(rs)} retros. Lecciones relacionadas: " + (", ".join(f"[[lessons/{n}|{n}]]" for n in les) or "ninguna")
+                + ".\n\n## Retros (más recientes primero)\n\n" + head + "\n".join(row(r) for r in reversed(rs))
+                + "\n\nVer también: [[patterns]] · [[retros]] · [[mapa]]\n")
+        write_if_changed(os.path.join(AG, "skills", f"{sk}.md"), body)
+
+    # 3) Hubs por issue: la historia del issue (implement, reviews…) en orden
+    for (repo, n), rs in issues.items():
+        prs = sorted({r["pr"] for r in rs if r["pr"]})
+        evday = sorted({e["day"] for e in load_events(3650) if e.get("project") == f"{repo}#{n}"})
+        body = (f"---\ntipo: issue\nrepo: {repo}\nissue: {n}\n---\n# {repo}#{n}\n\n"
+                f"PRs: {', '.join('#' + x for x in prs) or '—'} · Repo: [[repos/{repo}|{repo}]]\n\n"
+                "## Retros en orden\n\n" + "\n".join(
+                    f"{i + 1}. [[{r['rel']}|{r['date']} · {r['skill']}]] ({r['model']}) — {r['dev'] or 'sin desvíos'}"
+                    for i, r in enumerate(rs))
+                + ("\n\n## Desvíos registrados en su worktree\n\n" + ", ".join(f"[[deviations/{d}|{d}]]" for d in evday)
+                   if evday else "") + "\n\nVer también: [[mapa]]\n")
+        write_if_changed(os.path.join(AG, "issues", f"{repo}-{n}.md"), body)
+
+    # 4) Hubs por repo
+    for repo, rs in repos.items():
+        iss = sorted({r["issue"] for r in rs if r["issue"]}, key=lambda x: int(x) if x.isdigit() else 0, reverse=True)
+        body = (f"---\ntipo: repo\nrepo: {repo}\nretros: {len(rs)}\n---\n# {repo}\n\n{len(rs)} retros.\n\n"
+                "## Issues\n\n" + " · ".join(issue_link(repo, i) for i in iss)
+                + "\n\n## Skills\n\n" + " · ".join(f"[[skills/{k}|{k}]]" for k in sorted({r['skill'] for r in rs}))
+                + "\n\nVer también: [[retros]] · [[mapa]]\n")
+        write_if_changed(os.path.join(AG, "repos", f"{repo}.md"), body)
+
+    # 5) Cada día de desvíos -> retros de ese día
+    by_day = {}
+    for r in retros:
+        by_day.setdefault(r["date"], []).append(r)
+    for d in days:
+        rs = by_day.get(d, [])
+        links = [f"Retro: [[{r['rel']}|{r['skill']} · {r['repo']}#{r['issue']}]]" for r in rs] or ["Sin retros ese día"]
+        with_links(os.path.join(AG, "deviations", f"{d}.md"), links + ["[[patterns]] · [[mapa]]"])
+
+    # 6) Cada lección -> la skill de su rol
+    for n, f in lessons.items():
+        sk = next((ROLE_SKILL[r] for r in sorted(ROLE_SKILL, key=len, reverse=True) if n.startswith(r)), None)
+        with_links(f, ([f"Skill: [[skills/{sk}|{sk}]]"] if sk else []) + ["[[INDEX]] · [[patterns]] · [[mapa]]"])
+
+    # 7) Mapa (MOC): la entrada para navegar todo
+    body = ("---\ntipo: mapa\n---\n# Mapa del vault de agentes\n\n"
+            "Por dónde empezar: [[INDEX]] (reglas vigentes) · [[patterns]] (lo que se repite) · [[models]] · [[retros]].\n\n"
+            "## Repos\n\n" + "\n".join(f"- [[repos/{r}|{r}]] — {len(rs)} retros" for r, rs in sorted(repos.items()))
+            + "\n\n## Skills\n\n" + "\n".join(f"- [[skills/{k}|{k}]] — {len(v)} retros" for k, v in sorted(skills.items()))
+            + "\n\n## Issues (más recientes primero)\n\n" + "\n".join(
+                f"- {issue_link(r, n)} — {len(v)} retros" for (r, n), v in
+                sorted(issues.items(), key=lambda kv: kv[1][-1]["date"], reverse=True)[:60])
+            + "\n\n## Lecciones\n\n" + "\n".join(f"- [[lessons/{n}|{n}]]" for n in sorted(lessons))
+            + "\n\n## Días con desvíos\n\n" + " · ".join(f"[[deviations/{d}|{d}]]" for d in sorted(days, reverse=True)[:45])
+            + "\n")
+    write_if_changed(os.path.join(AG, "mapa.md"), body)
+
+
 def main():
     quiet = "--quiet" in sys.argv
     if not os.path.isdir(VAULT):
@@ -510,6 +643,7 @@ def main():
     nuevas = write_patterns_and_lessons([e for e in evs30 if e["day"] >= since14])
     write_models(evs30)
     n_rules = write_index()
+    link_vault()
     proposed = sum(1 for f in glob.glob(os.path.join(AG, "lessons", "*.md"))
                    if re.search(r"^status:\s*proposed\b", open(f, encoding="utf-8").read(), re.M))
 
