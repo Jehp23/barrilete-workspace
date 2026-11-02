@@ -59,7 +59,8 @@ uni.class)
   if [ "$START" -le "$NOW" ]; then WHEN="hasta $(date -r "$END" +%H:%M)"; else WHEN="en $(human_in $(( START - NOW )))"; fi
   C=$TEXT
   echo "$TITLE" | grep -qiE 'parcial|examen|final|recuperatorio' && C=$RED
-  LABEL="$TITLE $WHEN"; [ -n "$LOC" ] && LABEL+=" · $LOC"
+  # El cuándo primero (como en entregas): si hay que recortar por el notch, se pierde el final del nombre
+  LABEL="$WHEN · $TITLE"; [ -n "$LOC" ] && LABEL+=" · $LOC"
   echo "$LABEL" >"$LBL/class"
   sketchybar --set "$NAME" label.color=$C icon.color=$MAUVE
   fit_uni
