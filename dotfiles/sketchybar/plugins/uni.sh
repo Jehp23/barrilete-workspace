@@ -11,6 +11,25 @@ WS="$(cd "$(dirname "$(readlink -f "$0")")/../../.." && pwd)"
 VAULT="${BARRILETE_VAULT:-$HOME/Documents/Obsidian Vault}"
 NOW=$(date +%s)
 
+# Los labels completos se guardan y fit_uni los recorta hasta que uni.class (el de más a la
+# izquierda) quede a 16 pt del notch. Mismo criterio que github.sh.
+LBL="$HOME/.cache/sketchybar/uni"; mkdir -p "$LBL"
+fit_uni() {
+  local n_r x lim c d
+  n_r=$(cat "$HOME/.cache/sketchybar/notch_right" 2>/dev/null || echo 0)
+  c=$(cat "$LBL/class" 2>/dev/null || sketchybar --query uni.class | jq -r .label.value)
+  d=$(cat "$LBL/due" 2>/dev/null || sketchybar --query uni.due | jq -r .label.value)
+  trunc() { local t="$1" k="$2"; [ ${#t} -gt "$k" ] && echo "${t:0:$((k-1))}…" || echo "$t"; }
+  for lim in "36 30" "28 24" "22 18" "18 14" "14 10" "10 8" "6 5"; do
+    set -- $lim
+    sketchybar --set uni.class label="$(trunc "$c" "$1")" --set uni.due label="$(trunc "$d" "$2")"
+    [ "${n_r:-0}" -eq 0 ] && return
+    sleep 0.05
+    x=$(sketchybar --query uni.class | jq -r '.bounding_rects[]?.origin[0] // 9999 | floor' | head -1)
+    [ "${x:-9999}" -ge $((n_r + 16)) ] && return
+  done
+}
+
 human_in() {  # segundos -> "25m" / "2h10" / "3d"
   local s=$1
   if [ "$s" -lt 3600 ]; then echo "$(( s / 60 ))m"
@@ -33,20 +52,24 @@ uni.class)
   fi
   LINE=$(head -1 <<<"$OUT")
   if [ -z "$LINE" ]; then
-    sketchybar --set "$NAME" label="sin clases" label.color=$SUBTEXT icon.color=$SUBTEXT; exit 0
+    echo "sin clases" >"$LBL/class"
+    sketchybar --set "$NAME" label.color=$SUBTEXT icon.color=$SUBTEXT; fit_uni; exit 0
   fi
   IFS=$'\t' read -r START END TITLE LOC <<<"$LINE"
   if [ "$START" -le "$NOW" ]; then WHEN="hasta $(date -r "$END" +%H:%M)"; else WHEN="en $(human_in $(( START - NOW )))"; fi
   C=$TEXT
   echo "$TITLE" | grep -qiE 'parcial|examen|final|recuperatorio' && C=$RED
   LABEL="$TITLE $WHEN"; [ -n "$LOC" ] && LABEL+=" · $LOC"
-  sketchybar --set "$NAME" label="${LABEL:0:42}" label.color=$C icon.color=$MAUVE
+  echo "$LABEL" >"$LBL/class"
+  sketchybar --set "$NAME" label.color=$C icon.color=$MAUVE
+  fit_uni
   ;;
 uni.due)
   F="$VAULT/uni/entregas.md"
   NEXT=$(grep -E '^\s*- \[ \] [0-9]{4}-[0-9]{2}-[0-9]{2}' "$F" 2>/dev/null | sed -E 's/^\s*- \[ \] //' | sort | head -1)
   if [ -z "$NEXT" ]; then
-    sketchybar --set "$NAME" label="sin entregas" label.color=$SUBTEXT; exit 0
+    echo "sin entregas" >"$LBL/due"
+    sketchybar --set "$NAME" label.color=$SUBTEXT; fit_uni; exit 0
   fi
   DAY=${NEXT%% *}; WHAT=${NEXT#* }
   DUE=$(date -j -f %Y-%m-%d "$DAY" +%s 2>/dev/null || echo "$NOW")
@@ -55,11 +78,17 @@ uni.due)
   elif [ "$DAYS" -eq 0 ]; then WHEN="hoy"; C=$RED
   elif [ "$DAYS" -eq 1 ]; then WHEN="mañana"; C=$PEACH
   else WHEN="en ${DAYS}d"; C=$TEXT; [ "$DAYS" -le 3 ] && C=$YELLOW; fi
-  sketchybar --set "$NAME" label="${WHAT:0:28} · $WHEN" label.color=$C
+  # El cuándo va primero: es lo que importa si hay que recortar
+  echo "$WHEN · $WHAT" >"$LBL/due"
+  sketchybar --set "$NAME" label.color=$C
+  fit_uni
   ;;
 uni.pomo)
   F="$HOME/.cache/bk/focus"
-  if [ ! -s "$F" ]; then sketchybar --set "$NAME" drawing=off; exit 0; fi
+  if [ ! -s "$F" ]; then
+    [ "$(sketchybar --query uni.pomo | jq -r .geometry.drawing)" = on ] && { sketchybar --set "$NAME" drawing=off; fit_uni; }
+    exit 0
+  fi
   read -r END LABEL <"$F"
   LEFT=$(( END - NOW ))
   if [ "$LEFT" -le 0 ]; then
@@ -67,6 +96,8 @@ uni.pomo)
     osascript -e "display notification \"${LABEL:-Pomodoro} terminado: tomate 5 minutos\" with title \"bk focus\" sound name \"Glass\"" >/dev/null 2>&1
     sketchybar --set "$NAME" drawing=off; exit 0
   fi
+  WAS=$(sketchybar --query uni.pomo | jq -r .geometry.drawing)
   sketchybar --set "$NAME" drawing=on label="$(printf '%d:%02d' $(( LEFT / 60 )) $(( LEFT % 60 )))" label.color=$PEACH
+  [ "$WAS" = on ] || fit_uni
   ;;
 esac
