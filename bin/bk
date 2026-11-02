@@ -35,6 +35,7 @@ uso: bk [comando] [--dry-run]
   palette | k       todos los comandos con búsqueda (alt+k)
   stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
+  bot               verifica la GitHub App de los agentes (~/.config/bk/gh-app.json)
   customize         estilo del workspace: tarjetas float/neon, densidad, header, tema (alt+,)
   s                 sesiones de Claude estilo Orca: abiertas (saltar) y recientes de todas las
                     carpetas (retomar con claude --resume). En tmux: prefijo + s
@@ -100,6 +101,29 @@ need_tmux() { command -v tmux >/dev/null || die "falta tmux (brew install tmux)"
 
 has_window() { tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "$1"; }
 
+# Identidad de bot (GitHub App, lib/ghapp.py): si está configurada y llega al repo, el agente usa
+# gh y git push con el token de la App y firma los commits como el bot. Si no, corre como vos.
+# Agrega a ${env[@]} del que llama. BK_BOT=0 lo apaga para un lanzamiento.
+bot_env() {
+  [ "${BK_BOT:-1}" = 0 ] && return 0
+  (cd "$1" && python3 "$WS/lib/ghapp.py" token >/dev/null 2>&1) || return 0
+  local who login email shim="$HOME/.cache/bk/bot/bin" realgh
+  who=$(python3 "$WS/lib/ghapp.py" whoami 2>/dev/null) || return 0
+  login=${who%% *}; email=${who##* }
+  realgh=$(PATH="${PATH//$shim:/}" command -v gh) || return 0
+  mkdir -p "$shim"
+  printf '#!/bin/bash\n# gh como el bot de bk (token de la GitHub App, renovado solo)\nt=$(python3 %q token 2>/dev/null) && export GH_TOKEN="$t"\nexec %q "$@"\n' \
+    "$WS/lib/ghapp.py" "$realgh" > "$shim/gh"
+  chmod +x "$shim/gh"
+  env+=(-e "PATH=$shim:$PATH" -e "BK_BOT=$login"
+        -e "GIT_AUTHOR_NAME=$login" -e "GIT_AUTHOR_EMAIL=$email"
+        -e "GIT_COMMITTER_NAME=$login" -e "GIT_COMMITTER_EMAIL=$email"
+        -e "GIT_CONFIG_COUNT=2"
+        -e "GIT_CONFIG_KEY_0=credential.helper" -e "GIT_CONFIG_VALUE_0="
+        -e "GIT_CONFIG_KEY_1=credential.helper" -e "GIT_CONFIG_VALUE_1=!python3 $WS/lib/ghapp.py credential")
+  info "como el bot: $login"
+}
+
 # launch <ventana> <dir> <rol> <ref> <comando>
 launch() {
   local win="$1" dir="$2" role="$3" ref="$4" cmd="$5" spec provider model
@@ -121,6 +145,7 @@ launch() {
   fi
   local env=(-e "BARRILETE_ROLE=$role" -e "BARRILETE_MODEL=$model" -e "BARRILETE_PROVIDER=$provider")
   [ -n "$ref" ] && env+=(-e "BARRILETE_ISSUE=$ref")
+  bot_env "$dir"
   local pane
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$SESSION:" -n "$win" -c "$dir" "${env[@]}" "$full")
@@ -788,6 +813,7 @@ case "${1:-}" in
   _style)      WS_SESSION="${2:?}"; ws_style ;;
   stats)       exec python3 "$WS/lib/stats.py" ;;
   metrics)     shift; exec python3 "$WS/lib/metrics.py" "$@" ;;
+  bot)         exec python3 "$WS/lib/ghapp.py" check ;;
   customize)   exec python3 "$WS/lib/customize.py" ;;
   s|sessions)  exec python3 "$WS/lib/sessions.py" ;;
   -h|--help|help) usage ;;
