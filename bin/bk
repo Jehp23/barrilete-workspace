@@ -126,7 +126,9 @@ bot_env() {
   # El renovador lo lanza el server de tmux: así no queda colgado de esta terminal
   pgrep -f "ghapp.py keep $cfg" >/dev/null ||
     tmux run-shell -b "python3 $(sq "$WS/lib/ghapp.py") keep $(sq "$cfg") $(sq "$slug") >/dev/null 2>&1" 2>/dev/null
-  env+=(-e "GH_CONFIG_DIR=$cfg" -e "BK_BOT=$login"
+  # La persona responsable: una App no puede preguntar "gh api user" ni asignarse issues
+  local human; human=$(env -u GH_CONFIG_DIR -u GH_TOKEN gh api user -q .login 2>/dev/null || true)
+  env+=(-e "GH_CONFIG_DIR=$cfg" -e "BK_BOT=$login" ${human:+-e "BK_HUMAN=$human"}
         -e "GIT_AUTHOR_NAME=$login" -e "GIT_AUTHOR_EMAIL=$email"
         -e "GIT_COMMITTER_NAME=$login" -e "GIT_COMMITTER_EMAIL=$email"
         -e "GIT_CONFIG_COUNT=2"
