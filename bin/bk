@@ -534,8 +534,12 @@ cmd_chat() {
     git -C "${top:-$PWD}" rev-parse --show-toplevel >/dev/null 2>&1 || die "una rama aparte necesita un repo git"
     top=$(project_top "${top:-$PWD}")   # el repo principal, aunque estemos en un worktree
     local slug wt base
-    slug=$(printf '%s' "$branch" | iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | sed 's/^-//; s/-$//' | cut -c1-30)
-    [ -n "$slug" ] || die "el nombre de la rama quedó vacío"
+    # iconv de macOS translitera "ñ" como "~n": sacar esas marcas antes de pasar a guiones
+    slug=$(printf '%s' "$branch" | iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null)
+    [ -n "$slug" ] || slug=$branch
+    slug=$(printf '%s' "$slug" | tr -d "~'^\`\"" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' \
+           | cut -c1-30 | sed 's/^-*//; s/-*$//')
+    [ -n "$slug" ] || die "el nombre '$branch' no deja un nombre de rama válido (usá letras o números)"
     wt="$(dirname "$top")/$(basename "$top")-wt/chat-$slug"
     # La rama de un chat: el repo principal aunque el chat actual ya esté en un worktree
     if [ ! -d "$wt" ]; then
