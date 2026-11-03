@@ -635,7 +635,7 @@ stop() {
   # Si el agente está de visita en un workspace, en esta ventana quedó el chat de ese workspace:
   # devolverlo antes de cerrar, para no matarlo
   local ws
-  ws=$(tmux list-panes -t "$SESSION:$win" -F '#{@bk_ws}' | grep -m1 .)
+  ws=$(tmux list-panes -t "$SESSION:$win" -F '#{@bk_ws}' | grep -m1 . || true)
   [ -n "$ws" ] && ws_agent "$ws" 0
   panes=$(tmux list-panes -t "$SESSION:$win" -F '#{pane_id}')
   tmux kill-window -t "$SESSION:$win"
