@@ -9,6 +9,10 @@ SESSION="${BK_SESSION:-agents}"
 STATE_DIR="$HOME/.cache/sketchybar/agents"
 DRY=0
 
+# bk corre como vos: si este shell heredó la config de gh del bot (un chat que retomó el entorno
+# de un agente), no usarla. El bot es solo para los agentes, que la reciben con -e al lanzarse.
+case "${GH_CONFIG_DIR:-}" in "$HOME/.cache/bk/bot/"*) unset GH_CONFIG_DIR GH_TOKEN ;; esac
+
 # Los atajos de tmux pasan BK_FROM/BK_CLIENT a los popups, pero el comando de display-popup no
 # expande #{…}: llegan literales. Sin un valor real, tomarlos del cliente de tmux actual.
 if [ -n "${TMUX:-}" ]; then
