@@ -4,7 +4,7 @@
     1 ●     arriba: los workspaces (sesiones bk-*), en orden de creación; alt+1…9 salta a cada uno
     2 ○     abajo: los agentes (ventanas de la sesión "agents")
     ─       ● trabajando · ● rojo te espera · ○ libre/listo · · sin claude
-    └⠋      debajo de un chat o agente: sus subagentes vivos (herramienta Agent), uno por fila
+    └⠋      debajo de un chat o agente: sus subagentes vivos (herramienta Agent); clic = su sesión en un popup
     1 ●     el actual va resaltado. Clic en una fila para ir ahí.
 """
 import curses, glob, json, os, subprocess, time
@@ -62,8 +62,8 @@ def subagents(sid):
         if meta.get("finished"):
             continue
         desc = meta.get("description") or meta.get("agentType") or "subagente"
-        out.append((desc, meta.get("requestShape") == "background", os.path.getmtime(j)))
-    return [(d_, bg) for d_, bg, _ in sorted(out, key=lambda x: -x[2])]
+        out.append((desc, meta.get("requestShape") == "background", os.path.getmtime(j), j))
+    return [(d_, bg, j) for d_, bg, _, j in sorted(out, key=lambda x: -x[2])]
 
 
 def workspaces():
@@ -104,7 +104,7 @@ def items():
                 state = s
                 subs = subagents((st.get(pid) or {}).get("_sid"))
         out.append(("ws", name, name, state))
-        out += [("sub", d, name, "background" if bg else "working") for d, bg in subs]
+        out += [("sub", d, "sub:" + j, "background" if bg else "working") for d, bg, j in subs]
     for l in sh("tmux", "list-panes", "-s", "-t", AGENTS, "-F",
                 "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}").splitlines():
         win, pid, cmd, dead, ws = (l.split("\t") + ["", "", "", "", ""])[:5]
@@ -113,8 +113,8 @@ def items():
         state = pane_state(st, pid, cmd, dead)
         out.append(("ag", win, f"{AGENTS}:{win}", state))
         if state != "none":
-            out += [("sub", d, f"{AGENTS}:{win}", "background" if bg else "working")
-                    for d, bg in subagents((st.get(pid) or {}).get("_sid"))]
+            out += [("sub", d, "sub:" + j, "background" if bg else "working")
+                    for d, bg, j in subagents((st.get(pid) or {}).get("_sid"))]
     return out
 
 
@@ -132,6 +132,12 @@ def go(target):
         sess = sh("tmux", "display-message", "-p", "-t", pane, "#{session_name}").strip()
         subprocess.Popen(["tmux", "display-popup"] + c + ["-w", "70%", "-h", "60%", "-E",
                           f"BK_CLIENT='{client}' BK_FROM='{sess}' bk new"])
+        return
+    if target.startswith("sub:"):
+        # Subagente: su sesión en vivo, de solo lectura (bk sub). q/esc cierra.
+        path = target[4:].replace("'", "")
+        subprocess.Popen(["tmux", "display-popup"] + c + ["-w", "92%", "-h", "88%", "-T", " ↳ subagente ", "-E",
+                          f"bk sub '{path}'"])
         return
     if target.startswith(AGENTS + ":"):
         # El agente se ve encima, en un popup de solo lectura (bk watch): q/esc lo cierra, enter va a

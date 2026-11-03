@@ -178,7 +178,7 @@ def sub_rows(sid, inner_w, indent="  "):
     """Filas de los subagentes vivos de una sesión (los de la herramienta Agent, que no son ventanas)."""
     from sidebar import subagents
     rows = []
-    for desc, bg in subagents(sid):
+    for desc, bg, _ in subagents(sid):
         g = HALF[(TICK[0] // 2) % len(HALF)] if bg else SPIN[TICK[0] % len(SPIN)]
         tag = f"{AMBER}2º plano{RST}" if bg else f"{IRIS}trabajando{RST}"
         rows.append(lr(f"{indent}{MUTED}↳{RST} {IRIS}{g}{RST} {TEXT}{desc}{RST}", tag, inner_w))

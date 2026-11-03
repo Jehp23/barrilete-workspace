@@ -46,6 +46,7 @@ uso: bk [comando] [--dry-run]
   palette | k       todos los comandos con búsqueda (alt+k)
   stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
   chat [--rama N]   otro chat del proyecto, como un workspace más (alt+N); con --rama, en su worktree y rama chat/N
+  sub [transcript]  ver en vivo un subagente (sin argumento: elegir de los vivos); clic en └ de la tira
   term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
   bot               verifica la GitHub App de los agentes (~/.config/bk/gh-app.json)
@@ -880,6 +881,7 @@ case "${1:-}" in
   rail)        exec python3 "$WS/lib/rail.py" ;;
   sidebar)     exec python3 "$WS/lib/sidebar.py" ;;
   term|t)      shift; ws_term "${1:-$PWD}" ;;
+  sub)         shift; exec python3 "$WS/lib/subwatch.py" "$@" ;;
   _nth)        tmux list-sessions -F '#{session_created} #{session_name}' 2>/dev/null \
                  | awk '$2 ~ /^bk/' | sort -n | awk -v n="${2:-1}" 'NR == n {print $2}' ;;
   changes)     exec python3 "$WS/lib/changes.py" ;;
