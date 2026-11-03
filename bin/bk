@@ -46,6 +46,7 @@ uso: bk [comando] [--dry-run]
   palette | k       todos los comandos con búsqueda (alt+k)
   stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
   chat [--rama N]   otro chat del proyecto, como un workspace más (alt+N); con --rama, en su worktree y rama chat/N
+  sound [on|off|test]  sonidos de los agentes: terminó (Glass), pregunta (Ping), permiso (Purr), error (Basso)
   mode <rol>        cómo lo lanza el orquestador: main, bk (ventana propia) o sub (subagente)
   sub [transcript]  ver en vivo un subagente (sin argumento: elegir de los vivos); clic en └ de la tira
   term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
@@ -700,6 +701,22 @@ ls_agents() {
   | { printf 'VENTANA\tPROYECTO\tREF\tROL\tMODELO\tESTADO\tHACE\n'; cat; } | column -t -s $'\t'
 }
 
+# bk sound [on|off|test|status]: un sonido por tipo de pedido de los agentes (lo toca el hook de estado)
+cmd_sound() {
+  local f="$HOME/.config/bk/sound"
+  case "$1" in
+    on)     mkdir -p "$(dirname "$f")"; echo on >"$f"; info "sonidos prendidos" ;;
+    off)    mkdir -p "$(dirname "$f")"; echo off >"$f"; info "sonidos apagados" ;;
+    test)   local s; for s in "working done" "working waiting question" "working waiting permission" "working error"; do
+              # shellcheck disable=SC2086
+              set -- $s; printf '  %-14s ' "${2}${3:+ ($3)}"; BK_SOUND_DRY=1 "$WS/lib/agent_sound.sh" "$@"
+              "$WS/lib/agent_sound.sh" "$@"; sleep 1.2
+            done ;;
+    status) [ "$(cat "$f" 2>/dev/null)" = off ] && echo apagados || echo prendidos ;;
+    *) die "bk sound [on|off|test]" ;;
+  esac
+}
+
 # role_mode <rol> [raíz]: cómo lo lanza el orquestador (main | bk | sub), la 3.ª columna de roles.yml
 role_mode() {
   local role="$1" root="${2:-}" f mode=""
@@ -896,6 +913,7 @@ case "${1:-}" in
   sidebar)     exec python3 "$WS/lib/sidebar.py" ;;
   term|t)      shift; ws_term "${1:-$PWD}" ;;
   sub)         shift; exec python3 "$WS/lib/subwatch.py" "$@" ;;
+  sound)       shift; cmd_sound "${1:-status}" ;;
   _nth)        tmux list-sessions -F '#{session_created} #{session_name}' 2>/dev/null \
                  | awk '$2 ~ /^bk/' | sort -n | awk -v n="${2:-1}" 'NR == n {print $2}' ;;
   changes)     exec python3 "$WS/lib/changes.py" ;;
