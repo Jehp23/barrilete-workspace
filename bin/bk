@@ -34,6 +34,7 @@ uso: bk [comando] [--dry-run]
   changes           lo que los agentes dejaron sin commitear, con diff (alt+g)
   palette | k       todos los comandos con búsqueda (alt+k)
   stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
+  chat [--rama N]   chat nuevo en el proyecto; con --rama, en su propio worktree y rama chat/N (alt+n)
   term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
   bot               verifica la GitHub App de los agentes (~/.config/bk/gh-app.json)
@@ -496,9 +497,37 @@ cmd_focus() {
 # "agents" (aparece en la tira) y se trae al lugar del chat; alt+q vuelve al orquestador.
 cmd_chat() {
   set +euo pipefail
-  local loose=0; [ "${1:-}" = "--suelto" ] && { loose=1; shift; }
+  local loose=0 branch="" want_branch=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --suelto) loose=1; shift ;;
+      --rama) want_branch=1; branch="${2:-}"; [ $# -ge 2 ] && shift 2 || shift ;;
+      *) break ;;
+    esac
+  done
   local s="${1:-$(tmux display-message -p '#{session_name}' 2>/dev/null)}" top name n pane
-  if [ "$loose" = 1 ]; then
+  if [ "$want_branch" = 1 ] && [ "$loose" = 0 ]; then
+    [ -n "${branch// /}" ] || die "bk chat --rama <nombre del cambio>"
+    # Chat en una rama aparte: worktree propio (../<repo>-wt/chat-<nombre>, rama chat/<nombre>) desde
+    # la rama principal actualizada, para trabajar en varios cambios del mismo proyecto sin pisarse
+    top=$(tmux show-environment -t "$s" BK_PROJECT 2>/dev/null | sed -n 's/^BK_PROJECT=//p')
+    top=$(git -C "${top:-$PWD}" rev-parse --show-toplevel 2>/dev/null) || die "una rama aparte necesita un repo git"
+    local slug wt base
+    slug=$(printf '%s' "$branch" | iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | sed 's/^-//; s/-$//' | cut -c1-30)
+    [ -n "$slug" ] || die "el nombre de la rama quedó vacío"
+    wt="$(dirname "$top")/$(basename "$top")-wt/chat-$slug"
+    if [ ! -d "$wt" ]; then
+      git -C "$top" fetch -q origin 2>/dev/null
+      base=$(git -C "$top" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo HEAD)
+      if git -C "$top" show-ref -q --verify "refs/heads/chat/$slug"; then
+        git -C "$top" worktree add -q "$wt" "chat/$slug" || die "no pude crear el worktree $wt"
+      else
+        git -C "$top" worktree add -q -b "chat/$slug" "$wt" "$base" || die "no pude crear el worktree $wt"
+      fi
+      info "rama chat/$slug desde $base · $wt"
+    fi
+    top="$wt"; name="c-$(printf '%s' "$slug" | cut -c1-10)"
+  elif [ "$loose" = 1 ]; then
     # Chat sin proyecto: en una carpeta propia (~/.bk/chats), así Claude no lee tu home ni pide confiar en ella
     top="$HOME/.bk/chats"; mkdir -p "$top"; name="c-suelto"
   else
@@ -603,6 +632,11 @@ stop() {
   need_tmux
   local win="${1:?bk stop <ventana>}" panes
   has_window "$win" || die "no existe la ventana '$win'"
+  # Si el agente está de visita en un workspace, en esta ventana quedó el chat de ese workspace:
+  # devolverlo antes de cerrar, para no matarlo
+  local ws
+  ws=$(tmux list-panes -t "$SESSION:$win" -F '#{@bk_ws}' | grep -m1 .)
+  [ -n "$ws" ] && ws_agent "$ws" 0
   panes=$(tmux list-panes -t "$SESSION:$win" -F '#{pane_id}')
   tmux kill-window -t "$SESSION:$win"
   # Matar el pane no siempre dispara SessionEnd: limpiar el estado de la barra a mano
