@@ -46,6 +46,7 @@ uso: bk [comando] [--dry-run]
   palette | k       todos los comandos con búsqueda (alt+k)
   stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
   chat [--rama N]   otro chat del proyecto, como un workspace más (alt+N); con --rama, en su worktree y rama chat/N
+  mode <rol>        cómo lo lanza el orquestador: main, bk (ventana propia) o sub (subagente)
   sub [transcript]  ver en vivo un subagente (sin argumento: elegir de los vivos); clic en └ de la tira
   term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
@@ -699,10 +700,22 @@ ls_agents() {
   | { printf 'VENTANA\tPROYECTO\tREF\tROL\tMODELO\tESTADO\tHACE\n'; cat; } | column -t -s $'\t'
 }
 
+# role_mode <rol> [raíz]: cómo lo lanza el orquestador (main | bk | sub), la 3.ª columna de roles.yml
+role_mode() {
+  local role="$1" root="${2:-}" f mode=""
+  for f in ${root:+"$root/.barrilete/roles.yml"} "$WS/roles.yml"; do
+    [ -f "$f" ] || continue
+    grep -qE "^[[:space:]]*${role}:" "$f" || continue
+    mode=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*[^#[:space:]]+[[:space:]]+(main|bk|sub)([[:space:]#].*)?$/\1/p" "$f" | head -1)
+    break
+  done
+  printf '%s' "${mode:-bk}"
+}
+
 roles() {
   local root; root=$(git rev-parse --show-toplevel 2>/dev/null || true)
   for r in planner orchestrator implementer implementer-light reviewer; do
-    printf '%-18s %s\n' "$r" "$(role_spec "$r" "$root")"
+    printf '%-18s %-16s %s\n' "$r" "$(role_spec "$r" "$root")" "$(role_mode "$r" "$root")"
   done
 }
 
@@ -857,6 +870,7 @@ case "${1:-}" in
   watch)       shift; watch "${1:-}" ;;
   stop)        shift; stop "${1:-}" ;;
   roles)       roles ;;
+  mode)        shift; role_mode "${1:?bk mode <rol>}" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; echo ;;
   tokens)      exec python3 "$WS/lib/usage.py" ;;
   learn)       shift; exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
