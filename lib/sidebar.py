@@ -7,7 +7,10 @@
     └⠋      debajo de un chat o agente: sus subagentes vivos (herramienta Agent); clic = su sesión en un popup
     1 ●     el actual va resaltado. Clic en una fila para ir ahí.
 """
-import curses, glob, json, os, subprocess, time
+import curses, glob, json, os, subprocess, sys, time
+
+NARROW, WIDE = 5, 46    # ancho de la tira: normal y al pasar el mouse
+IDLE_SHRINK = 3.0       # segundos sin mover el mouse adentro para volver a angosta
 
 STATE = os.path.expanduser("~/.cache/sketchybar/agents")
 AGENTS = os.environ.get("BK_SESSION", "agents")
@@ -66,6 +69,24 @@ def subagents(sid):
     return [(d_, bg, j) for d_, bg, _, j in sorted(out, key=lambda x: -x[2])]
 
 
+def feature(title, path):
+    """En qué trabaja: el título de la sesión de Claude (sin el glifo de estado); si no hay, la rama."""
+    t = (title or "").strip()
+    while t and not t[0].isalnum() and t[0] not in "#/":
+        t = t[1:].lstrip()
+    if t and t not in ("chat", "rail") and not t.endswith(".local"):
+        return t
+    br = sh("git", "-C", path, "branch", "--show-current").strip() if path else ""
+    return br
+
+
+def project_name(path):
+    top = sh("git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir").strip() if path else ""
+    if top.endswith("/.git"):
+        return os.path.basename(top[:-5])
+    return os.path.basename(path or "") or "?"
+
+
 def workspaces():
     rows = []
     for l in sh("tmux", "list-sessions", "-F", "#{session_created}\t#{session_name}").splitlines():
@@ -93,27 +114,30 @@ def items():
     out = []
     for name in workspaces():
         # Estado del chat del workspace (el pane que corre claude en la ventana main)
-        state, subs = "none", []
+        state, subs, info = "none", [], ""
         for l in sh("tmux", "list-panes", "-t", f"{name}:main", "-F",
-                    "#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{pane_start_command}").splitlines():
-            pid, cmd, dead, start = (l.split("\t") + ["", "", "", ""])[:4]
+                    "#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{pane_start_command}\t#{pane_title}\t#{pane_current_path}").splitlines():
+            pid, cmd, dead, start, title, path = (l.split("\t") + [""] * 6)[:6]
             if "bk rail" in start or "bk sidebar" in start:
                 continue
+            info = (project_name(path), feature(title, path))
             s = pane_state(st, pid, cmd, dead)
             if s != "none":
                 state = s
                 subs = subagents((st.get(pid) or {}).get("_sid"))
-        out.append(("ws", name, name, state))
-        out += [("sub", d, "sub:" + j, "background" if bg else "working") for d, bg, j in subs]
+        out.append(("ws", name, name, state, info or (name[3:], "")))
+        out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d)) for d, bg, j in subs]
     for l in sh("tmux", "list-panes", "-s", "-t", AGENTS, "-F",
-                "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}").splitlines():
-        win, pid, cmd, dead, ws = (l.split("\t") + ["", "", "", "", ""])[:5]
+                "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}\t#{pane_title}\t#{pane_current_path}").splitlines():
+        win, pid, cmd, dead, ws, title, path = (l.split("\t") + [""] * 7)[:7]
         if ws:      # el chat de un workspace, de visita mientras un agente ocupa su lugar
             continue
         state = pane_state(st, pid, cmd, dead)
-        out.append(("ag", win, f"{AGENTS}:{win}", state))
+        ref = (st.get(pid) or {}).get("ref") or ""
+        out.append(("ag", win, f"{AGENTS}:{win}", state,
+                    (f"{project_name(path)} · {win}", " ".join(x for x in (ref, feature(title, path)) if x))))
         if state != "none":
-            out += [("sub", d, "sub:" + j, "background" if bg else "working")
+            out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d))
                     for d, bg, j in subagents((st.get(pid) or {}).get("_sid"))]
     return out
 
@@ -152,7 +176,16 @@ def go(target):
 def ui(scr):
     curses.curs_set(0)
     curses.use_default_colors()
-    curses.mousemask(curses.ALL_MOUSE_EVENTS)
+    curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+    # Movimiento del mouse sin botones (modo 1003): ncurses no siempre lo pide solo. Sin SGR (1006):
+    # el terminfo de tmux espera el formato X10 (kmous=\E[M) y curses leería mal el otro.
+    sys.stdout.write("\033[?1003h"); sys.stdout.flush()
+    me = os.environ.get("TMUX_PANE", "")
+    expanded, last_move, hover_y = False, 0.0, -1
+
+    def set_width(w):
+        if me:
+            sh("tmux", "resize-pane", "-t", me, "-x", str(w))
     for k, v in {1: 222, 2: 210, 3: 244, 4: 218, 5: 147}.items():
         curses.init_pair(k, v, -1)
     WORK, WAIT, MUTED, ROSE, IRIS = (curses.color_pair(i) for i in range(1, 6))
@@ -168,7 +201,10 @@ def ui(scr):
         cur = current()
         rowmap.clear()
         y, n_ws, n_ag, sep = 1, 0, 0, False
-        for kind, label, target, state in cache:
+        if expanded and time.time() - last_move > IDLE_SHRINK:
+            expanded, hover_y = False, -1
+            set_width(NARROW)
+        for kind, label, target, state, info in cache:
             if kind == "ag" and not sep:
                 if y < H - 1:
                     scr.addnstr(y, 1, "─" * max(1, W - 2), W - 2, MUTED)
@@ -176,10 +212,13 @@ def ui(scr):
                 sep = True
             if y >= H - 1:
                 break
-            if kind == "sub":   # subagente: rama debajo de su chat, sin número; clic va al padre
+            hl = curses.A_REVERSE if expanded and y == hover_y else 0
+            if kind == "sub":   # subagente: rama debajo de su chat, sin número; clic = su sesión
                 scr.addnstr(y, 1, "└", 1, MUTED)
                 dot = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[tick % 10] if state == "working" else "◐◓◑◒"[(tick // 2) % 4]
                 scr.addnstr(y, 3, dot, 1, WORK)
+                if expanded and W > 6:
+                    scr.addnstr(y, 5, info[1], W - 6, MUTED | hl)
                 rowmap[y] = target
                 y += 1
                 continue
@@ -207,6 +246,11 @@ def ui(scr):
             numattr = (ROSE | curses.A_BOLD | curses.A_REVERSE) if here else (IRIS if kind == "ag" else 0)
             scr.addnstr(y, 1, f"{num:>1}", 2, numattr)
             scr.addnstr(y, 3, dot, 1, col)
+            if expanded and W > 6:
+                proj, feat = info
+                scr.addnstr(y, 5, proj, W - 6, (ROSE if here else (IRIS if kind == "ag" else 0)) | curses.A_BOLD | hl)
+                if feat and len(proj) + 3 < W - 6:
+                    scr.addnstr(y, 5 + len(proj), " · " + feat, W - 6 - len(proj), MUTED | hl)
             rowmap[y] = target
             y += 1
         # "+" al pie: Nuevo (chat o workspace), igual que alt+n
@@ -220,7 +264,20 @@ def ui(scr):
                 _, mx, my, _, b = curses.getmouse()
             except curses.error:
                 continue
+            CLICK = (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED
+                     | curses.BUTTON1_DOUBLE_CLICKED)
+            # Movimiento: el curses de macOS no lo marca con REPORT_MOUSE_POSITION sino con otros bits;
+            # todo evento que no sea un clic izquierdo cuenta como "el mouse está acá"
+            if not b & CLICK:
+                last_move, hover_y = time.time(), my
+                if not expanded:
+                    expanded = True
+                    set_width(WIDE)
+                continue
             if my in rowmap and b & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED):
+                if expanded:
+                    expanded = False
+                    set_width(NARROW)
                 go(rowmap[my])
 
 
