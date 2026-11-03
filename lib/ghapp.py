@@ -193,12 +193,17 @@ def main():
             pass  # store/erase: nada que guardar
         elif a[:1] in (["ghconfig"], ["keep"]) and len(a) > 1:
             d, repo = a[1], (a[2] if len(a) > 2 else repo_here())
+            if a[0] == "ghconfig":
+                sys.exit(0 if ghconfig(d, repo) else 1)
+            # Renovador: nunca morir por un error pasajero (sin red, GitHub caído). Si falla, reintentar
+            # al minuto; si anda, cada 15 min. Termina solo cuando ningún agente usa esta config.
             while True:
-                if not ghconfig(d, repo):
-                    sys.exit(1)
-                if a[0] == "ghconfig":
-                    break
-                time.sleep(900)  # primero esperar: al lanzar, el pane del agente todavía no existe
+                try:
+                    ok = ghconfig(d, repo)
+                except Exception as e:  # noqa: BLE001
+                    print(f"ghapp keep: {e}", file=sys.stderr)
+                    ok = False
+                time.sleep(900 if ok else 60)
                 if not users(d):
                     break
         elif a[:1] == ["whoami"]:
