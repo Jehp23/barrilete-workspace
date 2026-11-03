@@ -4,6 +4,7 @@
     1 ●     arriba: los workspaces (sesiones bk-*), en orden de creación; alt+1…9 salta a cada uno
     2 ○     abajo: los agentes (ventanas de la sesión "agents")
     ─       ● trabajando · ● rojo te espera · ○ libre/listo · · sin claude
+    └⠋      debajo de un chat o agente: sus subagentes vivos (herramienta Agent), uno por fila
     1 ●     el actual va resaltado. Clic en una fila para ir ahí.
 """
 import curses, glob, json, os, subprocess, time
@@ -27,9 +28,42 @@ def states():
         except Exception:
             continue
         p = s.get("pane")
+        s["_sid"] = os.path.basename(f)[:-5]
         if p and (p not in out or s.get("ts", 0) > out[p].get("ts", 0)):
             out[p] = s
     return out
+
+
+PROJECTS = os.path.expanduser("~/.claude/projects")
+_subdirs = {}
+
+
+def subagents(sid):
+    """Subagentes vivos de una sesión de Claude Code: (descripción, en segundo plano?).
+    Vivo = su meta.json no dice finished y su transcript se escribió hace menos de 10 min
+    (uno que murió sin avisar no queda para siempre)."""
+    if not sid:
+        return []
+    d = _subdirs.get(sid)
+    if d is None or not os.path.isdir(d):
+        hit = glob.glob(os.path.join(PROJECTS, "*", sid, "subagents"))
+        d = _subdirs[sid] = hit[0] if hit else ""
+    if not d:
+        return []
+    out, now = [], time.time()
+    for m in glob.glob(os.path.join(d, "agent-*.meta.json")):
+        j = m[:-len(".meta.json")] + ".jsonl"
+        try:
+            if now - os.path.getmtime(j) > 600:
+                continue
+            meta = json.load(open(m))
+        except Exception:
+            continue
+        if meta.get("finished"):
+            continue
+        desc = meta.get("description") or meta.get("agentType") or "subagente"
+        out.append((desc, meta.get("requestShape") == "background", os.path.getmtime(j)))
+    return [(d_, bg) for d_, bg, _ in sorted(out, key=lambda x: -x[2])]
 
 
 def workspaces():
@@ -59,7 +93,7 @@ def items():
     out = []
     for name in workspaces():
         # Estado del chat del workspace (el pane que corre claude en la ventana main)
-        state = "none"
+        state, subs = "none", []
         for l in sh("tmux", "list-panes", "-t", f"{name}:main", "-F",
                     "#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{pane_start_command}").splitlines():
             pid, cmd, dead, start = (l.split("\t") + ["", "", "", ""])[:4]
@@ -68,13 +102,19 @@ def items():
             s = pane_state(st, pid, cmd, dead)
             if s != "none":
                 state = s
+                subs = subagents((st.get(pid) or {}).get("_sid"))
         out.append(("ws", name, name, state))
+        out += [("sub", d, name, "background" if bg else "working") for d, bg in subs]
     for l in sh("tmux", "list-panes", "-s", "-t", AGENTS, "-F",
                 "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}").splitlines():
         win, pid, cmd, dead, ws = (l.split("\t") + ["", "", "", "", ""])[:5]
         if ws:      # el chat de un workspace, de visita mientras un agente ocupa su lugar
             continue
-        out.append(("ag", win, f"{AGENTS}:{win}", pane_state(st, pid, cmd, dead)))
+        state = pane_state(st, pid, cmd, dead)
+        out.append(("ag", win, f"{AGENTS}:{win}", state))
+        if state != "none":
+            out += [("sub", d, f"{AGENTS}:{win}", "background" if bg else "working")
+                    for d, bg in subagents((st.get(pid) or {}).get("_sid"))]
     return out
 
 
@@ -130,6 +170,13 @@ def ui(scr):
                 sep = True
             if y >= H - 1:
                 break
+            if kind == "sub":   # subagente: rama debajo de su chat, sin número; clic va al padre
+                scr.addnstr(y, 1, "└", 1, MUTED)
+                dot = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[tick % 10] if state == "working" else "◐◓◑◒"[(tick // 2) % 4]
+                scr.addnstr(y, 3, dot, 1, WORK)
+                rowmap[y] = target
+                y += 1
+                continue
             if kind == "ws":
                 n_ws += 1; num = n_ws
             else:
