@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """bk new (alt+n, o el + de la tira): crear sin salir del workspace.
 
-  ✿ Chat nuevo en <proyecto>     un claude nuevo en la carpeta del proyecto, en el lugar del chat
-  ✿ Chat en una rama aparte      un claude en su propio worktree y rama (chat/<nombre>): varios cambios
+  ✿ Chat nuevo en <proyecto>     otro chat del proyecto: un workspace más en la tira (3, 4…)
+  ✿ Chat en una rama aparte      un workspace más, en su propio worktree y rama (chat/<nombre>): varios cambios
                                  del mismo proyecto a la vez sin pisarse
   ✿ Chat sin proyecto            un claude en ~/.bk/chats, para preguntas sueltas
   ─ Abrir workspace de otro proyecto
