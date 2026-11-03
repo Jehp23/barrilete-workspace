@@ -5,12 +5,12 @@
     2 ○     abajo: los agentes (ventanas de la sesión "agents")
     ─       ● trabajando · ● rojo te espera · ○ libre/listo · · sin claude
     └⠋      debajo de un chat o agente: sus subagentes vivos (herramienta Agent); clic = su sesión en un popup
-    1 ●     el actual va resaltado. Clic en una fila para ir ahí.
+    1 ●     el actual va resaltado. Clic en una fila para ir ahí; con el mouse encima, su nombre
+            (proyecto · feature) aparece en la barra de tmux, como un tooltip.
 """
 import curses, glob, json, os, subprocess, sys, time
 
-NARROW, WIDE = 5, 46    # ancho de la tira: normal y al pasar el mouse
-IDLE_SHRINK = 3.0       # segundos sin mover el mouse adentro para volver a angosta
+TIP_MS = 2500           # cuánto queda el nombre en la barra de tmux al pasar el mouse
 
 STATE = os.path.expanduser("~/.cache/sketchybar/agents")
 AGENTS = os.environ.get("BK_SESSION", "agents")
@@ -181,14 +181,17 @@ def ui(scr):
     # el terminfo de tmux espera el formato X10 (kmous=\E[M) y curses leería mal el otro.
     sys.stdout.write("\033[?1003h"); sys.stdout.flush()
     me = os.environ.get("TMUX_PANE", "")
-    expanded, last_move, hover_y = False, 0.0, -1
-
-    def set_width(w):
-        if me:
-            sh("tmux", "resize-pane", "-t", me, "-x", str(w))
+    client = sh("tmux", "display-message", "-p", "-t", me, "#{client_name}").strip() if me else ""
+    hover_y, hover_t, tips = -1, 0.0, {}
     for k, v in {1: 222, 2: 210, 3: 244, 4: 218, 5: 147}.items():
         curses.init_pair(k, v, -1)
     WORK, WAIT, MUTED, ROSE, IRIS = (curses.color_pair(i) for i in range(1, 6))
+
+    def tooltip(text):
+        """El nombre de la fila, como tooltip en la barra de tmux (la tira no cambia de ancho)."""
+        if text:
+            sh("tmux", "display-message", *(["-c", client] if client else []), "-d", str(TIP_MS), text)
+
     scr.timeout(250)          # 4 cuadros por segundo para el spinner; los datos, cada 1 s
     rowmap = {}
     tick, cache, cache_t = 0, [], 0
@@ -201,9 +204,9 @@ def ui(scr):
         cur = current()
         rowmap.clear()
         y, n_ws, n_ag, sep = 1, 0, 0, False
-        if expanded and time.time() - last_move > IDLE_SHRINK:
-            expanded, hover_y = False, -1
-            set_width(NARROW)
+        tips.clear()
+        if hover_y >= 0 and time.time() - hover_t > TIP_MS / 1000:   # se fue el mouse: sacar el resaltado
+            hover_y = -1
         for kind, label, target, state, info in cache:
             if kind == "ag" and not sep:
                 if y < H - 1:
@@ -212,13 +215,12 @@ def ui(scr):
                 sep = True
             if y >= H - 1:
                 break
-            hl = curses.A_REVERSE if expanded and y == hover_y else 0
+            hl = curses.A_REVERSE if y == hover_y else 0
             if kind == "sub":   # subagente: rama debajo de su chat, sin número; clic = su sesión
-                scr.addnstr(y, 1, "└", 1, MUTED)
+                scr.addnstr(y, 1, "└", 1, MUTED | hl)
                 dot = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[tick % 10] if state == "working" else "◐◓◑◒"[(tick // 2) % 4]
                 scr.addnstr(y, 3, dot, 1, WORK)
-                if expanded and W > 6:
-                    scr.addnstr(y, 5, info[1], W - 6, MUTED | hl)
+                tips[y] = f"↳ subagente · {info[1]}"
                 rowmap[y] = target
                 y += 1
                 continue
@@ -244,13 +246,10 @@ def ui(scr):
                 dot, col = "○", MUTED
             here = kind == "ws" and label == cur
             numattr = (ROSE | curses.A_BOLD | curses.A_REVERSE) if here else (IRIS if kind == "ag" else 0)
-            scr.addnstr(y, 1, f"{num:>1}", 2, numattr)
+            scr.addnstr(y, 1, f"{num:>1}", 2, numattr | hl)
             scr.addnstr(y, 3, dot, 1, col)
-            if expanded and W > 6:
-                proj, feat = info
-                scr.addnstr(y, 5, proj, W - 6, (ROSE if here else (IRIS if kind == "ag" else 0)) | curses.A_BOLD | hl)
-                if feat and len(proj) + 3 < W - 6:
-                    scr.addnstr(y, 5 + len(proj), " · " + feat, W - 6 - len(proj), MUTED | hl)
+            proj, feat = info
+            tips[y] = (f"{'workspace' if kind == 'ws' else 'agente'} {num} · {proj}" + (f" · {feat}" if feat else ""))
             rowmap[y] = target
             y += 1
         # "+" al pie: Nuevo (chat o workspace), igual que alt+n
@@ -269,15 +268,11 @@ def ui(scr):
             # Movimiento: el curses de macOS no lo marca con REPORT_MOUSE_POSITION sino con otros bits;
             # todo evento que no sea un clic izquierdo cuenta como "el mouse está acá"
             if not b & CLICK:
-                last_move, hover_y = time.time(), my
-                if not expanded:
-                    expanded = True
-                    set_width(WIDE)
+                if my != hover_y:          # entró a otra fila: mostrar su nombre una vez
+                    tooltip(tips.get(my, ""))
+                hover_y, hover_t = my, time.time()
                 continue
             if my in rowmap and b & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED):
-                if expanded:
-                    expanded = False
-                    set_width(NARROW)
                 go(rowmap[my])
 
 
