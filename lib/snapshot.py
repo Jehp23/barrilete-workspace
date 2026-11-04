@@ -129,7 +129,7 @@ def pick(arg):
 
 def ensure_server():
     """restore puede correr con tmux caído: levantar el server con la sesión de agentes y apuntar TMUX a él."""
-    if not tmux("list-sessions"):
+    if SESSION not in tmux("list-sessions", "-F", "#{session_name}").split():
         subprocess.run(["tmux", "new-session", "-d", "-s", SESSION, "-n", "restore"], check=False)
     sock = tmux("display-message", "-p", "#{socket_path}").strip()
     env = dict(os.environ)
@@ -153,6 +153,20 @@ def running_claude(pane):
         return False
     out = AG.sh("ps", "-o", "command=", "-g", pid)
     return any(re.search(r"(^|[\s/])claude(\s|$)", l.strip()) for l in out.splitlines())
+
+
+def pane_running(sid):
+    """El pane donde ya corre esa sesión de Claude (por el estado del hook o por el --resume del proceso), o ""."""
+    if not sid:
+        return ""
+    for p, st in AG.states().items():
+        if st.get("_sid") == sid and tmux("display-message", "-p", "-t", p, "#{pane_id}").strip() == p and running_claude(p):
+            return p
+    for l in tmux("list-panes", "-a", "-F", "#{pane_id}\t#{pane_pid}").splitlines():
+        p, pid = (l.split("\t") + [""])[:2]
+        if sid in AG.sh("ps", "-o", "command=", "-g", pid):
+            return p
+    return ""
 
 
 def bot_env(cwd):
@@ -187,12 +201,22 @@ def restore(path, dry):
         if not dry and pane and running_claude(pane) and name in have:
             print(f"  = {name}: su chat sigue corriendo")
             continue
+        elsewhere = pane_running(sid) if not dry else ""
+        if elsewhere and elsewhere != pane:
+            # la sesión ya corre en otro lado (la retomaste a mano): traerla a su lugar, no abrir otra copia
+            print(f"  ⇄ {name}: su chat ya corría en otra ventana; lo traigo a su lugar")
+            tmux("swap-pane", "-d", "-s", elsewhere, "-t", pane)
+            tmux("kill-pane", "-t", pane)   # el chat nuevo que había abierto bk ws quedó donde estaba el otro
+            continue
         if name in have:
             print(f"  ↻ {name}: retoma el chat {sid[:8]}")
         if not dry and pane:
             tmux("respawn-pane", "-k", "-t", pane, "-c", cwd, f"claude --resume {sid}; exec $SHELL")
     wins = set(tmux("list-windows", "-t", f"={SESSION}", "-F", "#{window_name}").split())
     for a in shot["agents"]:
+        if a["win"] not in wins and a["sid"] and not dry and pane_running(a["sid"]):
+            print(f"  = agente {a['win']}: ya corre en otra ventana")
+            continue
         if a["win"] in wins or not a["sid"]:
             if a["win"] in wins:
                 print(f"  = agente {a['win']}: sigue corriendo")
