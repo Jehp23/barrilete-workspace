@@ -80,7 +80,7 @@ def main():
     if data.get("tool_name") != "Bash":
         return
     cmd = str((data.get("tool_input") or {}).get("command", ""))
-    if "tmux" not in cmd:
+    if "tmux" not in cmd and "kill" not in cmd:
         return
     d = decide(cmd)
     if d:
