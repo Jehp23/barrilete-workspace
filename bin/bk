@@ -50,6 +50,7 @@ uso: bk [comando] [--dry-run]
   changes           lo que los agentes dejaron sin commitear, con diff (alt+g)
   palette | k       todos los comandos con búsqueda (alt+k)
   monitor           pantalla para el otro monitor: agentes, costo y desvíos en vivo (los graves suenan)
+                    (c o bk monitor --clear limpian los desvíos: lo anterior no vuelve aunque relea los transcripts)
   stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
   chat [--rama N]   otro chat del proyecto, como un workspace más (alt+N); con --rama, en su worktree y rama chat/N
   sound [on|off|test]  sonidos de los agentes: terminó (Glass), pregunta (Ping), permiso (Purr), error (Basso)
