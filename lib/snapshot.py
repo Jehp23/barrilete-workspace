@@ -216,6 +216,8 @@ def restore(path, dry):
         ensure_server()
     wins = set(tmux("list-windows", "-t", f"={SESSION}", "-F", "#{window_name}").split())
     for a in shot["agents"]:
+        if not dry:   # volver a mirar justo antes: una ventana recién creada tarda en mostrar su claude
+            wins = set(tmux("list-windows", "-t", f"={SESSION}", "-F", "#{window_name}").split())
         if a["win"] not in wins and a["sid"] and not dry and pane_running(a["sid"]):
             print(f"  = agente {a['win']}: ya corre en otra ventana")
             continue
