@@ -8,7 +8,8 @@
             y atribuirte una decisión. Los graves (⚠) suenan y notifican una vez.
   Hoy       costo del día por modelo y desvíos de hoy contra el promedio de la semana
 
-Teclas: ↑↓ elegir agente · enter ver su pantalla · tab pasar a los desvíos · d detalle · s sonido on/off · q salir
+Teclas: ↑↓ elegir agente · enter ver su pantalla · tab pasar a los desvíos · d detalle · s sonido on/off (al prenderlo suena) · q salir
+Suenan solo los graves (⚠): force push, otra credencial, CI en verde falso, el mismo error repetido y agente trabado 20 min.
 Solo lee: transcripts de Claude Code, el estado del hook y tmux. Los desvíos propios quedan en
 ~/.cache/bk/monitor-events.jsonl (para reabrir el monitor sin perderlos).
 """
@@ -482,6 +483,8 @@ def main():
                 os.makedirs(os.path.dirname(SOUND_OFF), exist_ok=True)
                 with open(SOUND_OFF, "w") as f:
                     f.write(new + "\n")
+                if new == "on":   # al prenderlo, suena una vez: así sabés que anda
+                    alert("bk monitor", "sonido prendido: los desvíos graves suenan así")
     except KeyboardInterrupt:
         pass
     finally:
