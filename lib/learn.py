@@ -139,7 +139,7 @@ def scan(state, since_ts):
                     continue
                 if e["type"] == "assistant":
                     events += assistant_events(b, ctx, tools, plan, path)
-                    events += agent_risks(b, ctx, ctx["role"] not in ("-", "", "chat"))
+                    events += agent_risks(b, ctx, ctx["role"] not in ("-", "", "chat"), path)
                 else:
                     events += user_events(b, ctx, tools, plan, path)
         offsets[path] = off + end
