@@ -31,7 +31,7 @@ import gentle as G   # noqa: E402
 from gentle import AMBER, BOLD, GREEN, IRIS, MUTED, PETAL, RED, ROSE, RST, TEXT  # noqa: E402
 
 try:
-    import learn as L   # detectores de bk learn (los mismos que alimentan el vault)
+    import deviations as L   # los mismos detectores que usa bk learn para el vault
 except Exception:       # sin vault configurado, el monitor sigue con sus detectores propios
     L = None
 try:
