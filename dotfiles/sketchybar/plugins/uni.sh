@@ -24,7 +24,8 @@ fit_uni() {
   n_r=$(cat "$HOME/.cache/sketchybar/notch_right" 2>/dev/null || echo 0)
   c=$(cat "$LBL/class" 2>/dev/null || sketchybar --query uni.class | jq -r .label.value)
   d=$(cat "$LBL/due" 2>/dev/null || sketchybar --query uni.due | jq -r .label.value)
-  trunc() { local t="$1" k="$2"; [ ${#t} -gt "$k" ] && echo "${t:0:$((k-1))}…" || echo "$t"; }
+  trunc_() { local t="$1" k="$2"; [ ${#t} -gt "$k" ] && echo "${t:0:$((k-1))}…" || echo "$t"; } 
+  trunc() { trunc_ "$@" | iconv -f utf-8 -t utf-8 -c 2>/dev/null; }   # sin bytes sueltos si se cortó una letra
   for lim in 60 44 34 26 18 10; do
     sketchybar --set uni.class label="$(trunc "$c" "$lim")"
     [ "${n_l:-0}" -eq 0 ] && break

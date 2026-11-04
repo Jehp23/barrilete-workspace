@@ -149,6 +149,7 @@ while IFS=$'\t' read -r STATE CWD TOOL SUB TS PHASE REF ROLE MODEL PANE; do
   DETAIL="$TXT"
   [ "$TOOL" != "-" ] && [ "$STATE" != "done" ] && [ "$STATE" != "idle" ] && DETAIL+=" · $TOOL"
   [ "$SUB" -gt 0 ] && DETAIL+=" · $SUB sub"
+  HEAD=$(printf '%s' "$HEAD" | iconv -f utf-8 -t utf-8 -c 2>/dev/null); DETAIL=$(printf '%s' "$DETAIL" | iconv -f utf-8 -t utf-8 -c 2>/dev/null)
   sketchybar --add item agents.s.$i popup.agents \
              --set agents.s.$i background.drawing=off icon.padding_left=10 label.padding_right=12 icon="$IC" icon.color=$C \
                    label="$HEAD  —  $DETAIL  ($AGO)" \

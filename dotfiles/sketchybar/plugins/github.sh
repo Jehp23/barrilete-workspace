@@ -135,7 +135,8 @@ notch_right() {
 }
 fit_to_notch() {
   local limit x n_r=$(notch_right) MARGIN=16 trunc
-  trunc() { local s="$1" n="$2"; [ ${#s} -gt "$n" ] && echo "${s:0:$((n-1))}…" || echo "$s"; }
+  trunc_() { local s="$1" n="$2"; [ ${#s} -gt "$n" ] && echo "${s:0:$((n-1))}…" || echo "$s"; } 
+  trunc() { trunc_ "$@" | iconv -f utf-8 -t utf-8 -c 2>/dev/null; }   # sin bytes sueltos si se cortó una letra
   for limit in "24 24" "16 16" "14 12" "12 10" "10 8" "8 6"; do
     set -- $limit
     sketchybar --set github.prs label="$(trunc "$NAME_" "$1")  $OPEN" \

@@ -10,5 +10,6 @@ if [ "$SENDER" = "front_app_switched" ]; then
   export LC_ALL=en_US.UTF-8   # para cortar por caracteres, no por bytes
   LABEL="${INFO:0:18}"
   [ "$LABEL" != "$INFO" ] && LABEL="$LABEL…"
+  LABEL=$(printf '%s' "$LABEL" | iconv -f utf-8 -t utf-8 -c 2>/dev/null)   # un corte a mitad de letra no llega roto
   sketchybar --set "$NAME" label="$LABEL"
 fi
