@@ -64,6 +64,8 @@ uso: bk [comando] [--dry-run]
   watch [ventana]   pantalla de un agente en vivo, solo lectura (sin ventana: toma el próximo
                     agente que nadie esté mirando; --all: todos en un panel, como en el workspace)
   stop <agente>     cerrar la ventana del agente (el worktree queda)
+  snapshot          foto de tus workspaces y agentes (sola cada ~5 min); bk restore --list las muestra
+  restore [N]       vuelve a la foto N (1 = la última): recrea lo que falte y retoma cada chat y agente
   roles             qué provider/modelo corre cada rol en este proyecto
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
   learn             registra desvíos de los agentes en Obsidian y propone lecciones
@@ -409,7 +411,8 @@ workspace() {
   local dir; dir=$(cd "${1:-$PWD}" && pwd) || die "no existe $1"
   local top; top=$(project_top "$dir")
   WS_SESSION="${WS_SESSION:-bk-$(project_of "$dir")}"
-  if ! tmux has-session -t "$WS_SESSION" 2>/dev/null; then
+  # "=" nombre exacto: sin él, tmux toma prefijos y bk-abra "existía" si estaba bk-abra-nuevo-wizard
+  if ! tmux has-session -t "=$WS_SESSION" 2>/dev/null; then
     local cols lines chat rail
     cols=$(tput cols 2>/dev/null || echo 200); lines=$(tput lines 2>/dev/null || echo 50)
     # El chat sobrevive a un /exit: vuelve a una shell en la misma carpeta
@@ -972,6 +975,10 @@ case "${1:-}" in
   sidebar)     exec python3 "$WS/lib/sidebar.py" ;;
   term|t)      shift; ws_term "${1:-$PWD}" ;;
   sub)         shift; exec python3 "$WS/lib/subwatch.py" "$@" ;;
+  snapshot)    shift; exec python3 "$WS/lib/snapshot.py" save "$@" ;;
+  restore)     shift; case "${1:-}" in --list|-l|list) exec python3 "$WS/lib/snapshot.py" list ;;
+                        *) exec python3 "$WS/lib/snapshot.py" restore "$@" ;; esac ;;
+  _botenv)     shift; env=(); bot_env "${1:?}" >/dev/null 2>&1; for kv in "${env[@]+"${env[@]}"}"; do [ "$kv" = -e ] || printf '%s\n' "$kv"; done ;;
   sound)       shift; cmd_sound "${1:-status}" ;;
   name)        shift; cmd_name "$@" ;;
   _nth)        tmux list-sessions -F '#{session_created} #{session_name}' 2>/dev/null \
