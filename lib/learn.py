@@ -21,18 +21,21 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from deviations import (FREEFORM, RE_APPROVE, RE_CONTRACT, RE_CORRECT, RE_FIELD,  # noqa: E402,F401
-                        assistant_events, ev, norm, text_of, user_events)
+from deviations import (FREEFORM, RE_APPROVE, RE_CONTRACT, RE_CORRECT, RE_FIELD, RISK_HINTS,  # noqa: E402,F401
+                        agent_risks, assistant_events, ev, finding_class, norm, review_findings, text_of,
+                        user_events)
 
 PROJECTS = os.path.expanduser("~/.claude/projects")
 VAULT = os.path.expanduser(os.environ.get("BARRILETE_VAULT", "~/Documents/Obsidian Vault"))
 AG = os.path.join(VAULT, "agents")
-STATE = os.path.expanduser("~/.cache/barrilete/learn-state.json")
+STATE = os.path.expanduser(os.environ.get("BK_LEARN_STATE", "~/.cache/barrilete/learn-state.json"))
 AGENT_STATE_DIR = os.path.expanduser("~/.cache/sketchybar/agents")
 
 FIRST_SCAN_DAYS = 30          # primera pasada: historia reciente
@@ -110,7 +113,7 @@ def scan(state, since_ts):
                     models[path] = m.group(1)
                 for tid, name in RE_TOOLUSE.findall(line):
                     tools[tid] = name
-                interesting = any(k in line for k in ("red.sh", "verify.py", "planner.py", "result:"))
+                interesting = any(k in line for k in ("red.sh", "verify.py", "planner.py", "result:") + RISK_HINTS)
                 if not interesting:
                     continue
             elif not ('"is_error":true' in line or "interrupted by user" in line
@@ -121,6 +124,8 @@ def scan(state, since_ts):
             except ValueError:
                 continue
             if e.get("type") not in ("user", "assistant") or e.get("isMeta"):
+                continue
+            if (e.get("cwd") or "").startswith(FIXTURE_CWD):   # sesiones de los tests (fixtures): no cuentan
                 continue
             ctx = {
                 "ts": e.get("timestamp", ""), "project": project_name(e.get("cwd")),
@@ -134,6 +139,7 @@ def scan(state, since_ts):
                     continue
                 if e["type"] == "assistant":
                     events += assistant_events(b, ctx, tools, plan, path)
+                    events += agent_risks(b, ctx, ctx["role"] not in ("-", "", "chat"))
                 else:
                     events += user_events(b, ctx, tools, plan, path)
         offsets[path] = off + end
@@ -179,7 +185,10 @@ LABELS = {
     "contract_escalate": "escaló", "contract_blockers": "review con bloqueantes",
     "contract_question": "pregunta", "contract_dropped": "abandonó",
     "plan_correction": "plan corregido", "user_correction": "corrección",
+    "force_push": "force push", "credential": "otra credencial", "attribution": "decisión atribuida",
+    "review_finding": "hallazgo de review", "loop": "loop", "stale_grave": "trabado", "ci_claim": "CI en verde falso",
 }
+FIXTURE_CWD = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")   # tests: no son agentes reales
 
 
 def write(path, text):
@@ -227,7 +236,22 @@ def existing_lessons():
     return out
 
 
+REVIEW_RULES = {   # regla sugerida por clase de hallazgo (la persona la edita o la descarta)
+    "metadatos del PR": "Antes de pedir review, releé el cuerpo del PR contra el diff y el bloque de red.sh de este PR.",
+    "afirmación sobre el CI": "No digas que el CI está en verde o que una falla es flaky sin haberlo visto en gh pr checks.",
+    "decisión no aprobada": "Si agregás una regla o cambiás una decisión que el issue no trae, dejala como pregunta.",
+    "test que no puede fallar": "Comprobá que cada test nuevo falla si quitás lo que chequea.",
+    "docs desactualizados": "Después de cambiar un comportamiento, buscá en README, AGENTS.md y SKILL.md lo que lo describe.",
+    "comando o flag mal usado": "Corré contra la herramienta real cada comando que escribís en un skill o doc.",
+    "el texto no coincide con el código": "Antes de cerrar, compará lo que dicen ADR, SKILL y docs con lo que hace el código.",
+    "caso no cubierto": "Para cada camino nuevo (modo, rol, flag), revisá quién lo dispara y qué pasa si falta un dato.",
+    "entrada inesperada sin manejar": "Probá entradas mal formadas (null, lista, vacío) y que el error sea un mensaje, no un traceback.",
+}
+
+
 def suggested_rule(typ, sig):
+    if typ == "review_finding":
+        return REVIEW_RULES.get(sig, "")
     if typ == "guardrail_block":
         return (f"No intentes {sig}: es una acción humana. No busques otro camino; "
                 "pedile a la persona que la corra ella.")
@@ -246,6 +270,8 @@ def write_patterns_and_lessons(evs):
                     f"{', '.join(sorted({short_model(e['model']) for e in g}))} |")
         key = f"{typ}::{sig}::{proj}"
         if len(g) < PATTERN_MIN or key in lessons or typ in FREEFORM:
+            continue
+        if typ == "review_finding" and not suggested_rule(typ, sig):   # "otro hallazgo": sin una regla que proponer
             continue
         name = slug(f"{LABELS.get(typ, typ)} {sig}")
         path = os.path.join(AG, "lessons", f"{name}.md")
@@ -336,6 +362,45 @@ def git(repo, *args):
     import subprocess
     r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, timeout=60)
     return r.stdout if r.returncode == 0 else ""
+
+
+REVIEWS_EVERY = 900   # s: learn corre cada ~2 min; GitHub, cada 15
+
+
+def import_reviews(state):
+    """Hallazgos (bloqueantes y "para corregir") de las reviews publicadas en los repos con retros.
+    Cada ítem es un evento review_finding con su clase; el proyecto es el repo, para que se agrupen."""
+    if time.time() - state.get("reviews_t", 0) < REVIEWS_EVERY:
+        return []
+    state["reviews_t"] = time.time()
+    seen = set(state.setdefault("reviews_seen", []))
+    since = (datetime.now() - timedelta(days=FIRST_SCAN_DAYS)).strftime("%Y-%m-%d")
+    env = {k: v for k, v in os.environ.items() if k not in ("GH_CONFIG_DIR", "GH_TOKEN")}
+    out = []
+    for repo in retro_repos():
+        url = git(repo, "remote", "get-url", "origin")
+        m = re.search(r"github\.com[:/]([^/]+/[^/\s]+?)(?:\.git)?\s*$", url or "")
+        if not m:
+            continue
+        slug_ = m.group(1)
+        try:
+            raw = subprocess.run(["gh", "pr", "list", "--repo", slug_, "--state", "all", "--limit", "60",
+                                  "--json", "number,reviews"], capture_output=True, text=True, timeout=60, env=env).stdout
+            prs = json.loads(raw or "[]")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+        for p in prs:
+            for r in p.get("reviews") or []:
+                rid, ts = r.get("id"), r.get("submittedAt") or ""
+                if not rid or rid in seen or ts[:10] < since:
+                    continue
+                seen.add(rid)
+                ctx = {"ts": ts, "project": slug_.split("/")[-1], "session": rid[-8:], "model": "-",
+                       "role": "implementer"}
+                for item in review_findings(r.get("body")):
+                    out.append(ev(ctx, "review_finding", finding_class(item), f"#{p['number']}: {item}"))
+    state["reviews_seen"] = sorted(seen)[-5000:]
+    return out
 
 
 def import_retros(state):
@@ -526,6 +591,7 @@ def main():
         for f in glob.glob(os.path.join(AG, "data", "events-*.jsonl")):
             os.remove(f)
     new = scan(state, since)
+    new += import_reviews(state)
 
     touched = set()
     for e in new:
