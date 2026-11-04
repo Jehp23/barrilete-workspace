@@ -49,7 +49,7 @@ STALE_WARN, STALE_GRAVE = 600, 1200      # segundos "trabajando" sin eventos del
 GRAVE_SOUND, GRAVE_VOLUME = "Hero", "2.5"   # largo y llamativo; afplay acepta más de 1 (el sonido del sistema es bajo)
 LOOP_N, LOOP_WINDOW = 4, 900             # el mismo comando con el mismo error 4 veces en 15 min
 
-GRAVE_TYPES = {"force_push", "credential", "ci_claim", "loop", "stale_grave"}
+GRAVE_TYPES = {"force_push", "credential", "ci_claim", "loop", "stale_grave", "low_memory"}
 TYPE_UI = {
     "hook_block": ("bloqueado por un hook", AMBER), "guardrail_block": ("bloqueado por una baranda", AMBER),
     "verify_fail": ("verificación falló", AMBER), "user_denied": ("rechazaste un permiso", PETAL),
@@ -61,6 +61,7 @@ TYPE_UI = {
     "loop": ("el mismo error se repite", RED), "force_push": ("intentó un force push", RED),
     "credential": ("intentó usar otra credencial", RED), "ci_claim": ("dijo «CI en verde» y está rojo", RED),
     "attribution": ("te atribuye una decisión: verificá", AMBER),
+    "low_memory": ("poca memoria libre", RED),
 }
 
 # Los patrones de riesgo son los de lib/deviations.py (los mismos que guarda bk learn)
@@ -303,6 +304,15 @@ class Monitor:
         for f in list(self.tails):
             if f not in live:
                 del self.tails[f]
+        # Memoria: con poca memoria libre macOS mata procesos y se puede llevar a tmux con todo (2026-11-04)
+        free = mem_free()
+        self.mem_free = free
+        if free is not None and free < 15 and not getattr(self, "_mem_warned", False):
+            self._mem_warned = True
+            self.when, self.quiet = 0, False
+            self.add("low_memory", "máquina", f"queda {free}% de memoria libre: cerrá agentes listos o pestañas antes de lanzar más")
+        elif free is not None and free >= 25:
+            self._mem_warned = False
         if now() - self.last_today > 30:
             self.last_today = now()
             try:
@@ -311,6 +321,13 @@ class Monitor:
             except (subprocess.SubprocessError, ValueError):
                 pass
             self.week_avg = week_average()
+
+
+def mem_free():
+    """% de memoria libre según macOS (memory_pressure); None si no se puede saber."""
+    out = AG.sh("memory_pressure", "-Q", timeout=5)
+    m = re.search(r"free percentage: (\d+)%", out)
+    return int(m.group(1)) if m else None
 
 
 def week_average():
@@ -402,6 +419,7 @@ def frame(mon, cols, lines, sel, focus, esel, overlay):
     W = cols
     head = (f" {ROSE}✿{RST} {BOLD}bk monitor{RST} {MUTED}· {time.strftime('%H:%M:%S')} · "
             f"{sum(1 for a in mon.agents if a['kind'] != 'chat')} agentes · {money((mon.today or {}).get('cost_usd', 0))} hoy · "
+            f"memoria libre {getattr(mon, 'mem_free', None) if getattr(mon, 'mem_free', None) is not None else '?'}% · "
             f"sonido {'on' if sound_on() else 'off'}{RST}")
     out = [G.cut(head, W), ""]
     if overlay:
