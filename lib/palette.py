@@ -43,6 +43,7 @@ ENTRIES = [
     ("Barra", "Tema de día", "theme day", None, "show"),
     ("Barra", "Tema de noche", "theme night", None, "show"),
     ("Barra", "Tema según macOS", "theme auto", None, "show"),
+    ("Agentes", "Monitor de agentes y desvíos", "monitor", None, "view"),
     ("Música", "Radio (pantalla)", "song ui", None, "view"),
     ("Música", "Pausa / seguir", "song pause", None, "show"),
     ("Música", "Siguiente estación", "song next", None, "show"),

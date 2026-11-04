@@ -47,6 +47,7 @@ uso: bk [comando] [--dry-run]
   go <agente>       saltar a un agente. <agente>: la ventana (i42, pr57), un número (#240) o una palabra del título
   changes           lo que los agentes dejaron sin commitear, con diff (alt+g)
   palette | k       todos los comandos con búsqueda (alt+k)
+  monitor           pantalla para el otro monitor: agentes, costo y desvíos en vivo (los graves suenan)
   stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
   chat [--rama N]   otro chat del proyecto, como un workspace más (alt+N); con --rama, en su worktree y rama chat/N
   sound [on|off|test]  sonidos de los agentes: terminó (Glass), pregunta (Ping), permiso (Purr), error (Basso)
@@ -966,6 +967,7 @@ case "${1:-}" in
                  printf "%s%2d  %s  %-5s %-40s %s\033[0m\n", c, NR, $1, $2, $5, ($4 != "" ? "· " $4 : "") }'
                info "bk entregas <n> la abre en Notion" ;;
   dash)        dash ;;
+  monitor)     exec python3 "$WS/lib/monitor.py" "$@" ;;
   rail)        exec python3 "$WS/lib/rail.py" ;;
   sidebar)     exec python3 "$WS/lib/sidebar.py" ;;
   term|t)      shift; ws_term "${1:-$PWD}" ;;
