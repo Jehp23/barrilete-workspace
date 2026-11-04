@@ -139,6 +139,7 @@ while IFS=$'\t' read -r STATE CWD TOOL SUB TS PHASE REF ROLE MODEL PANE; do
     # Agente de bk: "i218 · #218 (PR #240) Agregar las reglas…"; clic copia el bk say para contestarle
     WIN=$(jq -r .win <<<"$B")
     HEAD="$WIN · $(jq -r .label <<<"$B")"
+    [ "$(jq -r .kind <<<"$B")" = chat ] && HEAD="◇ $(jq -r .label <<<"$B")  ($PROJ)"
     if [ "$(jq -r .asks <<<"$B")" = true ]; then
       IC=$ICON_WAIT; C=$RED
       Q=$(jq -r .question <<<"$B"); TXT=$(jq -r .why <<<"$B"); [ -n "$Q" ] && TXT+=": «$Q»"
@@ -153,6 +154,16 @@ while IFS=$'\t' read -r STATE CWD TOOL SUB TS PHASE REF ROLE MODEL PANE; do
                    label="$HEAD  —  $DETAIL  ($AGO)" \
                    click_script="$CLICK"
   i=$((i+1))
+  # Sus subagentes vivos, debajo (no se les escribe; bk sub <palabra> sigue uno en vivo)
+  if [ -n "$B" ]; then
+    while IFS= read -r SD; do
+      [ -n "$SD" ] || continue
+      sketchybar --add item agents.s.$i popup.agents \
+                 --set agents.s.$i background.drawing=off icon.padding_left=26 label.padding_right=12 \
+                       icon="└" icon.color=$SUBTEXT label="$SD" label.color=$SUBTEXT
+      i=$((i+1))
+    done < <(jq -r '.subs[]?' <<<"$B")
+  fi
 done < <(printf '%s' "$DATA" | jq -r '
   def nz: if . == null or . == "" then "-" else tostring end;
   .[] | [ .state, .cwd, (.tool|nz), (.subagents // 0), .ts,
