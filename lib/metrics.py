@@ -169,9 +169,86 @@ def slug_of(path, cache):
     return sl[path]
 
 
+# Bloqueantes de una review publicada (las escribe /review-pr, en inglés o castellano). Formatos reales:
+#   "### Blocking" / "### Bloqueantes" / "### Bloqueante (sigue)" + ítems numerados, párrafos en negrita o "None."
+#   "**Bloqueantes:** ninguno." / "**Blocking:** none."    "**Sin bloqueantes.**" / "No hay bloqueantes."
+# No cuentan: "None in the code. **Merge gate (a person's decision)…**", "Bloqueantes de la ronda 1: resueltos",
+# "Sugerencia (no bloqueante)".
+BLOCK_TITLE = re.compile(r"(?i)^(blocking|blockers?|bloqueantes?)(\s*\((sigue|cont\.?|continued)\))?\s*:?$")
+BLOCK_LABEL = re.compile(r"(?i)^\*\*(blocking|blockers?|bloqueantes?)\s*:\s*(?:\*\*)?\s*(.*)$")
+NONE_WORD = re.compile(r"(?i)^[*_\s]*(none|nothing|no blockers|ninguno|ninguna|nada|no hay|sin bloqueantes)\b")
+NO_BLOCKERS = re.compile(r"(?i)\b(sin bloqueantes|no hay bloqueantes|no encontr[ée] bloqueantes|no blockers|no blocking)\b")
+ONE_BLOCKER = re.compile(r"(?i)^\*\*(un|one) (bloqueante|blocker)\b")
+NEXT_SECTION = re.compile(r"(?i)^\*\*(to fix|a corregir|suggestions?|sugerencias?|questions?|preguntas|process|proceso"
+                          r"|out of scope|fuera de alcance)\b")
+NUMBERED = re.compile(r"^(\*\*)?\d+[a-z]?[.)]\s")
+GATE = re.compile(r"(?i)merge gate|compuerta de merge|decisi[óo]n de (una|la) persona|a person's decision")
+
+
+def _count_items(lines):
+    """Ítems de una sección de bloqueantes: numerados > párrafos en negrita > viñetas > texto suelto = 1."""
+    text = [l for l in lines if l.strip()]
+    if not text or NONE_WORD.match(text[0]):
+        return 0
+    top = [l for l in text if not l[0].isspace()]
+    # "**1. …**" o "1. **…**" es un hallazgo; un "1. Reserva de 110…" suelto bajo uno de esos es un paso
+    # de la reproducción y no cuenta
+    for pick in (lambda l: NUMBERED.match(l) and (l.startswith("**") or re.match(r"\d+[a-z]?[.)]\s+\*\*", l)),
+                 lambda l: NUMBERED.match(l),
+                 lambda l: l.startswith("**") and not re.match(r"(?i)\*\*(sugerencia|suggestion|por qu|why|nota|note)", l),
+                 lambda l: re.match(r"[-*] ", l)):
+        items = [l for l in top if pick(l)]
+        if items:
+            return sum(1 for l in items if not GATE.search(l[:200]))
+    return 0 if all(GATE.search(l) for l in text) else 1
+
+
+def review_blockers(body):
+    """Bloqueantes de una review; None si el cuerpo no dice nada de bloqueantes (review humana, LGTM)."""
+    lines, fence = [], False
+    for l in (body or "").splitlines():  # sin bloques de código: un "1." o "**" adentro no es un ítem
+        if l.lstrip().startswith("```"):
+            fence = not fence
+            continue
+        if not fence:
+            lines.append(l.rstrip())
+    found, total = False, 0
+    i = 0
+    while i < len(lines):
+        l = lines[i]
+        h = re.match(r"(#+)\s+(.*)", l)
+        lab = BLOCK_LABEL.match(l)
+        if h and BLOCK_TITLE.match(h.group(2).strip().strip("*").strip()):
+            lvl, j = len(h.group(1)), i + 1
+            while j < len(lines):
+                m = re.match(r"(#+)\s", lines[j])
+                if (m and len(m.group(1)) <= lvl) or NEXT_SECTION.match(lines[j]):
+                    break
+                j += 1
+            total += _count_items(lines[i + 1:j]); found = True; i = j
+            continue
+        if lab:
+            j = i + 1
+            if not lab.group(2).strip():  # "**Bloqueantes:**" y la lista abajo
+                while j < len(lines) and not (re.match(r"#+\s", lines[j]) or NEXT_SECTION.match(lines[j])
+                                              or re.match(r"^\*\*[^*]{1,40}:?\*\*\s*:?\s*$", lines[j])):
+                    j += 1
+            total += _count_items([lab.group(2)] + lines[i + 1:j]); found = True; i = j
+            continue
+        i += 1
+    if found:
+        return total
+    if any(ONE_BLOCKER.match(l) for l in lines):
+        return 1
+    if any(NO_BLOCKERS.search(l) for l in lines):
+        return 0
+    return None
+
+
 def gh_prs(slug, cache, refresh=False):
     hit = cache["gh"].get(slug)
-    if hit and not refresh and time.time() - hit["t"] < GH_TTL:
+    fresh = hit and all("blockers" in p for p in hit["prs"])  # cache de antes de contar bloqueantes: se rehace
+    if fresh and not refresh and time.time() - hit["t"] < GH_TTL:
         return hit["prs"]
     try:
         out = subprocess.run(["gh", "pr", "list", "--repo", slug, "--state", "all", "--limit", "200",
@@ -183,7 +260,9 @@ def gh_prs(slug, cache, refresh=False):
     prs = [{"n": p["number"], "title": p["title"], "branch": p["headRefName"], "state": p["state"],
             "created": p["createdAt"], "merged": p.get("mergedAt"),
             "issues": [i["number"] for i in p.get("closingIssuesReferences") or []],
-            "reviews": len([r for r in p.get("reviews") or [] if r.get("state") != "PENDING"])}
+            "reviews": len([r for r in p.get("reviews") or [] if r.get("state") != "PENDING"]),
+            # uno por review (ronda), en orden; None = el cuerpo no habla de bloqueantes
+            "blockers": [review_blockers(r.get("body")) for r in p.get("reviews") or [] if r.get("state") != "PENDING"]}
            for p in raw]
     cache["gh"][slug] = {"t": time.time(), "prs": prs}
     return prs
@@ -282,7 +361,13 @@ def build(repo_filter=None, refresh=False):
                 "rev_sessions": sum(1 for s in g if s["role"] == "review"),
                 "impl_sessions": sum(1 for s in g if s["role"] != "review"),
                 "deviations": len(ev),
-                "blockers": sum(1 for e in ev if e.get("type") == "contract_blockers"),
+                # bloq = TOTAL de bloqueantes sumando todas las reviews publicadas en GitHub, la misma
+                # fuente que "en GH" (rondas): un bloqueante que sigue abierto y se repite en la ronda
+                # siguiente cuenta de nuevo, porque costó otra ronda. Antes salía de los eventos
+                # contract_blockers del vault, que solo deja /orchestrate, cuentan rondas (no bloqueantes)
+                # y van por issue: casi nunca caían en un PR de esta tabla → siempre 0.
+                "blockers": sum(b or 0 for b in p.get("blockers") or []),
+                "blockers_unparsed": sum(1 for b in p.get("blockers") or [] if b is None),
             })
     save_cache(cache)
     rows.sort(key=lambda r: r["start"])
@@ -319,7 +404,7 @@ def show(rows, effect):
               f"{r['reviews']:>9}{r['impl_sessions']:>6}{r['deviations']:>6}{r['blockers']:>6}  {M}{r['title'][:40]}{R}")
     tot = sum(r["cost"] for r in rows)
     print(f"{M}{len(rows)} PRs · ${tot:,.2f} · promedio ${tot / len(rows):,.2f} por PR · "
-          f"rondas = máx(reviews en GitHub, sesiones /review-pr){R}")
+          f"rondas = máx(reviews en GitHub, sesiones /review-pr) · bloq = bloqueantes sumados de todas las reviews en GitHub{R}")
     for e in effect:
         a, d = e["antes"], e["después"]
         print(f"\n{B}Lecciones aceptadas el {e['day']}{R} {M}({', '.join(e['lessons'])}){R}")
