@@ -113,10 +113,27 @@ def describe(shot):
     return f"workspaces: {ws} · agentes: {ag}"
 
 
+def server_start():
+    try:
+        return int(tmux("display-message", "-p", "#{start_time}").strip() or 0)
+    except ValueError:
+        return 0
+
+
 def pick(arg):
     fs = files()
     if not arg:
-        arg = "1"
+        # Sin número: la última foto de ANTES de que arrancara este server de tmux (la de después de una caída
+        # ya muestra todo vacío). Si el server es el mismo de siempre, la última.
+        start = server_start()
+        for i, f in enumerate(fs, 1):
+            try:
+                if not start or json.load(open(f)).get("ts", 0) < start:
+                    arg = str(i)
+                    break
+            except (OSError, ValueError):
+                continue
+        arg = arg or "1"
     if arg.isdigit():
         n = int(arg)
         if not 1 <= n <= len(fs):
@@ -191,7 +208,7 @@ def restore(path, dry):
             print(f"  + workspace {name} ({cwd})" + (f" · retoma {sid[:8]}" if sid else ""))
             if dry:
                 continue
-            subprocess.run([BK, "ws", w.get("project") or cwd], env={**env, "BK_WS_SESSION": name, "BK_CLIENT": "nocliente"},
+            subprocess.run([BK, "ws", w.get("project") or cwd], env={**env, "BK_WS_SESSION": name, "BK_CLIENT": "nocliente", "BK_RESTORING": "1"},
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=cwd)
         pane = chat_pane(name) if not dry else ""
         if w.get("label") and not dry:

@@ -171,6 +171,21 @@ ws_term() {
   exec env -u TMUX tmux attach -t "=$name"
 }
 
+# mem_ok: ¿hay memoria para otro agente? Con la memoria agotada macOS empieza a matar procesos, y el
+# 2026-11-04 se llevó al server de tmux con todos los chats y agentes. Mira el "memory free percentage" de
+# memory_pressure (el swap usado no baja solo y daría falsas alarmas). BK_FORCE=1 lo saltea.
+mem_ok() {
+  [ "${BK_FORCE:-0}" = 1 ] && return 0
+  command -v memory_pressure >/dev/null || return 0
+  local free; free=$(memory_pressure -Q 2>/dev/null | sed -nE 's/.*free percentage: ([0-9]+)%.*/\1/p')
+  [ -n "$free" ] || return 0
+  if [ "$free" -lt "${BK_MEM_MIN:-15}" ]; then
+    printf 'bk: queda %s%% de memoria libre. Otro agente puede dejar a macOS sin memoria y tirar tmux con todo.\n' "$free" >&2
+    printf '    Cerrá algo (agentes listos con bk stop, pestañas del navegador) o forzalo con BK_FORCE=1.\n' >&2
+    return 1
+  fi
+}
+
 # launch <ventana> <dir> <rol> <ref> <comando> [tarea] [orquestado: 1 si lo lanzó un orquestador]
 # Con tarea (ADR-005): la crea (o arranca la pendiente), le pasa BK_TASK_DIR al agente y, si el proceso
 # del agente termina sin `bk done`, la cierra como incomplete.
@@ -184,6 +199,7 @@ launch() {
   [ -n "$tid" ] && printf '  tarea: %s\n' "$tid"
   [ "$DRY" -eq 1 ] && { info "(dry-run: no se lanzó nada)"; return 0; }
 
+  mem_ok || exit 1
   need_tmux
   if has_window "$win"; then
     # Misma ventana en otro proyecto (#12 de abra y #12 del kit): prefijar con el proyecto
@@ -1055,7 +1071,15 @@ case "${1:-}" in
   lessons)     lessons ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
-  ""|ws)       shift || true; workspace "${1:-}" ;;
+  ""|ws)       shift || true
+               # tmux se cayó (o es el primer bk del día): si no hay ningún workspace y hay una foto de las
+               # últimas 12 h, volver a poner todo antes de abrir el pedido (restore saltea lo que ya está)
+               if [ -z "${BK_RESTORING:-}" ] && ! tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -q '^bk' \
+                  && [ -n "$(find "$HOME/.cache/bk/snapshots" -name '*.json' -mmin -720 2>/dev/null | head -1)" ]; then
+                 info "tmux no tiene workspaces: restauro la última foto (bk restore --list para ver otras)"
+                 python3 "$WS/lib/snapshot.py" restore || true
+               fi
+               workspace "${1:-}" ;;
   open)        shift; cmd_open "${1:-}" ;;
   rerun)       shift; cmd_rerun "$@" ;;
   focus)       shift; cmd_focus "$@" ;;
