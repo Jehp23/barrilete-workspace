@@ -30,8 +30,32 @@ def closed_groups_removed(text):
     return text
 
 
+def tmux_server_pids():
+    """PIDs de los servers de tmux vivos. Ojo: el server conserva el argv del comando que lo arrancó
+    (p. ej. "tmux new-session -d -s agents …"), así que en ps parece un cliente colgado y no lo es."""
+    import subprocess
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,comm="], capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {int(p) for p, pp, c in (l.split(None, 2) for l in out.splitlines() if len(l.split(None, 2)) == 3)
+            if c.strip().endswith("tmux") and pp == "1"}
+
+
+KILL_PIDS = re.compile(r"(?<![\w-])kill(\s+-\S+)*((\s+\d+)+)")
+
+
 def decide(cmd):
     """None si pasa; ("deny"|"ask", motivo) si no."""
+    for m in KILL_PIDS.finditer(cmd):
+        pids = {int(x) for x in m.group(2).split()}
+        hit = pids & tmux_server_pids()
+        if hit:
+            return ("deny", f"kill {' '.join(map(str, sorted(hit)))}: ese PID es el SERVER de tmux (aunque en ps se vea "
+                            "como 'tmux new-session …': el server conserva el comando que lo arrancó). Matarlo cierra "
+                            "todos los chats y agentes. Para cerrar una sesión usá bk stop o tmux kill-session -t <nombre>.")
+    if re.search(r"\b(pkill|killall)\b[^;&|\n]*\btmux\b", cmd):
+        return ("deny", "pkill/killall sobre tmux: mataría el server con todos los chats y agentes.")
     for m in TMUX_CALL.finditer(cmd):
         args = m.group(1)
         before = closed_groups_removed(cmd[: m.start()])
