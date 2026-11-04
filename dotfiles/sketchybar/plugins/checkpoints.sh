@@ -1,5 +1,5 @@
 #!/bin/bash
-# Los dos nudos humanos de Barrilete Kit:
+# Los nudos humanos de Barrilete Kit (la lista sale de lib/checkpoints.py, la misma que bk checkpoints):
 #   1. Planes esperando tu "sí"  -> sesiones con phase=plan_pending y el turno terminado (local, instantáneo)
 #   2. PRs listos para mergear   -> tuyos, abiertos, no draft, CI verde, con >=1 review y sin cambios pedidos
 #      (/review-pr nunca aprueba: la review es un comentario). Se consulta a GitHub cada ~2 min, con caché.
@@ -75,40 +75,24 @@ AGE=999999
 if [ "$AGE" -gt 110 ] || [ "$SENDER" = "forced" ] || [ "$SENDER" = "system_woke" ]; then
   if [ -f "$CACHE" ]; then fetch_prs >/dev/null 2>&1 & else fetch_prs; fi
 fi
-PRS=$(cat "$CACHE" 2>/dev/null || echo '[]')
+# ---- Lo que te espera: una sola fuente (lib/checkpoints.py, la misma lista que bk checkpoints y bk monitor) ----
+# --no-refresh: este plugin es el que actualiza los PRs (fetch_prs); si no, se pediría a sí mismo.
+CK=$(python3 "$HOME/barrilete-workspace/lib/checkpoints.py" --json --no-refresh 2>/dev/null)
+printf '%s' "$CK" | jq -e 'type == "array"' >/dev/null 2>&1 || CK='[]'
+count() { printf '%s' "$CK" | jq --arg k "$1" '[.[] | select(.kind == $k)] | length'; }
+NP=$(count plan); NA=$(count reviewer); NV=$(count review); NR=$(count merge); NL=$(count lesson)
 
-# ---- Planes esperando aprobación ----
-FILES=("$AGENTS_DIR"/*.json)
-if [ -e "${FILES[0]}" ]; then
-  PLANS=$(jq -s '[.[] | select(.phase=="plan_pending" and (.state=="done" or .state=="idle"))
-                  | {cwd, ts}] | sort_by(-.ts)' "${FILES[@]}" 2>/dev/null || echo '[]')
-else
-  PLANS='[]'
-fi
-
-NP=$(printf '%s' "$PLANS" | jq length)
-# Caché viejo (array sin "kind") cuenta como merge
-NR=$(printf '%s' "$PRS" | jq '[.[] | select((.kind // "merge") == "merge")] | length')
-NV=$(printf '%s' "$PRS" | jq '[.[] | select(.kind == "review")] | length')
-
-# ---- Lecciones propuestas por revisar (vault de Obsidian) ----
-LESSONS=()
-for f in "$LESSONS_DIR"/*.md; do
-  [ -e "$f" ] && grep -q '^status:[[:space:]]*proposed' "$f" && LESSONS+=("$f")
-done
-NL=${#LESSONS[@]}
-
-if [ "$NP" -eq 0 ] && [ "$NR" -eq 0 ] && [ "$NV" -eq 0 ] && [ "$NL" -eq 0 ]; then
+if [ "$NP" -eq 0 ] && [ "$NA" -eq 0 ] && [ "$NR" -eq 0 ] && [ "$NV" -eq 0 ] && [ "$NL" -eq 0 ]; then
   sketchybar --set agents.ckpt drawing=off popup.drawing=off
   sketchybar --remove '/agents\.ckpt\.[0-9]*/' >/dev/null 2>&1
   exit 0
 fi
 
-# Compacto: 󰀦 N planes · 󰘬 N PRs (el detalle en el popup)
+# Compacto: 󰀦 planes y reviewers propuestos · 󰈈 reviews · 󰘬 PRs · 󰌵 lecciones (el detalle en el popup)
 LABEL=""
-[ "$NP" -gt 0 ] && LABEL+="$ICON_WAIT $NP  "
-[ "$NR" -gt 0 ] && LABEL+="$ICON_PR $NR  "
+[ $((NP + NA)) -gt 0 ] && LABEL+="$ICON_WAIT $((NP + NA))  "
 [ "$NV" -gt 0 ] && LABEL+="$ICON_EYE $NV  "
+[ "$NR" -gt 0 ] && LABEL+="$ICON_PR $NR  "
 [ "$NL" -gt 0 ] && LABEL+="$ICON_LESSON $NL"
 LABEL="${LABEL%  }"
 sketchybar --set agents.ckpt drawing=on icon.drawing=off label="$LABEL" label.color=$MAUVE \
@@ -121,33 +105,27 @@ i=0
 ROW=(background.drawing=off icon.padding_left=10 label.padding_right=12)
 cut_to() { local s="$1" n="$2"; [ ${#s} -gt "$n" ] && echo "${s:0:$((n-1))}…" || echo "$s"; }
 
-while IFS=$'\t' read -r CWD; do
+# "-" en los campos vacíos: con IFS=tab, bash junta los tabs seguidos y corre las columnas
+while IFS=$'\t' read -r KIND TITLE WHERE NUM URL CWD LPATH ID TODO; do
+  case "$KIND" in
+    plan)     IC=$ICON_WAIT; C=$MAUVE; LBL="plan por aprobar · $WHERE"
+              CLICK="open \"$CWD\"" ;;
+    reviewer) IC=$ICON_WAIT; C=$PEACH; LBL="reviewer propuesto · $WHERE · $ID"
+              CLICK="printf '%s' \"$TODO\" | pbcopy" ;;   # copia "bk approve …": lanzar un agente es tuyo
+    review)   IC=$ICON_EYE; C=$PEACH; LBL="review · ${WHERE} #$NUM · $(cut_to "$TITLE" 38)"
+              CLICK="open \"$URL\"" ;;
+    merge)    IC=$ICON_PR; C=$GREEN; LBL="mergear · ${WHERE} #$NUM · $(cut_to "$TITLE" 38)"
+              CLICK="open \"$URL\"" ;;
+    lesson)   IC=$ICON_LESSON; C=$YELLOW; LBL="lección · $WHERE · $(cut_to "$TITLE" 38)"
+              ENC=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$LPATH")
+              CLICK="open \"obsidian://open?path=$ENC\"" ;;
+    *) continue ;;
+  esac
+  case "$CLICK" in *'"-"'*) CLICK=":" ;; esac   # sin URL ni carpeta: el clic solo cierra el popup
   sketchybar --add item agents.ckpt.$i popup.agents.ckpt \
-             --set agents.ckpt.$i "${ROW[@]}" icon="$ICON_WAIT" icon.color=$MAUVE \
-                   label="plan por aprobar · $(basename "$CWD")" \
-                   click_script="open \"$CWD\"; sketchybar --set agents.ckpt popup.drawing=off"
+             --set agents.ckpt.$i "${ROW[@]}" icon="$IC" icon.color=$C label="$LBL" \
+                   click_script="$CLICK; sketchybar --set agents.ckpt popup.drawing=off"
   i=$((i+1))
-done < <(printf '%s' "$PLANS" | jq -r '.[] | [.cwd] | @tsv')
-
-while IFS=$'\t' read -r KIND REPO NUM TITLE URL; do
-  if [ "$KIND" = "review" ]; then IC=$ICON_EYE; C=$PEACH; WHAT="review"
-  else IC=$ICON_PR; C=$GREEN; WHAT="mergear"; fi
-  sketchybar --add item agents.ckpt.$i popup.agents.ckpt \
-             --set agents.ckpt.$i "${ROW[@]}" icon="$IC" icon.color=$C \
-                   label="$WHAT · ${REPO#*/} #$NUM · $(cut_to "$TITLE" 38)" \
-                   click_script="open \"$URL\"; sketchybar --set agents.ckpt popup.drawing=off"
-  i=$((i+1))
-done < <(printf '%s' "$PRS" | jq -r '.[] | [(.kind // "merge"), .repo, (.number|tostring), .title, .url] | @tsv')
-
-for f in "${LESSONS[@]}"; do
-  # Título real de la nota (su primer "# "), no el nombre de archivo
-  TITLE_L=$(sed -nE 's/^# (.+)$/\1/p' "$f" | head -1)
-  [ -z "$TITLE_L" ] && TITLE_L=$(basename "$f" .md)
-  SCOPE_L=$(sed -nE 's/^scope:[[:space:]]*([^[:space:]#]+).*/\1/p' "$f" | head -1)
-  ENC=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$f")
-  sketchybar --add item agents.ckpt.$i popup.agents.ckpt \
-             --set agents.ckpt.$i "${ROW[@]}" icon="$ICON_LESSON" icon.color=$YELLOW \
-                   label="lección · ${SCOPE_L:-global} · $(cut_to "$TITLE_L" 38)" \
-                   click_script="open \"obsidian://open?path=$ENC\"; sketchybar --set agents.ckpt popup.drawing=off"
-  i=$((i+1))
-done
+done < <(printf '%s' "$CK" | jq -r '.[] | [.kind, (.title // "-"), (.where // "-"), ((.number // "-") | tostring),
+                                         (.url // "-"), (.cwd // "-"), (.path // "-"), (.id // "-"), (.todo // "-")]
+                                        | map(if . == "" then "-" else . end) | @tsv')

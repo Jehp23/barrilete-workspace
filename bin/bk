@@ -71,6 +71,8 @@ uso: bk [comando] [--dry-run]
   tasks [--all]     las tareas de los agentes con su estado, su resultado y su carpeta
   tasks prune [--days N] [--yes]  borrar tareas terminadas (nunca las activas; sin --yes solo muestra)
   approve <tarea>   lanzar una tarea propuesta (el reviewer de un PR, pr<n>-reviewer)
+  checkpoints [--json]  lo que te espera: planes por aprobar, reviewers propuestos, PRs para revisar o
+                    mergear y lecciones propuestas (lo mismo que "Te esperan" en bk monitor y la barra)
   snapshot          foto de tus workspaces y agentes (sola cada ~5 min); bk restore --list las muestra
   restore [N]       vuelve a la foto N (1 = la última): recrea lo que falte y retoma cada chat y agente
   roles             qué provider/modelo corre cada rol en este proyecto
@@ -485,7 +487,7 @@ dash() { exec python3 "$WS/lib/dash.py"; }
 #   ┌───────────────────────────────┬──────────────────┐
 #   │                               │ ✿ Status         │
 #   │  chat con el orquestador      │ ∗ Agents         │
-#   │  (claude)                     │ ◆ Checkpoints    │
+#   │  (claude)                     │ ✎ Changes        │
 #   │                               │ ✎ Changes        │
 #   │                               │ ♫ radio · atajos │
 #   └───────────────────────────────┴──────────────────┘
@@ -1057,6 +1059,7 @@ case "${1:-}" in
   tasks)       shift; case "${1:-}" in prune) shift; exec python3 "$TASKS" prune "$@" ;;
                                      *) exec python3 "$TASKS" list "$@" ;; esac ;;
   approve)     shift; cmd_approve "${1:-}" ;;
+  checkpoints|ckpt) shift; exec python3 "$WS/lib/checkpoints.py" "$@" ;;
   _ended)      python3 "$TASKS" ended "${2:?}" || true; sketchybar --trigger agent_update >/dev/null 2>&1 || true ;;
   _drain)      task_drain "${2:?}" "${3:?}" ;;
   roles)       roles ;;
