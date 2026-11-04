@@ -48,6 +48,27 @@ read -r WORKING WAITING DONE ERROR TOTAL SUBS < <(printf '%s' "$DATA" | jq -r '
     (map(.subagents // 0)|add // 0) ] | @tsv')
 LAST_TOOL=$(printf '%s' "$DATA" | jq -r '[.[] | select(.state=="working" or .state=="waiting")][0].tool // "-"')
 
+# Agentes de bk: nombre de ventana, título del issue/PR y si terminaron preguntándote algo (p. ej. "¿la publico?")
+BK_AGENTS="$HOME/barrilete-workspace/lib/agents.py"
+BK='{}'
+[ -f "$BK_AGENTS" ] && BK=$(python3 "$BK_AGENTS" json 2>/dev/null || echo '{}')
+# Los que terminaron con una pregunta cuentan como esperando (los "waiting" ya están en WAITING)
+EXTRA=$(printf '%s' "$BK" | jq --argjson d "$DATA" '[to_entries[] | select(.value.asks) | .key as $p
+          | select(any($d[]; .pane == $p and .state != "waiting"))] | length' 2>/dev/null || echo 0)
+WAITING=$((WAITING + EXTRA)); DONE=$((DONE - EXTRA))
+
+# Notificación de macOS cuando un agente de bk empieza a esperarte (una vez por pregunta, no en cada refresco)
+ASK_SEEN="$HOME/.cache/sketchybar/agents_asking"
+ASK_NOW=$(printf '%s' "$BK" | jq -r '.[] | select(.asks) | "\(.win)\t\(.label)\t\(.why)\t\(.question)"' 2>/dev/null | sort)
+if [ -n "$ASK_NOW" ]; then
+  while IFS=$'\t' read -r W L WHY Q; do
+    grep -qxF "$W	$L	$WHY	$Q" "$ASK_SEEN" 2>/dev/null && continue
+    MSG="${Q:-$WHY}"
+    osascript -e "display notification \"${MSG//\"/\'}\" with title \"$W ${WHY}\" subtitle \"${L//\"/\'}\"" >/dev/null 2>&1 &
+  done <<<"$ASK_NOW"
+fi
+printf '%s\n' "$ASK_NOW" > "$ASK_SEEN"
+
 # ---- Item principal ----
 # Compacto: el lado izquierdo del notch es angosto. Solo lo activo, ícono + número;
 # el detalle (listos, herramienta, issue, modelo) está en el popup y en `bk ls`.
@@ -62,6 +83,8 @@ else
   # amarillo trabajando, verde todos listos). Glifos sueltos en el label quedaban desalineados.
   ACTIVE=$((WORKING + WAITING + ERROR))
   [ "$ACTIVE" -gt 0 ] && LABEL="$ACTIVE" || LABEL="$DONE"
+  # Si alguien te espera, eso es lo que importa: "? 2"
+  [ "$WAITING" -gt 0 ] && LABEL="? $WAITING"
 fi
 
 BORDER_ARGS=(background.border_width=0)
@@ -88,7 +111,8 @@ fi
 
 NOW=$(date +%s)
 i=0
-while IFS=$'\t' read -r STATE CWD TOOL SUB TS PHASE REF ROLE MODEL; do
+while IFS=$'\t' read -r STATE CWD TOOL SUB TS PHASE REF ROLE MODEL PANE; do
+  B=$(printf '%s' "$BK" | jq -c --arg p "$PANE" '.[$p] // empty' 2>/dev/null)
   case "$STATE" in
     working) IC=$ICON_DOT;  C=$YELLOW; TXT="trabajando" ;;
     background) IC=$ICON_DOT; C=$YELLOW; TXT="en segundo plano (turno terminado)" ;;
@@ -110,16 +134,27 @@ while IFS=$'\t' read -r STATE CWD TOOL SUB TS PHASE REF ROLE MODEL; do
   [ "$REF" != "-" ]   && HEAD+=" $REF"
   [ "$ROLE" != "-" ]  && HEAD+=" · $ROLE"
   [ "$MODEL" != "-" ] && HEAD+=" · $MODEL"
+  CLICK="open \"$CWD\"; sketchybar --set agents popup.drawing=off"
+  if [ -n "$B" ]; then
+    # Agente de bk: "i218 · #218 (PR #240) Agregar las reglas…"; clic copia el bk say para contestarle
+    WIN=$(jq -r .win <<<"$B")
+    HEAD="$WIN · $(jq -r .label <<<"$B")"
+    if [ "$(jq -r .asks <<<"$B")" = true ]; then
+      IC=$ICON_WAIT; C=$RED
+      Q=$(jq -r .question <<<"$B"); TXT=$(jq -r .why <<<"$B"); [ -n "$Q" ] && TXT+=": «$Q»"
+    fi
+    CLICK="$CONFIG_DIR/plugins/agent_copy.sh $WIN"
+  fi
   DETAIL="$TXT"
   [ "$TOOL" != "-" ] && [ "$STATE" != "done" ] && [ "$STATE" != "idle" ] && DETAIL+=" · $TOOL"
   [ "$SUB" -gt 0 ] && DETAIL+=" · $SUB sub"
   sketchybar --add item agents.s.$i popup.agents \
              --set agents.s.$i background.drawing=off icon.padding_left=10 label.padding_right=12 icon="$IC" icon.color=$C \
                    label="$HEAD  —  $DETAIL  ($AGO)" \
-                   click_script="open \"$CWD\"; sketchybar --set agents popup.drawing=off"
+                   click_script="$CLICK"
   i=$((i+1))
 done < <(printf '%s' "$DATA" | jq -r '
   def nz: if . == null or . == "" then "-" else tostring end;
   .[] | [ .state, .cwd, (.tool|nz), (.subagents // 0), .ts,
           (.phase|nz), (.ref|nz), (.role|nz),
-          ((.model // "") | sub("^claude-";"") | sub("-[0-9]{8}$";"") | nz) ] | @tsv')
+          ((.model // "") | sub("^claude-";"") | sub("-[0-9]{8}$";"") | nz), (.pane|nz) ] | @tsv')
