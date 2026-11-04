@@ -285,6 +285,8 @@ pane_state() {
 # Escribir en el pane lo que bk say encoló mientras el agente trabajaba (lo llama el hook al terminar el turno)
 task_drain() {
   local td="$1" tp="$2" line msg
+  # Con un menú abierto, lo encolado espera: el Enter elegiría una opción
+  [ -z "$(open_menu "$tp")" ] || return 0
   python3 "$TASKS" drain "$td" | while IFS= read -r line; do
     msg=$(jq -r '.msg // empty' <<<"$line"); [ -n "$msg" ] || continue
     tmux send-keys -t "$tp" -l -- "$msg"; sleep 0.2; tmux send-keys -t "$tp" Enter; sleep 0.5
