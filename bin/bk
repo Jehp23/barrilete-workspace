@@ -7,6 +7,7 @@ set -euo pipefail
 WS="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 SESSION="${BK_SESSION:-agents}"
 STATE_DIR="$HOME/.cache/sketchybar/agents"
+export BK_STATE_DIR="$STATE_DIR"   # lib/agents.py lee el mismo estado
 DRY=0
 
 # bk corre como vos: si este shell heredó la config de gh del bot (un chat que retomó el entorno
@@ -684,7 +685,8 @@ stop() {
   local win="${1:?bk stop <ventana>}" panes
   win=$(resolve_win "$win") || exit 1
   # Si el agente está de visita en un workspace, en esta ventana quedó el chat de ese workspace:
-  # devolverlo antes de cerrar, para no matarlo
+  # devolverlo antes de cerrar, para no matarlo. || true: sin match grep sale con 1 y, con pipefail,
+  # cortaba el script en silencio (sin limpiar el estado ni avisar)
   local ws
   ws=$(tmux list-panes -t "$SESSION:$win" -F '#{@bk_ws}' | grep -m1 . || true)
   [ -n "$ws" ] && ws_agent "$ws" 0
@@ -692,7 +694,7 @@ stop() {
   tmux kill-window -t "$SESSION:$win"
   # Matar el pane no siempre dispara SessionEnd: limpiar el estado de la barra a mano
   for p in $panes; do
-    grep -l "\"pane\": *\"$p\"" "$STATE_DIR"/*.json 2>/dev/null | xargs rm -f
+    { grep -l "\"pane\": *\"$p\"" "$STATE_DIR"/*.json 2>/dev/null || true; } | xargs rm -f
   done
   sketchybar --trigger agent_update >/dev/null 2>&1 || true
   info "cerrada $win (el worktree, si había, queda: cleanup.sh lo limpia cuando el issue cierre)"
