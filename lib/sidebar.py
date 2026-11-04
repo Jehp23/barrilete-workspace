@@ -8,7 +8,7 @@
     1 ●     el actual va resaltado. Clic en una fila para ir ahí; con el mouse encima, su nombre
             (proyecto · feature) aparece en la barra de tmux, como un tooltip.
 """
-import curses, glob, json, os, subprocess, sys, time
+import curses, glob, json, os, re, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import agents as AG  # noqa: E402  (nombre de los chats: bk name, /rename o el título de Claude)
@@ -99,8 +99,19 @@ def workspaces():
     return [n for _, n in sorted(rows)]
 
 
+def claude_in(pane):
+    """¿Corre un claude dentro de este pane? Con `claude …; exec $SHELL` (como lo lanzan bk ws y bk restore)
+    tmux muestra zsh como comando aunque claude esté vivo adentro."""
+    pid = sh("tmux", "display-message", "-p", "-t", pane, "#{pane_pid}").strip()
+    if not pid:
+        return False
+    return any(re.search(r"(^|[\s/])claude(\s|$)", l) for l in sh("ps", "-o", "command=", "-g", pid).splitlines())
+
+
 def pane_state(st, pane, cmd, dead):
-    if dead == "1" or cmd in ("zsh", "bash", "sh", "fish", "-zsh", "login", ""):
+    if dead == "1":
+        return "none"
+    if cmd in ("zsh", "bash", "sh", "fish", "-zsh", "login", "") and not claude_in(pane):
         return "none"
     d = st.get(pane) or {}
     state = d.get("state", "idle")
