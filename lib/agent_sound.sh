@@ -35,7 +35,7 @@ play_ducked() {
   fi
   if [ -S "$SOCK" ] && mkdir "$LOCK" 2>/dev/null; then
     mine=1
-    orig=$(mpv_vol '{"command":["get_property","volume"]}' | sed -n 's/.*"data":\([0-9.]*\).*/\1/p')
+    orig=$(mpv_vol '{"command":["get_property","volume"]}' | sed -n 's/.*"data": *\([0-9.]*\).*/\1/p')
     orig=${orig%.*}
     if [[ "$orig" =~ ^[0-9]+$ ]] && [ "$orig" -gt 0 ]; then
       mpv_vol "{\"command\":[\"set_property\",\"volume\",$(( orig * 35 / 100 ))]}" >/dev/null
