@@ -46,6 +46,7 @@ SOUND_OFF = os.path.join(os.environ.get("BK_CONFIG_DIR", os.path.expanduser("~/.
 VAULT_DATA = os.path.join(os.path.expanduser(os.environ.get("BARRILETE_VAULT", "~/Documents/Obsidian Vault")), "agents", "data")
 TO_VAULT = {"loop", "stale_grave", "ci_claim"}   # los que bk learn no puede ver en los transcripts: el monitor los anota
 STALE_WARN, STALE_GRAVE = 600, 1200      # segundos "trabajando" sin eventos del hook
+GRAVE_SOUND, GRAVE_VOLUME = "Hero", "2.5"   # largo y llamativo; afplay acepta más de 1 (el sonido del sistema es bajo)
 LOOP_N, LOOP_WINDOW = 4, 900             # el mismo comando con el mismo error 4 veces en 15 min
 
 GRAVE_TYPES = {"force_push", "credential", "ci_claim", "loop", "stale_grave"}
@@ -101,9 +102,9 @@ def alert(title, body):
     if os.environ.get("BK_MONITOR_DRY"):
         return
     if sound_on():
-        f = "/System/Library/Sounds/Basso.aiff"
+        f = f"/System/Library/Sounds/{GRAVE_SOUND}.aiff"
         if os.path.exists(f) and shutil.which("afplay"):
-            subprocess.Popen(["afplay", "-v", "0.7", f], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(["afplay", "-v", GRAVE_VOLUME, f], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if shutil.which("osascript"):
         esc = lambda s: s.replace("\\", "").replace('"', "'")
         subprocess.Popen(["osascript", "-e", f'display notification "{esc(body)}" with title "{esc(title)}"'],
