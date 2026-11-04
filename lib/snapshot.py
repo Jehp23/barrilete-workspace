@@ -212,6 +212,8 @@ def restore(path, dry):
             print(f"  ↻ {name}: retoma el chat {sid[:8]}")
         if not dry and pane:
             tmux("respawn-pane", "-k", "-t", pane, "-c", cwd, f"claude --resume {sid}; exec $SHELL")
+    if not dry:   # traer chats a su lugar puede vaciar (y cerrar) la sesión de agentes: asegurarla de nuevo
+        ensure_server()
     wins = set(tmux("list-windows", "-t", f"={SESSION}", "-F", "#{window_name}").split())
     for a in shot["agents"]:
         if a["win"] not in wins and a["sid"] and not dry and pane_running(a["sid"]):
