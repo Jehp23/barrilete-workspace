@@ -101,20 +101,26 @@ play() {
   [[ "$vol" =~ ^[0-9]+$ ]] || vol=100
   kill_player
   nohup mpv --no-video --volume="$vol" --af="$VIZ" --no-terminal --idle=no --cache=yes --demuxer-max-bytes=2MiB \
-    --ytdl-format=bestaudio/best --input-ipc-server="$SOCK" --title="bk-song" "$3" >"$LOG" 2>&1 </dev/null &
+    --ytdl-format=bestaudio/best --input-ipc-server="$SOCK" --title="bk-song" \
+    --log-file="$LOG" --msg-level=all=warn "$3" >/dev/null 2>&1 </dev/null &
   disown
   printf '%s\t%s\t%s\n' "$1" "$2" "${4:-}" > "$NOW"
-  # Esperar a que mpv levante el socket, así un error de red se ve acá y no en silencio
-  local i
-  for i in $(seq 1 30); do
-    if running; then
+  # Esperar a que de verdad suene (hay audio decodificado), no solo a que mpv levante el socket:
+  # un link de YouTube que no existe abre el socket y muere unos segundos después
+  local i limit=40; [[ "$3" == *youtu* || "$3" == *soundcloud* ]] && limit=150
+  for i in $(seq 1 "$limit"); do
+    if running && [ -n "$(prop audio-codec-name)" ]; then
       printf '♫ %s\n' "$2"; bar
       return 0
     fi
+    if [ "$i" -gt 5 ] && ! pgrep -f -- "--input-ipc-server=$SOCK" >/dev/null; then break; fi
     sleep 0.2
   done
   kill_player
-  die "mpv no arrancó (ver $LOG)"
+  # el ERROR de yt-dlp dice el motivo ("video no disponible"); si no hay, la última queja de mpv
+  local why; why=$(grep -m1 -o 'ERROR: .*' "$LOG" 2>/dev/null | sed 's/^ERROR: \(\[[^]]*\] [^:]*: \)\{0,1\}//')
+  [ -n "$why" ] || why=$(grep -iE 'error|failed' "$LOG" 2>/dev/null | grep -v 'Exiting' | tail -n 1 | sed 's/^.*\] //')
+  die "no pude reproducir eso${why:+: $why} (log: $LOG)"
 }
 
 # ---------- estaciones ----------
@@ -185,7 +191,13 @@ note_title() {
   if [ "$(wc -l < "$HIST")" -gt 500 ]; then tail -n 300 "$HIST" > "$HIST.tmp" && mv "$HIST.tmp" "$HIST"; fi
 }
 
-cur_title() { prop metadata | jq -r '."icy-title" // .title // empty' 2>/dev/null | tr -d '\t\n' || true; }
+cur_title() {
+  local t; t=$(prop metadata | jq -r '."icy-title" // .title // empty' 2>/dev/null | tr -d '\t\n' || true)
+  [ -n "$t" ] || t=$(prop media-title | tr -d '\t\n')
+  # mpv usa la url o el nombre del archivo cuando no hay título: eso no es un tema
+  case "$t" in http*|*.mp3|*.aac|*.m3u8|stream|live|radio|listen|main) t="" ;; esac
+  printf '%s' "$t"
+}
 
 cmd_now() {
   need_running
