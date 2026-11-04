@@ -237,6 +237,10 @@ def restore(path, dry):
                         f"claude --resume {a['sid']}"], check=False)
         tmux("set-option", "-w", "-t", f"={SESSION}:{a['win']}", "remain-on-exit", "on")
     if not dry:
+        # El renovador del token del bot vive en el server de tmux: si tmux se cayó, murió con él.
+        # bk _botenv lo vuelve a lanzar (una vez por repo) aunque el agente ya estuviera corriendo.
+        for cwd in {a["cwd"] for a in shot["agents"] if a.get("role") and os.path.isdir(a["cwd"])}:
+            bot_env(cwd)
         tmux("kill-window", "-t", f"={SESSION}:restore")   # la ventana que levantó el server, si hizo falta
         AG.sh("sketchybar", "--trigger", "agent_update")
 
