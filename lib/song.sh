@@ -118,7 +118,7 @@ play() {
   done
   kill_player
   # el ERROR de yt-dlp dice el motivo ("video no disponible"); si no hay, la última queja de mpv
-  local why; why=$(grep -m1 -o 'ERROR: .*' "$LOG" 2>/dev/null | sed 's/^ERROR: \(\[[^]]*\] [^:]*: \)\{0,1\}//')
+  local why; why=$(grep -m1 -o 'ERROR: [^"\]*' "$LOG" 2>/dev/null | sed 's/^ERROR: \(\[[^]]*\] [^:]*: \)\{0,1\}//')
   [ -n "$why" ] || why=$(grep -iE 'error|failed' "$LOG" 2>/dev/null | grep -v 'Exiting' | tail -n 1 | sed 's/^.*\] //')
   die "no pude reproducir eso${why:+: $why} (log: $LOG)"
 }
