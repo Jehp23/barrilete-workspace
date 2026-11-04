@@ -21,6 +21,8 @@ import time
 import tty
 
 SOCK, SONG = sys.argv[1], sys.argv[2]
+CACHE = os.environ.get("BK_SONG_CACHE") or os.path.expanduser("~/.cache/bk")
+HISTORY_ROWS = 3          # últimos temas que se muestran abajo del gráfico
 FPS = 20
 DB_RANGE = 18.0           # dB de la escala: el pico reciente llena la barra, 18 dB menos es vacío
 SCALE_SECONDS = 6         # ventana para la escala automática (las radios de techno vienen muy comprimidas)
@@ -190,11 +192,18 @@ def main():
         sys.exit("bk song ui necesita una terminal")
 
     mpv = Mpv(SOCK)
-    stations = [l.split("\t", 1) for l in
-                subprocess.run([SONG, "stations"], capture_output=True, text=True).stdout.splitlines() if "\t" in l]
+    def load_stations():
+        rows = [l.split("\t") for l in
+                subprocess.run([SONG, "stations"], capture_output=True, text=True).stdout.splitlines()]
+        return [(r[0], r[1], r[2] if len(r) > 2 else "") for r in rows if len(r) >= 2]
+
+    stations = load_stations()
+    genres = list(dict.fromkeys(g for _, _, g in stations))
+    view = None           # género que muestran los números (sigue al que suena hasta que apretás g)
     left, right = [], []
     scale = Scale()       # una sola escala para los dos canales, así no se deforma el balance
-    info = {"station": "", "key": "", "title": "", "paused": False, "vol": 0, "alive": False}
+    info = {"station": "", "key": "", "genre": "", "title": "", "paused": False, "vol": 0, "alive": False}
+    history = []
     last_info, msg, msg_until = 0.0, "", 0.0
 
     fd = sys.stdin.fileno()
@@ -221,7 +230,7 @@ def main():
             t0 = time.monotonic()
             cols, lines = shutil.get_terminal_size((80, 24))
             width = max(20, cols - 4)
-            rows = max(2, min(MAX_GRAPH_ROWS, (lines - 9) // 2))
+            rows = max(2, min(MAX_GRAPH_ROWS, (lines - 9 - 1 - HISTORY_ROWS) // 2))
 
             # ---- estado (1 vez por segundo) ----
             if t0 - last_info > 1.0:
@@ -229,14 +238,24 @@ def main():
                 info["alive"] = mpv.get("pid") is not None
                 if info["alive"]:
                     meta = mpv.get("metadata") or {}
-                    info["title"] = meta.get("icy-title", "")
+                    title = meta.get("icy-title") or meta.get("title") or ""
+                    if title and title != info["title"]:
+                        song("bar-status")    # anota el tema nuevo en el historial
+                    info["title"] = title
                     info["paused"] = bool(mpv.get("pause"))
                     info["vol"] = int(mpv.get("volume") or 0)
                 try:
-                    key, name = open(os.path.expanduser("~/.cache/bk/song.station")).read().rstrip("\n").split("\t", 1)
-                except (OSError, ValueError):
-                    key, name = "", ""
-                info["key"], info["station"] = key, name
+                    parts = open(os.path.join(CACHE, "song.station")).read().rstrip("\n").split("\t")
+                except OSError:
+                    parts = []
+                key, name, genre = (parts + ["", "", ""])[:3]
+                genre = next((g for k, _, g in stations if k == key), genre)
+                info["key"], info["station"], info["genre"] = key, name, genre
+                try:
+                    lines_h = open(os.path.join(CACHE, "song.history")).read().splitlines()[-HISTORY_ROWS:]
+                    history = [l.split("\t") for l in reversed(lines_h) if l.count("\t") >= 2]
+                except OSError:
+                    history = []
 
             # ---- niveles (cada frame; en pausa el gráfico se congela) ----
             if info["alive"] and not info["paused"]:
@@ -263,10 +282,17 @@ def main():
             vol = max(0, min(100, info["vol"]))
             bar = "█" * (vol // 10) + "░" * (10 - vol // 10)
             buf.append("\n\033[2K    " + fg(DIM) + "vol " + fg(VIOLET) + bar + fg(DIM) + " %d%%" % info["vol"] + RESET + "\n")
-            st = "  ".join((fg(PINK) + BOLD if k == info["key"] else fg(DIM)) + "%d %s" % (i + 1, k) + RESET
-                           for i, (k, _) in enumerate(stations[:9]))
+            shown = view or info["genre"] or (genres[0] if genres else "")
+            tabs = "  ".join((fg(VIOLET) + BOLD + "[" + g + "]" if g == shown else fg(DIM) + g) + RESET for g in genres)
+            buf.append("\033[2K    " + tabs + "\n")
+            in_view = [s for s in stations if s[2] == shown][:9]
+            st = "  ".join((fg(PINK) + BOLD if k == info["key"] else fg(TEXT)) + "%d %s" % (i + 1, k) + RESET
+                           for i, (k, _, _) in enumerate(in_view))
             buf.append("\033[2K    " + st + "\n")
-            keys = "[espacio] pausa  [n/p] estación  [+/-] vol  [s] stop  [q] salir"
+            for h in history:
+                buf.append("\033[2K    " + fg(DIM) + h[0] + "  " + RESET + fg(TEXT)
+                           + clip(h[2], max(10, width - 8 - len(h[1]) - 3)) + fg(DIM) + " · " + clip(h[1], 30) + RESET + "\n")
+            keys = "[espacio] pausa  [g] género  [1-9] radio  [n/p] estación  [f] guardar  [+/-] vol  [s] stop  [q] salir"
             if msg and t0 < msg_until:
                 keys = msg
             buf.append("\033[2K    " + fg(DIM) + clip(keys, width) + RESET + "\033[J")
@@ -287,8 +313,17 @@ def main():
                 elif ch in ("p", "P"):
                     msg, msg_until = "cambiando de estación…", time.monotonic() + 3
                     mpv.close(); song("prev"); left.clear(); right.clear(); scale.peaks.clear()
-                elif ch.isdigit() and 1 <= int(ch) <= len(stations):
-                    mpv.close(); song(stations[int(ch) - 1][0]); left.clear(); right.clear(); scale.peaks.clear()
+                elif ch.isdigit() and 1 <= int(ch) <= len(in_view):
+                    msg, msg_until = "cambiando de estación…", time.monotonic() + 3
+                    mpv.close(); song(in_view[int(ch) - 1][0]); left.clear(); right.clear(); scale.peaks.clear()
+                    view = None
+                elif ch in ("g", "G", "\t") and genres:
+                    i = genres.index(shown) if shown in genres else -1
+                    view = genres[(i + (-1 if ch == "G" else 1)) % len(genres)]
+                elif ch in ("f", "F"):
+                    r = subprocess.run([SONG, "fav"], capture_output=True, text=True)
+                    msg, msg_until = (r.stdout or r.stderr).strip().splitlines()[-1] if (r.stdout or r.stderr).strip() else "", time.monotonic() + 3
+                    stations = load_stations(); genres = list(dict.fromkeys(g for _, _, g in stations))
                 elif ch in ("+", "=", "-", "_"):
                     step = 5 if ch in ("+", "=") else -5
                     mpv.cmd("set_property", "volume", max(0, min(100, int(mpv.get("volume") or 0) + step)))

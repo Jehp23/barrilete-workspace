@@ -68,7 +68,7 @@ uso: bk [comando] [--dry-run]
   campus            abrir el campus virtual de la facultad (también es un botón de la barra en modo uni)
   entregas [n]      entregas sin terminar de Notion (vencidas en rojo, hoy en amarillo); con n, la abre
   focus [min] [qué] pomodoro en la barra (25 min por defecto; stop | status)
-  song [estación]   radio techno/house en segundo plano (bk song help)
+  song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
   theme [day|night|auto]  tema de Ghostty: violeta pastel / violeta oscuro / según macOS
 
 Los comandos de agentes se corren dentro de un proyecto Barrilete.
