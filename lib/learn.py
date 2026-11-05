@@ -237,15 +237,15 @@ def existing_lessons():
 
 
 REVIEW_RULES = {   # regla sugerida por clase de hallazgo (la persona la edita o la descarta)
-    "metadatos del PR": "Antes de pedir review, releé el cuerpo del PR contra el diff y el bloque de red.sh de este PR.",
-    "afirmación sobre el CI": "No digas que el CI está en verde o que una falla es flaky sin haberlo visto en gh pr checks.",
-    "decisión no aprobada": "Si agregás una regla o cambiás una decisión que el issue no trae, dejala como pregunta.",
-    "test que no puede fallar": "Comprobá que cada test nuevo falla si quitás lo que chequea.",
-    "docs desactualizados": "Después de cambiar un comportamiento, buscá en README, AGENTS.md y SKILL.md lo que lo describe.",
-    "comando o flag mal usado": "Corré contra la herramienta real cada comando que escribís en un skill o doc.",
-    "el texto no coincide con el código": "Antes de cerrar, compará lo que dicen ADR, SKILL y docs con lo que hace el código.",
-    "caso no cubierto": "Para cada camino nuevo (modo, rol, flag), revisá quién lo dispara y qué pasa si falta un dato.",
-    "entrada inesperada sin manejar": "Probá entradas mal formadas (null, lista, vacío) y que el error sea un mensaje, no un traceback.",
+    "pr-metadata": "Antes de pedir review, releé el cuerpo del PR contra el diff y el bloque de red.sh de este PR.",
+    "ci-claim": "No digas que el CI está en verde o que una falla es flaky sin haberlo visto en gh pr checks.",
+    "undecided-decision": "Si agregás una regla o cambiás una decisión que el issue no trae, dejala como pregunta.",
+    "test-cannot-fail": "Comprobá que cada test nuevo falla si quitás lo que chequea.",
+    "stale-docs": "Después de cambiar un comportamiento, buscá en README, AGENTS.md y SKILL.md lo que lo describe.",
+    "wrong-command": "Corré contra la herramienta real cada comando que escribís en un skill o doc.",
+    "text-code-mismatch": "Antes de cerrar, compará lo que dicen ADR, SKILL y docs con lo que hace el código.",
+    "uncovered-case": "Para cada camino nuevo (modo, rol, flag), revisá quién lo dispara y qué pasa si falta un dato.",
+    "unhandled-input": "Probá entradas mal formadas (null, lista, vacío) y que el error sea un mensaje, no un traceback.",
 }
 
 
