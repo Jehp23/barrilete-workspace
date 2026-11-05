@@ -2,9 +2,10 @@
 """Hook de Claude Code (UserPromptSubmit y PostToolUse): le avisa al agente que ya carga mucho contexto.
 
 Cada llamada vuelve a leer todo el contexto, así que una sesión larga sale cara. La tira, el riel y bk monitor
-se lo muestran a la persona; esto se lo dice al agente, con una línea en `additionalContext`:
+se lo muestran a la persona; esto se lo dice al agente, con un mensaje en `additionalContext`:
   - ámbar (desde 200k): cuando termine lo que está haciendo, que recomiende /clear o un chat nuevo.
-  - rojo (desde 400k): que cierre en un punto estable, deje un resumen y recomiende una sesión nueva.
+  - rojo (desde 400k): que cierre en un punto estable y deje el resumen para seguir en un chat nuevo, con la
+    plantilla de handoff.py, en ~/.local/state/bk/handoffs/<session_id>.md (bk chat --desde lo toma).
 
 Sin repetir: avisa una vez al cruzar 200k, una al cruzar 400k y después cada +100k. Lo último avisado queda por
 sesión en ~/.cache/bk/context_hook/<session_id> (BK_CONTEXT_HOOK_STATE lo cambia, para los tests). Si el
@@ -29,13 +30,18 @@ def bucket(tokens, U):
     return 2 + (tokens - U.CTX_HIGH) // STEP
 
 
-def message(tokens, U):
+def message(tokens, U, sid="", cwd=None):
     n = U.human_ctx(tokens)
     if U.ctx_level(tokens) == "high":
-        return (f"Llevás {n} de contexto: cerrá lo que estás haciendo en un punto estable, dejá un resumen corto de "
-                "dónde quedaste (qué está hecho, qué falta, archivos y comandos) y recomendale a la persona seguir en "
-                "una sesión nueva. Si sos un agente de bk (tenés BK_TASK_DIR), terminá la ronda con tu `bk done` "
-                "normal y no arranques trabajo nuevo en esta sesión.")
+        head = (f"Llevás {n} de contexto: cerrá lo que estás haciendo en un punto estable y no arranques trabajo "
+                "nuevo en esta sesión. Si sos un agente de bk (tenés BK_TASK_DIR), terminá la ronda con tu `bk done` "
+                "normal y no hagas nada más. Si no:")
+        try:
+            import handoff
+            return f"{head} {handoff.request(sid, cwd=cwd)}"
+        except Exception:   # sin la plantilla, el aviso de antes
+            return (f"{head} dejá un resumen corto de dónde quedaste (qué está hecho, qué falta, archivos y "
+                    "comandos) y recomendale a la persona seguir en una sesión nueva.")
     return (f"Llevás {n} de contexto y cada llamada lo vuelve a leer: cuando termines lo que estás haciendo, "
             "recomendale a la persona seguir con /clear o en un chat nuevo (alt+n).")
 
@@ -67,7 +73,7 @@ def main():
     if now <= last:
         return
     sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": event,
-                                                        "additionalContext": message(tokens, U)}},
+                                                        "additionalContext": message(tokens, U, sid, ev.get("cwd"))}},
                                 ensure_ascii=False) + "\n")
 
 

@@ -5,6 +5,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(dirname "$HERE")"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export BK_CONTEXT_HOOK_STATE="$TMP/state"
+export BK_HANDOFF_DIR="$TMP/handoffs"; unset TMUX_PANE   # el rojo deja el .json del handoff: acá, no en ~/.local
 N=0; FAILED=0
 check_eq() { N=$((N+1)); if [ "$1" = "$2" ]; then echo "ok $N - $3"; else echo "not ok $N - $3 (got '$1', want '$2')"; FAILED=$((FAILED+1)); fi; }
 
