@@ -77,6 +77,9 @@ uso: bk [comando] [--dry-run]
   snapshot          foto de tus workspaces y agentes (sola cada ~5 min); bk restore --list las muestra
   restore [N]       vuelve a la foto N (1 = la última): recrea lo que falte y retoma cada chat y agente
   roles             qué provider/modelo corre cada rol en este proyecto
+  land [--wait]     (desde el worktree de tu rama) entrar a main: espera a las ramas que empezaron antes y
+                    tocan tus archivos, rebasa, corre lib/checks.sh y hace el fast-forward. main no se commitea
+  claims            quién está modificando qué archivo y quién espera a quién (claim/release a mano)
   account           cuentas de Claude o Codex por sesión, con las mismas conversaciones (bk account help):
                     new <claude|codex> <nombre> · use <nombre> [--relaunch] · --account <nombre> en
                     cualquier lanzamiento
@@ -1368,6 +1371,10 @@ case "${1:-}" in
                  *) role_mode "$1" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; echo ;;
                esac ;;
   tokens)      exec python3 "$WS/lib/usage.py" ;;
+  land)        shift; exec python3 "$WS/lib/land.py" land "$@" ;;
+  claims)      shift; exec python3 "$WS/lib/land.py" claims "$@" ;;
+  claim)       shift; exec python3 "$WS/lib/land.py" claim "$@" ;;
+  release)     shift; exec python3 "$WS/lib/land.py" release "$@" ;;
   learn)       shift; exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;

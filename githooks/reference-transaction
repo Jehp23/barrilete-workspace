@@ -1,0 +1,23 @@
+#!/bin/sh
+# main protegido: solo se mueve con bk land (que lo hace bajo un mutex, después de rebasar y correr los checks)
+# y solo hacia adelante. Salida de emergencia: BK_MAIN_OK=1. Corre aunque uses --no-verify.
+[ "$1" = prepared ] || exit 0
+zero=0000000000000000000000000000000000000000
+while read -r old new ref; do
+  [ "$ref" = refs/heads/main ] || continue
+  [ "${BK_MAIN_OK:-}" = 1 ] && continue
+  if [ "${BK_LANDING:-}" != 1 ]; then
+    cat >&2 <<'MSG'
+main está protegido: nadie commitea ni mergea directo.
+  1. Trabajá en tu rama y worktree:  git worktree add -b <rama> ../barrilete-workspace-wt/<rama> main
+  2. Commiteá ahí y entrá con:       bk land --wait   (espera su turno, rebasa, corre los checks y hace el fast-forward)
+Si es a propósito: BK_MAIN_OK=1 git …
+MSG
+    exit 1
+  fi
+  if [ "$old" = "$zero" ] || [ "$new" = "$zero" ] || ! git merge-base --is-ancestor "$old" "$new" 2>/dev/null; then
+    echo "main solo avanza: bk land no reescribe main (BK_MAIN_OK=1 si es a propósito)" >&2
+    exit 1
+  fi
+done
+exit 0

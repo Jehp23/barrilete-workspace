@@ -74,6 +74,25 @@ eventos, en `~/.local/state/bk/tasks/<proyecto>/<id>/` (`task.json` y `events.js
 - `bk say` a un agente que trabaja se encola hasta que termine el turno (`--now` para ya).
 - `bk tasks` las lista con su carpeta; `bk tasks prune --yes` borra las terminadas (nada se borra solo).
 
+## main protegido (`bk land`)
+Varias sesiones trabajan a la vez sobre este repo. Nadie edita el checkout de `main` ni commitea en `main`: cada sesión
+trabaja en su rama y su worktree (`git worktree add -b <rama> ../barrilete-workspace-wt/<rama> main`) y entra con `bk land`.
+- **Claims**: al editar un archivo en un worktree, el hook de Claude Code (`.claude/settings.json`) lo registra a nombre de
+  la rama. Si otra rama que empezó antes también lo modifica, le avisa al agente que no corra los checks todavía.
+- **Orden**: una rama espera a las ramas activas que empezaron antes que ella y comparten algún archivo. Es un solo
+  orden por hora de inicio, así que no hay deadlock. Las ramas sin actividad en 3 h o sin worktree no bloquean.
+- **`bk land --wait`**, desde el worktree con todo commiteado:
+  1. espera su turno;
+  2. con el mutex de `main` tomado, rebasa sobre `main`;
+  3. corre `lib/checks.sh`, una sola vez;
+  4. hace el fast-forward.
+  Si choca, el choque queda en su worktree: `main` nunca queda a medias.
+- **Qué devuelve `bk land`**: 0 entró · 3 en cola · 4 choque en el rebase · 5 checks en rojo · 6 no pudo hacer el fast-forward.
+- **`bk claims`** muestra quién modifica qué y quién espera a quién; `bk release` suelta los claims de una rama.
+- **El hook de git** (`githooks/reference-transaction`, con `git config core.hooksPath githooks`) rechaza cualquier
+  cambio de `main` que no venga de `bk land`, aunque uses `--no-verify`, y no deja reescribirla. La salida de
+  emergencia es `BK_MAIN_OK=1`.
+
 ## Cuentas (`bk account`, port de bk-shell#17)
 Cada sesión de bk puede usar otra cuenta de Claude Code o de Codex, y pueden correr dos a la vez; las conversaciones son
 las mismas (`/resume` y `alt+s` ven todas).
