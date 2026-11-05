@@ -201,8 +201,8 @@ cmd_account() {
       info "cuenta $name creada: ahora el login de $prov (las conversaciones son las mismas de siempre)"
       account_login "$name" ;;
     login)
-      [ -n "${1:-}" ] || die "bk account login <nombre>"
-      account_login "$1" ;;
+      [ -n "${1:-}" ] || die "bk account login <nombre> (o default [claude|codex])"
+      account_login "$1" "${2:-}" ;;
     use)
       account_use "$@" ;;
     -h|--help|help)
@@ -210,6 +210,7 @@ cmd_account() {
 uso: bk account                       las cuentas (● con sesión iniciada) y las de esta sesión
      bk account new <claude|codex> <nombre>   crear una cuenta y hacer su login
      bk account login <nombre>        volver a hacer el login de una cuenta
+     bk account login default [claude|codex]   el login de la de siempre (~/.claude, ~/.codex)
      bk account use <nombre> [--relaunch]   usarla en esta sesión: lo que lances desde acá
                                        (agentes, chats) corre con ella. --relaunch: el chat principal
                                        también, retomando la misma conversación
@@ -222,7 +223,19 @@ EOF
 }
 
 account_login() {
-  local name="$1" prov kv; prov=$(python3 "$ACCOUNTS" provider "$name")
+  local name="$1" prov kv
+  # default no tiene carpeta: es la config de siempre. Sin CLAUDE_CONFIG_DIR/CODEX_HOME, que una sesión con
+  # otra cuenta (bk account use) deja en el entorno de las shells nuevas y haría el login de esa otra.
+  if [ "$name" = default ]; then
+    case "${2:-claude}" in
+      claude) env -u CLAUDE_CONFIG_DIR -u BK_ACCOUNT_CLAUDE claude auth login ;;
+      codex)  command -v codex >/dev/null || die "Codex CLI no está instalado"
+              env -u CODEX_HOME -u BK_ACCOUNT_CODEX codex login ;;
+      *)      die "bk account login default [claude|codex]" ;;
+    esac
+    return
+  fi
+  prov=$(python3 "$ACCOUNTS" provider "$name")
   [ -n "$prov" ] || die "no existe la cuenta $name (bk account)"
   kv=$(python3 "$ACCOUNTS" env "$name")
   case "$prov" in
