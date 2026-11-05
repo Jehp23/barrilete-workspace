@@ -9,6 +9,7 @@ bk plan "<idea>"   bk run <issue>   bk review <pr>   bk fix <pr> "…"   bk orch
 bk ls              bk go <ventana>  bk stop <ventana>
 bk peek [ventana]  bk say <ventana> "…"   bk watch [ventana|--all]
 bk monitor         bk checkpoints   bk tasks         bk done <resultado>   bk approve <tarea>
+bk account         bk account use <cuenta> [--relaunch]   bk run … --account <cuenta>
 bk roles           bk mode [work|chill]   bk song [estación]   bk theme [day|night|auto]
 ```
 
@@ -72,6 +73,16 @@ eventos, en `~/.local/state/bk/tasks/<proyecto>/<id>/` (`task.json` y `events.js
   propuesta: el orquestador lanza al reviewer.
 - `bk say` a un agente que trabaja se encola hasta que termine el turno (`--now` para ya).
 - `bk tasks` las lista con su carpeta; `bk tasks prune --yes` borra las terminadas (nada se borra solo).
+
+## Cuentas (`bk account`, port de bk-shell#17)
+Cada sesión de bk puede usar otra cuenta de Claude Code o de Codex, y pueden correr dos a la vez; las conversaciones son
+las mismas (`/resume` y `alt+s` ven todas).
+- `bk account new claude trabajo` crea la cuenta en `~/.local/state/bk/accounts/trabajo` y abre su login. Lo compartido
+  (`projects/`, settings, `CLAUDE.md`, skills, hooks) es un symlink a `~/.claude`; las credenciales son propias.
+- `bk account use trabajo` la pone en esta sesión: los agentes y chats que lances desde acá corren con ella
+  (`--relaunch`: también el chat principal, retomando su conversación). `bk account use default` vuelve a la de siempre.
+- `bk run … --account X` solo para un lanzamiento. El riel la muestra en Status.
+- `bk restore` todavía no la recuerda: los chats vuelven con la cuenta default.
 
 ## Lo que te espera (`bk monitor` · `bk checkpoints`)
 - `bk monitor`: pantalla para el otro monitor. Arriba *Te esperan* (preguntas, permisos y checkpoints, con el comando
