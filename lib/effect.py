@@ -27,7 +27,11 @@ from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
-from deviations import FINDING_SECTION, finding_class, review_findings  # noqa: E402
+from deviations import CLASS_LABELS, FINDING_SECTION, finding_class, review_findings  # noqa: E402
+
+# Las lecciones viejas nombran la clase en castellano ("metadatos del PR"); finding_class devuelve el id del
+# kit (pr-metadata, ADR-006). Se traduce al leer la lección, así las dos formas miden lo mismo.
+LABEL_TO_ID = {v: k for k, v in CLASS_LABELS.items()}
 
 VAULT = os.path.expanduser(os.environ.get("BARRILETE_VAULT", "~/Documents/Obsidian Vault"))
 AG = os.path.join(VAULT, "agents")
@@ -70,7 +74,7 @@ def lessons():
         mide = fm.get("mide")
         if mide is None and fm.get("type") == "review_finding":
             mide = sig.split("::")[1] if sig.count("::") >= 2 else ""
-        classes = [] if mide in (None, "", "-") else [c.strip() for c in mide.split(",") if c.strip()]
+        classes = [] if mide in (None, "", "-") else [LABEL_TO_ID.get(c.strip(), c.strip()) for c in mide.split(",") if c.strip()]
         out.append({"name": os.path.basename(f)[:-3], "rule": rule.group(1).strip() if rule else "",
                     "scope": fm.get("scope", "global"), "accepted": parse_ts(fm.get("accepted")),
                     "classes": classes, "unmeasured": mide == "-"})
