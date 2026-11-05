@@ -20,8 +20,8 @@ PROJECTS = os.path.expanduser("~/.claude/projects")
 CACHE_DIR = os.path.expanduser("~/.cache/barrilete")
 
 # USD por millón de tokens: input, output, cache read. Escritura de cache: x1.25 (5m) / x2 (1h) del input.
-# Fuente: tabla de modelos del skill claude-api (cacheada 2026-10-06). Lectura de cache = x0.1 del input
-# salvo donde hay precio publicado.
+# Fuente: https://platform.claude.com/docs/en/about-claude/pricing (revisada 2026-11-05). Lectura de cache = x0.1
+# del input, salvo Opus 5.5 y Sonnet 5.5 (x0.05) y Fable 5.1 (x0.025).
 PRICES = {
     "claude-fable-5-1":  (10.00, 50.00, 0.25),
     "claude-fable-5":    (10.00, 50.00, 1.00),
@@ -30,7 +30,7 @@ PRICES = {
     "claude-opus-4-8":   (5.00, 25.00, 0.50),
     "claude-opus-4-7":   (5.00, 25.00, 0.50),
     "claude-opus-4-6":   (5.00, 25.00, 0.50),
-    "claude-sonnet-5-5": (2.00, 10.00, 0.20),
+    "claude-sonnet-5-5": (2.00, 10.00, 0.10),
     "claude-sonnet-5":   (2.00, 10.00, 0.20),
     "claude-sonnet-4-6": (3.00, 15.00, 0.30),
     "claude-haiku-5-5":  (0.10, 0.50, 0.01),
