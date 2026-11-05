@@ -33,5 +33,14 @@ check_eq "$(acct '' 'default=multi@x.com,soporte=sop@x.com')" "multi@x.com" "ses
 check_eq "$(acct 'soporte' 'default=multi@x.com,soporte=sop@x.com')" "sop@x.com" "sesión con otra cuenta: su mail"
 check_eq "$(acct 'nueva' 'default=multi@x.com')" "nueva" "cuenta sin login: el nombre de la carpeta"
 
+colours() { python3 - "$ROOT/lib" "$1" <<'PY2'
+import sys; sys.path.insert(0, sys.argv[1]); import gentle as G
+day = sys.argv[2] == "day"
+print(len({G.id_colour(n, day) for n in range(1, 10)}), G.id_colour(10, day) == G.id_colour(1, day))
+PY2
+}
+check_eq "$(colours night)" "9 True" "de noche, del 1 al 9 (alt+N) un color distinto cada uno; el 10 repite el del 1"
+check_eq "$(colours day)" "9 True" "de día, del 1 al 9 un color distinto cada uno; el 10 repite el del 1"
+
 echo "1..$N"
 [ "$FAILED" -eq 0 ]

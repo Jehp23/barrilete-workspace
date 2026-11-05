@@ -59,8 +59,9 @@ DAY = {"rose": "8E4F75", "petal": "7A6070", "iris": "5A5596", "amber": "76601E",
 P = DAY if is_day() else NIGHT
 # Color fijo de cada número de workspace (@bk_id), en xterm-256: lo usan la tira (curses) y el header
 # (tmux "colourN"). De noche pasteles; de día más oscuros, que se lean sobre el fondo claro.
-ID_NIGHT = [210, 222, 150, 117, 183, 218, 116, 216]
-ID_DAY = [160, 130, 28, 25, 91, 162, 30, 94]
+# Nueve: del 1 al 9 (los de alt+N) todos distintos; desde el 10 se repiten (el 10 como el 1).
+ID_NIGHT = [210, 222, 150, 117, 183, 218, 116, 216, 105]
+ID_DAY = [160, 130, 28, 25, 91, 162, 30, 94, 62]
 
 
 def id_colour(n, day=None):
