@@ -14,6 +14,8 @@ agente haya copiado. BK_HANDOFF_DIR cambia la carpeta (los tests).
   handoff.py find <ws|sesión|session_id>            "sid<TAB>carpeta<TAB>cuenta<TAB>sesión" del resumen listo
   handoff.py take <session_id>                      imprime el resumen y lo borra (.md y .json)
   handoff.py list                                   los resumenes listos: "sid<TAB>ws<TAB>sesión<TAB>nombre"
+
+La tira (sidebar.py) y bk s (sessions.py) marcan con ↪ el chat cuya sesión dejó un resumen listo.
 """
 import glob, json, os, subprocess, sys, time
 
@@ -143,6 +145,14 @@ def ready():
         meta["sid"] = sid
         out.append((os.path.getmtime(md), meta))
     return sorted(out, key=lambda x: -x[0])
+
+
+def ready_sids():
+    """Las sesiones de Claude que dejaron un resumen listo (la tira y bk s las marcan con ↪)."""
+    try:
+        return {m["sid"] for _, m in ready()}
+    except OSError:
+        return set()
 
 
 def find(q):

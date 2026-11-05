@@ -5,7 +5,12 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(dirname "$HERE")"
 TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$TMP"' EXIT
 export BK_HANDOFF_DIR="$TMP/h" BK_CONTEXT_HOOK_STATE="$TMP/state"
-unset TMUX_PANE BK_ACCOUNT BK_ACCOUNT_CLAUDE
+unset TMUX TMUX_PANE BK_ACCOUNT BK_ACCOUNT_CLAUDE
+# Un tmux falso para bk: si algo se escapa del --dry-run (el 2026-11-05 un caso roto abrió cuatro workspaces
+# reales), falla acá y queda anotado en vez de abrir chats en tu tmux
+mkdir -p "$TMP/fake"; printf '#!/bin/sh\necho "$*" >> "%s/tmux.log"\nexit 1\n' "$TMP" >"$TMP/fake/tmux"; chmod +x "$TMP/fake/tmux"
+: >"$TMP/tmux.log"
+bk() { PATH="$TMP/fake:$PATH" "$ROOT/bin/bk" "$@"; }
 H="$ROOT/lib/handoff.py"
 N=0; FAILED=0
 ok()  { N=$((N+1)); echo "ok $N - $1"; }
@@ -50,7 +55,7 @@ check_eq "$(python3 "$H" list)" "s-rojo	5	bk-proj-3	mejoras" "list: los listos"
 check_eq "$(cd "$ROOT/lib" && python3 -c 'import new; print([i[2] for i in new.build_items(None, []) if i[0] == "desde"][0])')" "↪ Seguir desde ws 5 «mejoras» · repo" "alt+n ofrece «Seguir desde ws 5»"
 
 # bk chat --desde: el comando del chat nuevo le pasa el resumen entero a claude y lo borra
-row=$("$ROOT/bin/bk" --dry-run chat --desde 5)
+row=$(bk --dry-run chat --desde 5)
 check_eq "$(cut -f1,2,3 <<<"$row")" "bk-repo-2	$REPO	default" "bk chat --desde 5: un workspace más del proyecto, en la carpeta y con la cuenta del resumen"
 want=$(cat "$TMP/h/s-rojo.md")
 mkdir "$TMP/bin"; printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/args"\n' "$TMP" >"$TMP/bin/claude"; chmod +x "$TMP/bin/claude"
@@ -60,14 +65,14 @@ check_eq "$(tail -n +2 "$TMP/args")" "$want" "claude recibe el resumen completo,
 [ ! -e "$TMP/h/s-rojo.md" ] && [ ! -e "$TMP/h/s-rojo.json" ] && ok "al tomarlo se borra (.md y .json)" || bad "al tomarlo se borra"
 PATH="$TMP/bin:$PATH" sh -c "$(cut -f4 <<<"$row")"
 check_eq "$(cat "$TMP/args")" "" "si ya lo tomó otro, claude arranca vacío"
-err=$("$ROOT/bin/bk" --dry-run chat --desde 5 2>&1); rc=$?
+err=$(bk --dry-run chat --desde 5 2>&1); rc=$?
 check_eq "$rc" "1" "bk chat --desde sin resumen listo: falla"
 has "$err" "no hay un resumen listo" "y dice por qué"
 printf 'x\n' >"$TMP/h/s-cta.md"
 python3 "$H" pedido --sid s-cta2 --cwd "$REPO" >/dev/null; printf 'x\n' >"$TMP/h/s-cta2.md"
 sed -i '' 's/"account": "default"/"account": "otra"/' "$TMP/h/s-cta2.json"
-check_eq "$("$ROOT/bin/bk" --dry-run chat --desde s-cta2 | cut -f3)" "otra" "--desde usa la cuenta del chat viejo"
-check_eq "$(BK_ACCOUNT=default "$ROOT/bin/bk" --dry-run chat --desde s-cta2 | cut -f3)" "default" "bk --account X chat --desde: manda la que pediste"
+check_eq "$(bk --dry-run chat --desde s-cta2 | cut -f3)" "otra" "--desde usa la cuenta del chat viejo"
+check_eq "$(BK_ACCOUNT=default bk --dry-run chat --desde s-cta2 | cut -f3)" "default" "bk --account X chat --desde: manda la que pediste"
 
 # Viejos sin resumen: se borran a las dos semanas
 python3 "$H" pedido --sid s-viejo --cwd "$REPO" >/dev/null
@@ -75,8 +80,16 @@ touch -t 202001010000 "$TMP/h/s-viejo.json"; python3 "$H" list >/dev/null
 [ ! -e "$TMP/h/s-viejo.json" ] && ok "un .json de hace dos semanas sin resumen se borra" || bad "el .json viejo se borra"
 
 # bk handoff --pedido: el mismo pedido, para que lo corra el agente
-has "$("$ROOT/bin/bk" handoff --pedido --sid s-man)" "$TMP/h/s-man.md" "bk handoff --pedido --sid: el pedido con el archivo de esa sesión"
-check_eq "$("$ROOT/bin/bk" handoff --pedido >/dev/null 2>&1; echo $?)" "1" "bk handoff --pedido sin sesión ni pane: falla"
+has "$(bk handoff --pedido --sid s-man)" "$TMP/h/s-man.md" "bk handoff --pedido --sid: el pedido con el archivo de esa sesión"
+check_eq "$(bk handoff --pedido >/dev/null 2>&1; echo $?)" "1" "bk handoff --pedido sin sesión ni pane: falla"
+
+# Las marcas: la tira (sidebar.ready_ws) y bk s (sessions.mark_handoffs) con ↪ el chat que dejó un resumen
+printf 'x\n' >"$TMP/h/s-marca.md"; python3 "$H" pedido --sid s-marca --cwd "$REPO" >/dev/null
+check_eq "$(cd "$ROOT/lib" && python3 -c 'import sidebar as S, handoff as H; print(sorted(S.ready_ws([("bk-a", "s-marca"), ("bk-b", "otra"), ("bk-c", None)], H.ready_sids())))')" "['bk-a']" "la tira marca solo el workspace cuyo chat dejó el resumen"
+check_eq "$(cd "$ROOT/lib" && python3 -c 'import sessions as S, handoff as H; print([r["handoff"] for r in S.mark_handoffs([{"sid": "s-marca"}, {"sid": "otra"}, {"sid": None}], H.ready_sids())])')" "[True, False, False]" "bk s marca la fila de esa sesión"
+rm "$TMP/h/s-marca.md"
+check_eq "$(cd "$ROOT/lib" && python3 -c 'import sessions as S, handoff as H; print(S.mark_handoffs([{"sid": "s-marca"}], H.ready_sids())[0]["handoff"])')" "False" "sin el .md (ya lo tomaron), sin marca"
+check_eq "$(grep -c 'new-session' "$TMP/tmux.log")" "0" "ningún caso intentó abrir un workspace"
 
 echo "1..$N"
 [ "$FAILED" -eq 0 ]

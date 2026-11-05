@@ -7,6 +7,8 @@
     ─       ● trabajando · ● rojo te espera · ○ libre/listo · · sin claude
     1 ●▪    ▪ a la derecha: la sesión ya tiene mucho contexto (ámbar desde 200k, rojo desde 400k; cada
             llamada lo vuelve a leer y a pagar). El número exacto, en el tooltip.
+    1 ○↪    ↪ a la derecha (en lugar del ▪): ese chat dejó el resumen para seguir en uno nuevo (lib/handoff.py);
+            bk chat --desde N o «Seguir desde ws N» en alt+n lo toma.
     └⠋      debajo de un chat o agente: sus subagentes vivos (herramienta Agent); clic = su sesión en un popup
    ╭3 ○     a la izquierda: une los workspaces del mismo proyecto (quedan juntos, ordenados por el número
    │5 ○     más bajo de cada proyecto; el número de cada uno no cambia). El proyecto, en el tooltip.
@@ -19,6 +21,7 @@ import curses, glob, json, os, re, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import agents as AG  # noqa: E402  (nombre de los chats: bk name, /rename o el título de Claude)
 import usage as U    # noqa: E402  (contexto de cada sesión: context_of, los umbrales y el formato)
+import handoff as HO  # noqa: E402  (resumenes listos para seguir en un chat nuevo)
 
 BK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "bin", "bk")
 
@@ -171,9 +174,18 @@ def link_projects(blocks):
     return out
 
 
+READY = set()   # workspaces cuyo chat dejó un resumen listo (lo llena items())
+
+
+def ready_ws(chats, sids):
+    """De [(workspace, sid del chat)], los workspaces cuyo chat dejó un resumen listo."""
+    return {ws for ws, sid in chats if sid and sid in sids}
+
+
 def items():
     st = states()
     out, blocks = [], []
+    chat_sids = []
     for wid, name in workspaces():
         # Estado del chat del workspace (el pane que corre claude en la ventana main)
         state, subs, info, ctx = "none", [], "", None
@@ -191,6 +203,7 @@ def items():
                 state = s
                 subs = subagents((st.get(pid) or {}).get("_sid"))
                 ctx = U.context_of((st.get(pid) or {}).get("_sid"))
+                chat_sids.append((name, (st.get(pid) or {}).get("_sid")))
         proj = sh("tmux", "show-environment", "-t", f"={name}", "BK_PROJECT").strip().partition("=")[2] \
             or (info[0] if info else name)
         if proj != (info[0] if info else name):   # el tooltip dice el proyecto del workspace, no el del cd
@@ -199,6 +212,8 @@ def items():
                        [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None, None)
                         for d, bg, j in subs]))
     out = link_projects(blocks)
+    READY.clear()
+    READY.update(ready_ws(chat_sids, HO.ready_sids()))
     for l in sh("tmux", "list-panes", "-s", "-t", AGENTS, "-F",
                 "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}\t#{pane_title}\t#{pane_current_path}").splitlines():
         win, pid, cmd, dead, ws, title, path = (l.split("\t") + [""] * 7)[:7]
@@ -347,11 +362,15 @@ def ui(scr):
             scr.addnstr(y, 1, f"{num:>1}", 2, numattr | hl)
             scr.addnstr(y, 3, dot, 1, col)
             lvl = U.ctx_level(ctx)
-            if lvl and W >= 5:
+            ready = kind == "ws" and label in READY
+            if ready and W >= 5:
+                scr.addnstr(y, 4, "↪", 1, ROSE | curses.A_BOLD)
+            elif lvl and W >= 5:
                 scr.addnstr(y, 4, "▪", 1, CTX[lvl])
             proj, feat = info
             tips[y] = (f"{'workspace' if kind == 'ws' else 'agente'} {num} · {proj}" + (f" · {feat}" if feat else "")
-                       + (f" · {U.human_ctx(ctx)} de contexto" if ctx else ""))
+                       + (f" · {U.human_ctx(ctx)} de contexto" if ctx else "")
+                       + (f" · ↪ resumen listo: bk chat --desde {num} (o alt+n)" if ready else ""))
             rowmap[y] = target
             y += 1
         # "+" al pie: Nuevo (chat o workspace), igual que alt+n
