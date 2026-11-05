@@ -15,4 +15,4 @@ planner: claude/opus main
 orchestrator: claude/opus main
 implementer: claude/sonnet bk
 implementer-light: claude/haiku sub
-reviewer: claude/sonnet sub   # 2026-11-05: Sonnet por costo (la persona lo decidió); la lectura de caché cuesta igual, baja salida y escrituras
+reviewer: claude/sonnet sub   # 2026-11-05: Sonnet por costo (la persona lo decidió); baja salida, escrituras y lectura de caché (Sonnet 5.5 lee a la mitad que Opus 5.5)
