@@ -189,7 +189,7 @@ def render(res, days):
     for r in res:
         b, a = r.get("before"), r.get("after")
         lines.append(
-            f"| [[{r['lesson']}]] | {', '.join(r['classes']) or '—'} | {r.get('accepted', '—')} | "
+            f"| [[{r['lesson']}]] | {', '.join(CLASS_LABELS.get(c, c) for c in r['classes']) or '—'} | {r.get('accepted', '—')} | "
             + (f"{fmt(b['rate'])} ({fmt(b['share'], True)}) · {b['rounds']}" if b else "—") + " | "
             + (f"{fmt(a['rate'])} ({fmt(a['share'], True)}) · {a['rounds']}" if a else "—") + " | "
             + f"**{r['verdict']}**: {r['why']} |")
