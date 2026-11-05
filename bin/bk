@@ -86,6 +86,8 @@ uso: bk [comando] [--dry-run]
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
   learn             registra desvíos de los agentes en Obsidian y propone lecciones
   lessons           lecciones por revisar (status: proposed) en el vault
+  learn effect      ¿las reglas aceptadas bajan los hallazgos que dicen evitar? antes/después por ronda de
+                    review (agents/efecto.md); las que no bajan, para reescribir o retirar
   mode [work|chill|uni]  modo de la barra (sin argumento: el actual). uni: clase, entregas, pomodoro
   campus            abrir el campus virtual de la facultad (también es un botón de la barra en modo uni)
   entregas [n]      entregas sin terminar de Notion (vencidas en rojo, hoy en amarillo); con n, la abre
@@ -1387,7 +1389,8 @@ case "${1:-}" in
   claims)      shift; exec python3 "$WS/lib/land.py" claims "$@" ;;
   claim)       shift; exec python3 "$WS/lib/land.py" claim "$@" ;;
   release)     shift; exec python3 "$WS/lib/land.py" release "$@" ;;
-  learn)       shift; exec python3 "$WS/lib/learn.py" "$@" ;;
+  learn)       shift; [ "${1:-}" = effect ] && { shift; exec python3 "$WS/lib/effect.py" "$@"; }
+               exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
