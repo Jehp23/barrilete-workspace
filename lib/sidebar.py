@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """bk sidebar: tira izquierda del workspace con las sesiones activas, a lo Gentle Shell 4.
 
-    1 ●     arriba: los workspaces (sesiones bk-*), en orden de creación; alt+1…9 salta a cada uno
+    1 ●     arriba: los workspaces (sesiones bk-*) por su número fijo, cada uno con su color; alt+1…9 salta
+            a ese número. El número lo toma al crearse y no cambia aunque se cierren otros (bk _ids).
     2 ○     abajo: los agentes (ventanas de la sesión "agents")
     ─       ● trabajando · ● rojo te espera · ○ libre/listo · · sin claude
     └⠋      debajo de un chat o agente: sus subagentes vivos (herramienta Agent); clic = su sesión en un popup
@@ -12,6 +13,8 @@ import curses, glob, json, os, re, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import agents as AG  # noqa: E402  (nombre de los chats: bk name, /rename o el título de Claude)
+
+BK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "bin", "bk")
 
 TIP_MS = 2500           # cuánto queda el nombre en la barra de tmux al pasar el mouse
 
@@ -91,12 +94,24 @@ def project_name(path):
 
 
 def workspaces():
-    rows = []
-    for l in sh("tmux", "list-sessions", "-F", "#{session_created}\t#{session_name}").splitlines():
-        t, _, name = l.partition("\t")
-        if name.startswith("bk"):
-            rows.append((int(t or 0), name))
-    return [n for _, n in sorted(rows)]
+    """[(número fijo, sesión)] ordenados por número, el mismo de alt+N. Si a alguno le falta o se repite,
+    `bk _ids` le da uno (y le rehace el header); eso pasa una sola vez por workspace."""
+    rows, seen, ok = [], set(), True
+    for l in sh("tmux", "list-sessions", "-F", "#{session_name}\t#{@bk_id}").splitlines():
+        name, _, i = l.partition("\t")
+        if not name.startswith("bk"):
+            continue
+        if not i.isdigit() or i in seen:
+            ok = False
+        seen.add(i)
+        rows.append((i, name))
+    if not ok:
+        try:   # rehacer headers puede tardar más que el timeout de sh()
+            out = subprocess.run([BK, "_ids"], capture_output=True, text=True, timeout=20).stdout
+        except Exception:
+            out = ""
+        rows = [tuple(l.split("\t", 1)) for l in out.splitlines() if "\t" in l]
+    return sorted((int(i), n) for i, n in rows if i.isdigit())
 
 
 def claude_in(pane):
@@ -126,7 +141,7 @@ def pane_state(st, pane, cmd, dead):
 def items():
     st = states()
     out = []
-    for name in workspaces():
+    for wid, name in workspaces():
         # Estado del chat del workspace (el pane que corre claude en la ventana main)
         state, subs, info = "none", [], ""
         for l in sh("tmux", "list-panes", "-t", f"{name}:main", "-F",
@@ -142,8 +157,8 @@ def items():
             if s != "none":
                 state = s
                 subs = subagents((st.get(pid) or {}).get("_sid"))
-        out.append(("ws", name, name, state, info or (name[3:], "")))
-        out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d)) for d, bg, j in subs]
+        out.append(("ws", name, name, state, info or (name[3:], ""), wid))
+        out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None) for d, bg, j in subs]
     for l in sh("tmux", "list-panes", "-s", "-t", AGENTS, "-F",
                 "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}\t#{pane_title}\t#{pane_current_path}").splitlines():
         win, pid, cmd, dead, ws, title, path = (l.split("\t") + [""] * 7)[:7]
@@ -152,9 +167,9 @@ def items():
         state = pane_state(st, pid, cmd, dead)
         ref = (st.get(pid) or {}).get("ref") or ""
         out.append(("ag", win, f"{AGENTS}:{win}", state,
-                    (f"{project_name(path)} · {win}", " ".join(x for x in (ref, feature(title, path)) if x))))
+                    (f"{project_name(path)} · {win}", " ".join(x for x in (ref, feature(title, path)) if x)), None))
         if state != "none":
-            out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d))
+            out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None)
                     for d, bg, j in subagents((st.get(pid) or {}).get("_sid"))]
     return out
 
@@ -201,14 +216,22 @@ def ui(scr):
     client = sh("tmux", "display-message", "-p", "-t", me, "#{client_name}").strip() if me else ""
     hover_y, hover_t, tips = -1, 0.0, {}
     try:   # de día, tonos oscuros y apagados (los de noche son pastel y sobre fondo claro gritan)
-        from gentle import is_day
+        from gentle import ID_DAY, ID_NIGHT, is_day
         day = is_day()
     except Exception:
+        ID_DAY = ID_NIGHT = []
         day = False
     colors = {1: 137, 2: 131, 3: 243, 4: 132, 5: 60} if day else {1: 222, 2: 210, 3: 244, 4: 218, 5: 147}
     for k, v in colors.items():
         curses.init_pair(k, v, -1)
     WORK, WAIT, MUTED, ROSE, IRIS = (curses.color_pair(i) for i in range(1, 6))
+    # Un color por número de workspace (los mismos que el header de tmux, de gentle.py)
+    idpal = ID_DAY if day else ID_NIGHT
+    for i, v in enumerate(idpal):
+        curses.init_pair(10 + i, v, -1)
+
+    def id_attr(n):
+        return curses.color_pair(10 + (n - 1) % len(idpal)) | curses.A_BOLD if idpal and n else 0
 
     def tooltip(text):
         """El nombre de la fila, como tooltip en la barra de tmux (la tira no cambia de ancho)."""
@@ -226,11 +249,11 @@ def ui(scr):
         scr.erase()
         cur = current()
         rowmap.clear()
-        y, n_ws, n_ag, sep = 1, 0, 0, False
+        y, n_ag, sep = 1, 0, False
         tips.clear()
         if hover_y >= 0 and time.time() - hover_t > TIP_MS / 1000:   # se fue el mouse: sacar el resaltado
             hover_y = -1
-        for kind, label, target, state, info in cache:
+        for kind, label, target, state, info, wid in cache:
             if kind == "ag" and not sep:
                 if y < H - 1:
                     scr.addnstr(y, 1, "─" * max(1, W - 2), W - 2, MUTED)
@@ -248,7 +271,7 @@ def ui(scr):
                 y += 1
                 continue
             if kind == "ws":
-                n_ws += 1; num = n_ws
+                num = wid
             else:
                 n_ag += 1; num = n_ag
             if state == "working":
@@ -268,7 +291,8 @@ def ui(scr):
             else:
                 dot, col = "○", MUTED
             here = kind == "ws" and label == cur
-            numattr = (ROSE | curses.A_BOLD | curses.A_REVERSE) if here else (IRIS if kind == "ag" else 0)
+            idc = id_attr(num) if kind == "ws" else IRIS
+            numattr = (idc | curses.A_BOLD | curses.A_REVERSE) if here else idc
             scr.addnstr(y, 1, f"{num:>1}", 2, numattr | hl)
             scr.addnstr(y, 3, dot, 1, col)
             proj, feat = info

@@ -713,6 +713,9 @@ workspace() {
     [ -z "$cx" ] || { BK_FROM="$WS_SESSION" account_use "$cx" >/dev/null; }
     tmux set-environment -t "$WS_SESSION" BK_PROJECT "$top"
     [ -z "${BK_WS_NAME:-}" ] || tmux set-option -t "$WS_SESSION" @bk_name "$BK_WS_NAME"
+    # Número fijo: el que pide bk restore (BK_WS_ID) si está libre; si no, el libre más bajo (ws_ids)
+    [ -z "${BK_WS_ID:-}" ] || tmux set-option -t "=$WS_SESSION:" @bk_id "$BK_WS_ID"
+    BK_IDS_NOSTYLE=1 ws_ids >/dev/null
     rail=$(tmux split-window -d -P -F '#{pane_id}' -h -l 34% -t "$chat" -c "$dir" -e "BK_PROJECT=$top" "bk rail")
     # Tira izquierda: sesiones activas (workspaces y agentes), a lo Gentle Shell 4
     local side
@@ -945,12 +948,41 @@ cmd_open() {
 }
 
 # Paleta gentle (rosa sobre oscuro): bordes finos, sin título en el riel, footer en la barra de tmux
+# Número fijo de cada workspace (@bk_id): lo toma al crearse (el libre más bajo) y lo conserva hasta que se
+# cierra, aunque se cierren otros; alt+N va a ese número, y la tira y el header lo muestran con su color.
+# A los que no tienen (de antes de esto, o repetido porque dos se crearon a la vez: gana el más viejo) les
+# da uno acá, en orden de creación, y les rehace el header. Imprime "número<TAB>sesión" por número.
+ws_ids() {
+  local rows taken=" " out="" c name id n need=()
+  rows=$(tmux list-sessions -F '#{session_created}	#{session_name}	#{@bk_id}' 2>/dev/null \
+         | awk -F'\t' '$2 ~ /^bk/' | sort -n) || true
+  while IFS=$'\t' read -r c name id; do
+    [ -n "$name" ] || continue
+    if [[ "$id" =~ ^[1-9][0-9]*$ ]] && [[ "$taken" != *" $id "* ]]; then
+      taken+="$id "; out+="$id	$name"$'\n'
+    else
+      need+=("$name")
+    fi
+  done <<<"$rows"
+  for name in "${need[@]+"${need[@]}"}"; do
+    n=1; while [[ "$taken" == *" $n "* ]]; do n=$((n + 1)); done
+    taken+="$n "; out+="$n	$name"$'\n'
+    tmux set-option -t "=$name:" @bk_id "$n" >/dev/null 2>&1 || true
+    [ -n "${BK_IDS_NOSTYLE:-}" ] || ( WS_SESSION="$name"; ws_style ) >/dev/null 2>&1 || true
+  done
+  [ -z "$out" ] || printf '%s' "$out" | sort -n
+}
+
 ws_style() {
-  local t="$WS_SESSION:main" s="$WS_SESSION" pal
+  local t="$WS_SESSION:main" s="$WS_SESSION" pal id idc
+  id=$(tmux show-options -qv -t "=$s:" @bk_id 2>/dev/null || true)
   # Colores del tema (day/night) y posición del header, de lib/gentle.py y ~/.config/bk/ui.json
   pal=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import gentle as g; p = g.P
-print(p["tint"], p["rose"], p["petal"], p["text"], p["muted"], p["frame"], g.ui()["header"])' "$WS/lib")
-  read -r TINT ROSE PETAL TEXT MUTED FRAME HEAD <<<"$pal"
+print(p["tint"], p["rose"], p["petal"], p["text"], p["muted"], p["frame"], g.ui()["header"], g.id_colour(sys.argv[2]) or "-")' "$WS/lib" "${id:-0}")
+  read -r TINT ROSE PETAL TEXT MUTED FRAME HEAD idc <<<"$pal"
+  # El número fijo del workspace, con su color (el mismo que en la tira), antes del nombre
+  local tag=""
+  [ -z "$id" ] || [ "$idc" = - ] || tag="#[fg=colour$idc,bold]$id "
   tmux set-option -w -t "$t" pane-border-status off >/dev/null
   tmux set-option -w -t "$t" pane-border-lines single >/dev/null
   tmux set-option -w -t "$t" pane-border-style "fg=#$TINT" >/dev/null
@@ -964,7 +996,7 @@ print(p["tint"], p["rose"], p["petal"], p["text"], p["muted"], p["frame"], g.ui(
   tmux set-option -t "$s" window-status-format '' >/dev/null
   tmux set-option -t "$s" window-status-current-format '' >/dev/null
   tmux set-option -t "$s" status-left \
-    "#[fg=#$ROSE,bold]  ✿ #{s/^bk-//:session_name} #[fg=#$MUTED,nobold]· #[fg=#$TEXT]#{s|$HOME|~|:pane_current_path} #[fg=#$PETAL,bold]#(git -C '#{pane_current_path}' branch --show-current 2>/dev/null)#[nobold] #[fg=#$MUTED]· #[fg=#$TEXT]#(bk _model #{session_name})" >/dev/null
+    "  $tag#[fg=#$ROSE,bold]✿ #{s/^bk-//:session_name} #[fg=#$MUTED,nobold]· #[fg=#$TEXT]#{s|$HOME|~|:pane_current_path} #[fg=#$PETAL,bold]#(git -C '#{pane_current_path}' branch --show-current 2>/dev/null)#[nobold] #[fg=#$MUTED]· #[fg=#$TEXT]#(bk _model #{session_name})" >/dev/null
   tmux set-option -t "$s" status-right "#(bk _footer #{session_name})  " >/dev/null
 }
 
@@ -1315,8 +1347,8 @@ case "${1:-}" in
   _botenv)     shift; env=(); bot_env "${1:?}" >/dev/null 2>&1; for kv in "${env[@]+"${env[@]}"}"; do [ "$kv" = -e ] || printf '%s\n' "$kv"; done ;;
   sound)       shift; cmd_sound "${1:-status}" ;;
   name)        shift; cmd_name "$@" ;;
-  _nth)        tmux list-sessions -F '#{session_created} #{session_name}' 2>/dev/null \
-                 | awk '$2 ~ /^bk/' | sort -n | awk -v n="${2:-1}" 'NR == n {print $2}' ;;
+  _nth)        ws_ids | awk -F'\t' -v n="${2:-1}" '$1 == n {print $2}' ;;   # alt+N: el workspace con ese número
+  _ids)        ws_ids ;;
   changes)     exec python3 "$WS/lib/changes.py" ;;
   palette|k)   exec python3 "$WS/lib/palette.py" ;;
   _layout)     ws_layout "${2:-}" ;;

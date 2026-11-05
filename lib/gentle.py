@@ -57,6 +57,15 @@ NIGHT = {"rose": "F095C8", "petal": "D7A0B8", "iris": "A99CF5", "amber": "E6B450
 DAY = {"rose": "8E4F75", "petal": "7A6070", "iris": "5A5596", "amber": "76601E", "green": "3D6A4C",
        "red": "9C3F58", "text": "2E2A36", "muted": "6F6880", "frame": "BDB4CC", "tint": "EEEBF2"}
 P = DAY if is_day() else NIGHT
+# Color fijo de cada número de workspace (@bk_id), en xterm-256: lo usan la tira (curses) y el header
+# (tmux "colourN"). De noche pasteles; de día más oscuros, que se lean sobre el fondo claro.
+ID_NIGHT = [210, 222, 150, 117, 183, 218, 116, 216]
+ID_DAY = [160, 130, 28, 25, 91, 162, 30, 94]
+
+
+def id_colour(n, day=None):
+    pal = ID_DAY if (is_day() if day is None else day) else ID_NIGHT
+    return pal[(int(n) - 1) % len(pal)] if str(n).isdigit() and int(n) > 0 else None
 ROSE, PETAL, IRIS, AMBER = fg(P["rose"]), fg(P["petal"]), fg(P["iris"]), fg(P["amber"])
 GREEN, RED, TEXT, MUTED, FRAME = fg(P["green"]), fg(P["red"]), fg(P["text"]), fg(P["muted"]), fg(P["frame"])
 TINT = bg(P["tint"])

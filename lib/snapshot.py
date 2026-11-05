@@ -67,7 +67,8 @@ def take():
             "project": env.split("=", 1)[1] if env.startswith("BK_PROJECT=") else "",
             "cwd": (sts.get(chat) or {}).get("cwd") or cwd,
             "sid": sid_of(chat, sts, start),
-            "label": tmux("show-options", "-qv", "-t", f"={name}", "@bk_name").strip(),
+            "label": tmux("show-options", "-qv", "-t", f"={name}:", "@bk_name").strip(),
+            "id": tmux("show-options", "-qv", "-t", f"={name}:", "@bk_id").strip(),
         })
     for l in tmux("list-panes", "-s", "-t", f"={SESSION}", "-F",
                   "#{window_name}\t#{pane_id}\t#{pane_start_command}\t#{pane_current_path}\t#{@bk_ws}").splitlines():
@@ -201,18 +202,19 @@ def restore(path, dry):
     print(f"foto {os.path.basename(path)[:-5]} · {describe(shot)}")
     env = ensure_server() if not dry else os.environ
     have = set(tmux("list-sessions", "-F", "#{session_name}").split())
-    for w in shot["workspaces"]:
+    # primero los que tenían número fijo, así uno sin número (foto vieja) no les gana el suyo
+    for w in sorted(shot["workspaces"], key=lambda w: not w.get("id")):
         name, sid = w["name"], w["sid"]
         cwd = w["cwd"] if os.path.isdir(w.get("cwd") or "") else w.get("project") or os.path.expanduser("~")
         if name not in have:
             print(f"  + workspace {name} ({cwd})" + (f" · retoma {sid[:8]}" if sid else ""))
             if dry:
                 continue
-            subprocess.run([BK, "ws", w.get("project") or cwd], env={**env, "BK_WS_SESSION": name, "BK_CLIENT": "nocliente", "BK_RESTORING": "1"},
+            subprocess.run([BK, "ws", w.get("project") or cwd], env={**env, "BK_WS_SESSION": name, "BK_WS_ID": w.get("id") or "", "BK_CLIENT": "nocliente", "BK_RESTORING": "1"},
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=cwd)
         pane = chat_pane(name) if not dry else ""
         if w.get("label") and not dry:
-            tmux("set-option", "-t", f"={name}", "@bk_name", w["label"])
+            tmux("set-option", "-t", f"={name}:", "@bk_name", w["label"])
         if not sid:
             continue
         if not dry and pane and running_claude(pane) and name in have:
