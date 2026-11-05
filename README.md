@@ -56,7 +56,7 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   `~/.local/state/bk/handoffs/<session_id>.md`. Lo pide el aviso rojo, o vos: `bk handoff [N]` se lo pide al chat del
   workspace N (desde el mismo chat, `! bk handoff` imprime el pedido). `bk chat --desde N` (o «↪ Seguir desde ws N» en
   `alt+n`) abre un workspace más en la misma carpeta y con la misma cuenta, con el resumen como primer mensaje (va como
-  argumento de `claude`, sin `send-keys`), lo borra y te pregunta si cierra el viejo. `bk handoff --listos`: los que hay. Mientras espera, la tira
+  argumento de `claude`, sin `send-keys`), lo borra y te pregunta si cierra el viejo. `bk handoff --listos`: los que hay. Los tres están también en la paleta (`alt+k`). Mientras espera, la tira
   marca ese workspace con `↪` (en lugar del `▪` de contexto) y `bk s` marca su fila con `↪`, también en recientes.
 
 ## Sesiones (`bk s` · `C-a s`)
