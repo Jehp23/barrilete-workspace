@@ -410,6 +410,8 @@ launch() {
   fi
   # La ventana queda abierta si el agente termina, para leer lo último
   tmux set-option -w -t "$SESSION:$win" remain-on-exit on >/dev/null
+  # bk restore la lee para retomar al agente con la misma cuenta
+  [ -z "$cta" ] || tmux set-option -w -t "$SESSION:$win" @bk_account "$cta"
   pre_register "$win" "$pane" "$dir" "$role" "$model" "$ref"
   # El título del issue/PR para bk ls, la tira y Sketchybar (una consulta a GitHub, en segundo plano)
   (python3 "$WS/lib/agents.py" warm >/dev/null 2>&1 &)
@@ -923,6 +925,7 @@ cmd_chat() {
     for kv in "${CTA[@]+"${CTA[@]}"}"; do [ "$kv" = -e ] || tmux set-environment -u -t "$SESSION" "${kv%%=*}" 2>/dev/null || true; done
   fi
   tmux set-option -w -t "$SESSION:$name" remain-on-exit on >/dev/null
+  [ ${#CTA[@]} -eq 0 ] || tmux set-option -w -t "$SESSION:$name" @bk_account "$(account_of claude)"
   case "$s" in bk*) ws_agent "$s" "$pane" ;; *) info "chat nuevo: $name (bk go $name)" ;; esac
 }
 

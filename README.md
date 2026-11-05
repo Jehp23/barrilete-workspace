@@ -82,7 +82,7 @@ las mismas (`/resume` y `alt+s` ven todas).
 - `bk account use trabajo` la pone en esta sesión: los agentes y chats que lances desde acá corren con ella
   (`--relaunch`: también el chat principal, retomando su conversación). `bk account use default` vuelve a la de siempre.
 - `bk run … --account X` solo para un lanzamiento. El riel la muestra en Status.
-- `bk restore` todavía no la recuerda: los chats vuelven con la cuenta default.
+- `bk restore` retoma cada chat y agente con su cuenta (si la cuenta ya no existe, con la default y avisa).
 
 ## Lo que te espera (`bk monitor` · `bk checkpoints`)
 - `bk monitor`: pantalla para el otro monitor. Arriba *Te esperan* (preguntas, permisos y checkpoints, con el comando

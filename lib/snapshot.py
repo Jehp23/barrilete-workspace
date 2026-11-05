@@ -9,7 +9,8 @@
   bk restore … --dry-run   muestra qué haría, sin hacer nada
 
 Las fotos van a ~/.cache/bk/snapshots/ (se guardan las últimas 200). Los agentes se retoman con la identidad
-del bot, como cuando los lanza bk. Pensado para después de que se cae tmux o se reinicia la máquina.
+del bot, como cuando los lanza bk, y cada chat y agente con su cuenta (bk account). Pensado para después de que
+se cae tmux o se reinicia la máquina.
 """
 import glob
 import json
@@ -28,6 +29,7 @@ BK = os.path.join(os.path.dirname(HERE), "bin", "bk")
 SESSION = os.environ.get("BK_SESSION", "agents")
 KEEP, AUTO_EVERY = 200, 300
 RESUME = re.compile(r"claude\b.*--resume\s+([0-9a-f-]{36})")
+ACCOUNTS = os.path.join(HERE, "accounts.py")
 
 
 def tmux(*args):
@@ -69,15 +71,19 @@ def take():
             "sid": sid_of(chat, sts, start),
             "label": tmux("show-options", "-qv", "-t", f"={name}:", "@bk_name").strip(),
             "id": tmux("show-options", "-qv", "-t", f"={name}:", "@bk_id").strip(),
+            # bk account use: la cuenta de la sesión por proveedor (sin clave: la default)
+            "account": {p: v for p in ("claude", "codex")
+                        if (v := tmux("show-options", "-qv", "-t", f"={name}:", f"@bk_account_{p}").strip())},
         })
     for l in tmux("list-panes", "-s", "-t", f"={SESSION}", "-F",
-                  "#{window_name}\t#{pane_id}\t#{pane_start_command}\t#{pane_current_path}\t#{@bk_ws}").splitlines():
-        win, pane, start, path, ws = (l.split("\t") + ["", "", "", ""])[:5]
+                  "#{window_name}\t#{pane_id}\t#{pane_start_command}\t#{pane_current_path}\t#{@bk_ws}\t#{@bk_account}").splitlines():
+        win, pane, start, path, ws, acct = (l.split("\t") + ["", "", "", "", ""])[:6]
         if ws:   # el chat de un workspace de visita: se guarda con su workspace
             continue
         st = sts.get(pane) or {}
         shot["agents"].append({"win": win, "cwd": st.get("cwd") or path, "sid": sid_of(pane, sts, start),
-                               "role": st.get("role", ""), "model": st.get("model", ""), "ref": st.get("ref", "")})
+                               "role": st.get("role", ""), "model": st.get("model", ""), "ref": st.get("ref", ""),
+                               "account": acct})
     return shot
 
 
@@ -197,6 +203,18 @@ def bot_env(cwd):
     return args
 
 
+def account_env(name):
+    """-e para tmux que lanzan con esa cuenta (como bk). Si la cuenta ya no existe: la default, con aviso."""
+    if not name or name == "default":
+        return []
+    prov = AG.sh("python3", ACCOUNTS, "provider", name).strip()
+    kv = AG.sh("python3", ACCOUNTS, "env", name).strip() if prov else ""
+    if not kv:
+        print(f"  ! la cuenta {name} ya no existe: va con la default")
+        return []
+    return ["-e", kv, "-e", f"BK_ACCOUNT_{prov.upper()}={name}"]
+
+
 def restore(path, dry):
     shot = json.load(open(path))
     print(f"foto {os.path.basename(path)[:-5]} · {describe(shot)}")
@@ -215,6 +233,13 @@ def restore(path, dry):
         pane = chat_pane(name) if not dry else ""
         if w.get("label") and not dry:
             tmux("set-option", "-t", f"={name}:", "@bk_name", w["label"])
+        accts = w.get("account") or {}
+        if accts and name not in have:
+            print(f"  · {name}: cuenta " + ", ".join(f"{p} {v}" for p, v in accts.items()))
+            if not dry:   # la sesión vuelve a quedar con su cuenta (opción y entorno, como bk account use)
+                for v in accts.values():
+                    subprocess.run([BK, "account", "use", v], env={**env, "BK_FROM": name},
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if not sid:
             continue
         if not dry and pane and running_claude(pane) and name in have:
@@ -230,7 +255,8 @@ def restore(path, dry):
         if name in have:
             print(f"  ↻ {name}: retoma el chat {sid[:8]}")
         if not dry and pane:
-            tmux("respawn-pane", "-k", "-t", pane, "-c", cwd, f"claude --resume {sid}; exec $SHELL")
+            tmux("respawn-pane", "-k", "-t", pane, "-c", cwd, *account_env(accts.get("claude")),
+                 f"claude --resume {sid}; exec $SHELL")
     if not dry:   # traer chats a su lugar puede vaciar (y cerrar) la sesión de agentes: asegurarla de nuevo
         ensure_server()
     wins = set(tmux("list-windows", "-t", f"={SESSION}", "-F", "#{window_name}").split())
@@ -244,7 +270,8 @@ def restore(path, dry):
             if a["win"] in wins:
                 print(f"  = agente {a['win']}: sigue corriendo")
             continue
-        print(f"  + agente {a['win']} ({a['cwd']}) · retoma {a['sid'][:8]}" + (" como el bot" if a.get("role") else ""))
+        print(f"  + agente {a['win']} ({a['cwd']}) · retoma {a['sid'][:8]}" + (" como el bot" if a.get("role") else "")
+              + (f" · cuenta {a['account']}" if a.get("account") else ""))
         if dry:
             continue
         e = ["-e", f"BARRILETE_ROLE={a['role']}", "-e", f"BARRILETE_MODEL={a['model']}"] if a.get("role") else []
@@ -252,9 +279,12 @@ def restore(path, dry):
             e += ["-e", f"BARRILETE_ISSUE={a['ref']}"]
         if a.get("role"):
             e += bot_env(a["cwd"])
+        e += account_env(a.get("account"))
         subprocess.run(["tmux", "new-window", "-d", "-t", f"={SESSION}:", "-n", a["win"], "-c", a["cwd"], *e,
                         f"claude --resume {a['sid']}"], check=False)
         tmux("set-option", "-w", "-t", f"={SESSION}:{a['win']}", "remain-on-exit", "on")
+        if a.get("account"):
+            tmux("set-option", "-w", "-t", f"={SESSION}:{a['win']}", "@bk_account", a["account"])
     if not dry:
         # El renovador del token del bot vive en el server de tmux: si tmux se cayó, murió con él.
         # bk _botenv lo vuelve a lanzar (una vez por repo) aunque el agente ya estuviera corriendo.
