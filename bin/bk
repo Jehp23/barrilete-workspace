@@ -89,6 +89,7 @@ uso: bk [comando] [--dry-run]
   focus [min] [qué] pomodoro en la barra (25 min por defecto; stop | status)
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
   theme [day|night|auto]  tema de Ghostty: violeta pastel / violeta oscuro / según macOS
+  font [sf|jetbrains|menlo]  tipografía de Ghostty: SF Mono / JetBrains Mono (la que trae) / Menlo
 
 Los comandos de agentes se corren dentro de un proyecto Barrilete.
 EOF
@@ -1174,6 +1175,38 @@ theme() {
   else echo "tema: $want (Ghostty no está abierto: se aplica al abrirlo)"; fi
 }
 
+# bk font: la tipografía de Ghostty. Las tres andan sin instalar nada: SF Mono y Menlo vienen con macOS,
+# JetBrains Mono viene adentro de Ghostty (es su default: sin font-family en la config).
+font() {
+  local want="${1:-status}" fam cur
+  [ -f "$GHOSTTY_CONFIG" ] || die "no encuentro la config de Ghostty ($GHOSTTY_CONFIG)"
+  case "$want" in
+    sf)        fam="SF Mono" ;;
+    jetbrains) fam="" ;;
+    menlo)     fam="Menlo" ;;
+    status)
+      cur=$(sed -n 's/^font-family[[:space:]]*=[[:space:]]*//p' "$GHOSTTY_CONFIG" | tail -1 | tr -d '"')
+      case "$cur" in
+        "SF Mono") echo sf ;;
+        Menlo)     echo menlo ;;
+        "")        echo jetbrains ;;
+        *)         echo "otra: $cur" ;;
+      esac
+      return ;;
+    *) die "bk font [sf|jetbrains|menlo]" ;;
+  esac
+  # Reemplazar solo las líneas `font-family = ...` (sin línea = la de Ghostty), sin tocar el resto
+  local tmp; tmp=$(mktemp)
+  awk -v l="${fam:+font-family = \"$fam\"}" 'BEGIN { done = 0 }
+       /^font-family[[:space:]]*=/ { if (!done && l != "") print l; done = 1; next }
+       { print }
+       END { if (!done && l != "") print l }' "$GHOSTTY_CONFIG" > "$tmp"
+  cat "$tmp" > "$GHOSTTY_CONFIG"; rm -f "$tmp"
+  local pids; pids=$(ps -axo pid=,ucomm= | awk '$2 == "ghostty" { print $1 }')
+  if [ -n "$pids" ] && kill -USR2 $pids 2>/dev/null; then echo "tipografía: ${fam:-JetBrains Mono}"
+  else echo "tipografía: ${fam:-JetBrains Mono} (Ghostty no está abierto: se aplica al abrirlo)"; fi
+}
+
 # ---------- comandos de agentes ----------
 cmd_plan() {
   local idea="$*"; [ -n "$idea" ] || die 'bk plan "<idea>"'
@@ -1313,6 +1346,7 @@ case "${1:-}" in
   lessons)     lessons ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
+  font)        shift; font "${1:-status}" ;;
   ""|ws)       shift || true
                # tmux se cayó (o es el primer bk del día): si no hay ningún workspace y hay una foto de las
                # últimas 12 h, volver a poner todo antes de abrir el pedido (restore saltea lo que ya está)

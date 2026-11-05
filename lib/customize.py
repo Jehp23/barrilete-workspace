@@ -19,16 +19,22 @@ CATS = [
                             ("compact", "sin filas vacías")]),
     ("Header", "header", [("top", "barra arriba"), ("bottom", "barra abajo")]),
     ("Theme", "theme", [("night", "violeta oscuro"), ("day", "lavanda claro"), ("auto", "según macOS")]),
+    ("Font", "font", [("sf", "SF Mono, la de Apple (viene con macOS)"),
+                      ("jetbrains", "JetBrains Mono, la que trae Ghostty"),
+                      ("menlo", "Menlo, la clásica de la Terminal")]),
 ]
 
 
 def current(key, conf):
-    if key == "theme":
-        return subprocess.run([BK, "theme"], capture_output=True, text=True).stdout.split(" ")[0].strip()
+    if key in ("theme", "font"):
+        return subprocess.run([BK, key], capture_output=True, text=True).stdout.split(" ")[0].strip()
     return conf.get(key)
 
 
 def apply(key, value):
+    if key == "font":   # es de Ghostty: no cambia el header ni los rieles
+        subprocess.run([BK, "font", value], capture_output=True)
+        return
     if key == "theme":
         subprocess.run([BK, "theme", value], capture_output=True)
     else:
