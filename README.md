@@ -54,8 +54,12 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
 ## Sesiones (`bk s` · `C-a s`)
 Selector estilo Orca (`lib/sessions.py`): arriba las sesiones abiertas (Enter salta a su pane; un agente que
 terminó se revive con `claude --resume` en el mismo pane), abajo las recientes de todas las carpetas
-(Enter las retoma en una ventana nueva de `agents`, en su carpeta). `/` busca, `x` cierra ventanas de agentes.
+(Enter las retoma en una ventana nueva de `agents`, en su carpeta). `/` busca, `x` cierra un agente o un workspace.
 Una sesión abierta fuera de tmux aparece como `afuera` y no se duplica.
+Cada chat de un workspace muestra su número fijo con su color (`ws 3`, el mismo de la tira y `alt+N`), así sabés cuál
+es. `x` sobre un workspace lo cierra entero (chat, riel y tira) después de confirmar con `y`; la conversación queda en
+recientes. El workspace donde estás no se cierra desde ahí. Por comando: `tmux kill-session -t '=bk-<nombre>'` (con comillas
+en zsh, que expande el `=`).
 
 ## Hablar con los agentes sin entrar
 - `bk peek [ventana]`: la pantalla de un agente (sin ventana: las últimas líneas de todos).

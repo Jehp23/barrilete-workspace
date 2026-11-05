@@ -5,7 +5,10 @@ Arriba, las sesiones abiertas (con estado de la barra): Enter salta a su pane de
 Abajo, las recientes de todas las carpetas (~/.claude/projects): Enter la retoma con
 `claude --resume` en una ventana nueva de la sesión tmux "agents", en su carpeta.
 
-Teclas: ↑↓/jk moverse · / buscar · enter abrir · x cerrar ventana · q/esc salir
+Cada chat de un workspace lleva su número fijo (el de la tira y alt+N), con su color: "ws 3".
+
+Teclas: ↑↓/jk moverse · / buscar · enter abrir · x cerrar (un agente: su ventana; un workspace: todo el
+workspace, con confirmación; la conversación queda en recientes) · q/esc salir
 """
 import curses, glob, json, os, re, subprocess, sys, time
 
@@ -25,13 +28,14 @@ def sh(*args):
 
 
 def tmux_panes():
-    """pane_id -> dict(target, window, session, dead)."""
+    """pane_id -> dict(target, window, session, dead, wsid). wsid: el número fijo del workspace (@bk_id)."""
     out = {}
     for l in sh("tmux", "list-panes", "-a", "-F",
-                "#{pane_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_dead}").splitlines():
+                "#{pane_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_dead}\t#{@bk_id}").splitlines():
         p = l.split("\t")
-        if len(p) == 5:
-            out[p[0]] = {"session": p[1], "target": f"{p[1]}:{p[2]}", "window": p[3], "dead": p[4] == "1"}
+        if len(p) == 6:
+            out[p[0]] = {"session": p[1], "target": f"{p[1]}:{p[2]}", "window": p[3], "dead": p[4] == "1",
+                         "wsid": p[5] if p[1].startswith("bk") and p[5].isdigit() else ""}
     return out
 
 
@@ -125,7 +129,8 @@ def load():
             pane = panes.get(s.get("pane") or "")
             row.update(state=s.get("state"), role=s.get("role"), ref=s.get("ref"), pane=s.get("pane"),
                        target=pane["target"] if pane else None, window=where(pane),
-                       dead=pane["dead"] if pane else False)
+                       dead=pane["dead"] if pane else False, session=pane["session"] if pane else None,
+                       wsid=pane["wsid"] if pane else "")
             rows_open.append(row)
         else:
             rows_recent.append(row)
@@ -138,7 +143,8 @@ def load():
                               "title": "(recién abierta)", "mtime": s.get("ts", 0), "state": s.get("state"),
                               "role": s.get("role"), "ref": s.get("ref"), "pane": s.get("pane"),
                               "target": pane["target"] if pane else None,
-                              "window": where(pane), "dead": False})
+                              "window": where(pane), "dead": False,
+                              "session": pane["session"] if pane else None, "wsid": pane["wsid"] if pane else ""})
     # Ventanas de agentes muertas (el agente salió y la ventana quedó): para poder cerrarlas
     for pid, pane in panes.items():
         if pane["session"] == SESSION and pane["dead"] and not any(r.get("pane") == pid for r in rows_open):
@@ -147,7 +153,7 @@ def load():
             rows_open.append({"sid": m.group(1) if m else None, "cwd": "", "proj": "",
                               "title": "terminó · enter lo retoma acá" if m else "terminó (ventana abierta)",
                               "mtime": 0, "state": "ended", "target": pane["target"], "window": pane["window"],
-                              "pane": pid, "dead": True})
+                              "pane": pid, "dead": True, "session": pane["session"], "wsid": ""})
     try:
         os.makedirs(os.path.dirname(CACHE), exist_ok=True)
         json.dump(cache, open(CACHE, "w"))
@@ -158,10 +164,28 @@ def load():
 
 
 def where(pane):
-    """Nombre corto de dónde vive: la ventana si es un agente de bk, si no la sesión tmux (ej. bk)."""
+    """Nombre corto de dónde vive: la ventana si es un agente de bk; "ws 3" si es el chat de un workspace (su
+    número fijo, el de la tira); si no, la sesión tmux."""
     if not pane:
         return None
-    return pane["window"] if pane["session"] == SESSION else f"{pane['session']}:{pane['window']}"
+    if pane["session"] == SESSION:
+        return pane["window"]
+    if pane.get("wsid"):
+        return f"ws {pane['wsid']}"
+    return f"{pane['session']}:{pane['window']}"
+
+
+def close_action(it, current):
+    """Qué hace x sobre una fila: ("window", destino) un agente · ("session", sesión) un workspace entero ·
+    ("error", motivo). El workspace desde el que abriste el selector no: te dejaría sin sesión."""
+    sess = it.get("session")
+    if it.get("target") and it.get("pane") and sess == SESSION:
+        return "window", it["target"]
+    if sess and sess.startswith("bk"):
+        if sess == current:
+            return "error", "es el workspace donde estás: cerralo desde otro"
+        return "session", sess
+    return "error", "solo cierro agentes (sesión tmux 'agents') y workspaces (bk-…)"
 
 
 def project_name(cwd):
@@ -253,6 +277,18 @@ def ui(scr):
     for i, c in enumerate([183, 114, 222, 210, 111, 245], 1):
         curses.init_pair(i, c, -1)
     MAUVE, GREEN, YELLOW, RED, BLUE, GRAY = (curses.color_pair(i) for i in range(1, 7))
+    try:   # el color de cada número de workspace, el mismo de la tira y el header (gentle.py)
+        sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+        from gentle import ID_DAY, ID_NIGHT, is_day
+        idpal = ID_DAY if is_day() else ID_NIGHT
+    except Exception:
+        idpal = []
+    for i, v in enumerate(idpal):
+        curses.init_pair(20 + i, v, -1)
+
+    def id_attr(n):
+        return curses.color_pair(20 + (int(n) - 1) % len(idpal)) | curses.A_BOLD if idpal and n else BLUE
+    confirm = None   # ("session", nombre, número, estado): esperando y/n para cerrar un workspace
     st_color = {"background": YELLOW, "working": YELLOW, "waiting": RED, "done": GREEN, "idle": GRAY, "ended": GRAY}
     opened, recent = load()
     query, typing, sel, top, msg = "", False, 0, 0, ""
@@ -290,6 +326,8 @@ def ui(scr):
                 mid = f"{(it.get('role') or '')[:11]:<11} {it['title']}"
                 scr.addnstr(row, 0, " " * (W - 1), W - 1, attr)
                 scr.addnstr(row, 0, head, W - 1, attr | (BLUE if it.get("target") else GRAY))
+                if it.get("wsid"):   # "ws 3" con el color de su número
+                    scr.addnstr(row, 3, where, W - 4, attr | id_attr(it["wsid"]))
                 scr.addnstr(row, len(head), mid[: max(0, W - 1 - len(head) - len(tail))], W - 1 - len(head), attr)
                 if W - 1 - len(tail) > len(head):
                     scr.addnstr(row, W - 1 - len(tail), tail, len(tail), attr | st_color.get(it["state"], 0))
@@ -302,12 +340,21 @@ def ui(scr):
                 if W - 1 - len(tail) > len(head):
                     scr.addnstr(row, W - 1 - len(tail), tail, len(tail), attr | GRAY)
         help_ = "escribí para buscar · enter abrir · esc listo" if typing else \
-            "↑↓ moverse · / buscar · enter abrir · x cerrar ventana · r recargar · q salir"
+            "↑↓ moverse · / buscar · enter abrir · x cerrar · r recargar · q salir"
+        if confirm:
+            busy = " ¡su chat está trabajando!" if confirm[3] in ("working", "background", "waiting") else ""
+            msg = f"¿Cerrar el workspace {confirm[2] or ''} ({confirm[1]}) con su chat, riel y tira?{busy} y/n"
         scr.addnstr(H - 1, 0, (msg or help_)[: W - 1], W - 1, (RED if msg else GRAY))
         msg = ""
         scr.refresh()
 
         k = scr.get_wch()
+        if confirm:
+            if k in ("y", "Y", "s", "S"):
+                subprocess.run(["tmux", "kill-session", "-t", f"={confirm[1]}"], capture_output=True)
+                opened, recent = load()
+            confirm = None
+            continue
         if typing:
             if k in ("\x1b", "\n") or k == curses.KEY_ENTER:
                 typing = False
@@ -333,17 +380,22 @@ def ui(scr):
         elif k == "r":
             opened, recent = load()
         elif k == "x" and cur >= 0:
-            it = items[cur][1]
-            if it.get("target") and it.get("pane") and tmux_panes().get(it["pane"], {}).get("session") == SESSION:
-                subprocess.run(["tmux", "kill-window", "-t", it["target"]], capture_output=True)
+            it = dict(items[cur][1])
+            if it.get("pane"):   # dónde vive ahora (pudo moverse desde que se cargó la lista)
+                it["session"] = tmux_panes().get(it["pane"], {}).get("session")
+            what, arg = close_action(it, current_workspace())
+            if what == "window":
+                subprocess.run(["tmux", "kill-window", "-t", arg], capture_output=True)
                 if it.get("sid"):
                     try:
                         os.remove(os.path.join(STATE, it["sid"] + ".json"))
                     except OSError:
                         pass
                 opened, recent = load()
+            elif what == "session":
+                confirm = ("session", arg, it.get("wsid"), it.get("state"))
             else:
-                msg = "solo cierro ventanas de agentes (sesión tmux 'agents')"
+                msg = arg
         elif k in ("\n", curses.KEY_ENTER) and cur >= 0:
             err, after = open_row(items[cur][1])
             if err:
