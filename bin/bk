@@ -724,6 +724,12 @@ WS_SESSION="${BK_WS_SESSION:-}"
 
 workspace() {
   need_tmux
+  # --dry-run: decir qué abriría y nada más (todo lo que abre workspaces pasa por acá: bk ws, bk chat, --rama,
+  # --desde). La carpeta puede no existir todavía (el worktree de --rama no se crea en dry-run).
+  if [ "$DRY" -eq 1 ]; then
+    info "(dry-run: abriría el workspace ${WS_SESSION:-bk-$(project_of "${1:-$PWD}" 2>/dev/null)} en ${1:-$PWD})"
+    return 0
+  fi
   local dir; dir=$(cd "${1:-$PWD}" && pwd) || die "no existe $1"
   local top; top=$(project_top "$dir")
   WS_SESSION="${WS_SESSION:-bk-$(project_of "$dir")}"
@@ -998,7 +1004,9 @@ cmd_chat() {
     [ -n "$slug" ] || die "el nombre '$branch' no deja un nombre de rama válido (usá letras o números)"
     wt="$(dirname "$top")/$(basename "$top")-wt/chat-$slug"
     # La rama de un chat: el repo principal aunque el chat actual ya esté en un worktree
-    if [ ! -d "$wt" ]; then
+    if [ ! -d "$wt" ] && [ "$DRY" -eq 1 ]; then
+      info "(dry-run: crearía la rama chat/$slug en $wt)"
+    elif [ ! -d "$wt" ]; then
       git -C "$top" fetch -q origin 2>/dev/null
       base=$(git -C "$top" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo HEAD)
       if git -C "$top" show-ref -q --verify "refs/heads/chat/$slug"; then
@@ -1014,7 +1022,9 @@ cmd_chat() {
     return
   elif [ "$loose" = 1 ]; then
     # Chat sin proyecto: en una carpeta propia (~/.bk/chats), así Claude no lee tu home ni pide confiar en ella
-    top="$HOME/.bk/chats"; mkdir -p "$top"; name="c-suelto"
+    top="$HOME/.bk/chats"; name="c-suelto"
+    [ "$DRY" -eq 1 ] && { info "(dry-run: abriría un chat sin proyecto en $top)"; return 0; }
+    mkdir -p "$top"
   else
     # Otro chat en la carpeta del proyecto: un workspace más (bk-<proyecto>-2, -3…), no reemplaza al actual
     top=$(tmux show-environment -t "$s" BK_PROJECT 2>/dev/null | sed -n 's/^BK_PROJECT=//p')
