@@ -734,7 +734,8 @@ workspace() {
     tmux select-pane -t "$chat"
     # La sesión nace con el tamaño de la terminal que la crea: reacomodar al conectarse/redimensionar
     tmux set-hook -t "$WS_SESSION" client-attached "run-shell -b 'bk _layout #{session_name}'"
-    tmux set-hook -t "$WS_SESSION" client-resized "run-shell -b 'bk _layout #{session_name}'"
+    # (el cambio de tamaño de la ventana lo agarra el hook global window-resized de tmux.conf: también al
+    # cambiar de sesión, que client-resized no ve)
   else
     ws_chat_pane "$WS_SESSION" >/dev/null   # si el chat se cerró, volver a entrar lo repone
   fi
@@ -1037,7 +1038,18 @@ ws_layout() {
   # el chat pasa a pantalla completa con el zoom de tmux (no se cierra nada). Ese zoom lo marca
   # @bk_autozoom y se deshace solo al volver a haber lugar; un zoom hecho a mano no se toca.
   set +euo pipefail
-  local t="${1:-$WS_SESSION}:main" W rail w side chat max zoomed auto
+  local ses="${1:-$WS_SESSION}"
+  case "$ses" in bk*) ;; *) return 0 ;; esac            # el hook es global: solo los workspaces
+  # De a uno por sesión: cada paso del zoom dispara el hook, y dos a la vez podían prender y apagar el zoom
+  # del chat en el mismo momento. mkdir es atómico; un lock de más de 5 s es de uno que murió.
+  local lock="${TMPDIR:-/tmp}/bk-layout-$ses.lock" i
+  for i in $(seq 50); do
+    mkdir "$lock" 2>/dev/null && break
+    [ $(( $(date +%s) - $(stat -f %m "$lock" 2>/dev/null || date +%s) )) -gt 5 ] && rmdir "$lock" 2>/dev/null
+    sleep 0.1
+  done
+  trap 'rmdir "$lock" 2>/dev/null' RETURN
+  local t="$ses:main" W rail w side chat max zoomed auto
   local LAYOUT_CHAT=80 LAYOUT_RAIL=30
   W=$(tmux display-message -p -t "$t" '#{window_width}')
   [ -n "$W" ] || return 0
