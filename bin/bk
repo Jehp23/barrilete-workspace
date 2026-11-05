@@ -1029,13 +1029,36 @@ ws_footer() {
 
 # Proporciones: riel derecho 34 % (mínimo 46 columnas)
 ws_layout() {
+  # Al cambiar el tamaño (zoom de Ghostty con cmd +/-, otra pantalla): el chat nunca queda con menos de
+  # LAYOUT_CHAT columnas; el riel se achica para dejarle lugar y, si ni así entra (menos de LAYOUT_RAIL),
+  # el chat pasa a pantalla completa con el zoom de tmux (no se cierra nada). Ese zoom lo marca
+  # @bk_autozoom y se deshace solo al volver a haber lugar; un zoom hecho a mano no se toca.
   set +euo pipefail
-  local t="${1:-$WS_SESSION}:main" W rail w side
+  local t="${1:-$WS_SESSION}:main" W rail w side chat max zoomed auto
+  local LAYOUT_CHAT=80 LAYOUT_RAIL=30
   W=$(tmux display-message -p -t "$t" '#{window_width}')
   [ -n "$W" ] || return 0
   rail=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk rail/{print $1; exit}')
   side=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk sidebar/{print $1; exit}')
+  chat=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '!/bk rail|bk sidebar/{print $1; exit}')
+  zoomed=$(tmux display-message -p -t "$t" '#{window_zoomed_flag}')
+  auto=$(tmux show-options -wqv -t "$t" @bk_autozoom)
+  [ "$zoomed" = 1 ] && [ -z "$auto" ] && return 0      # zoom a mano: respetarlo
   w=$((W * 34 / 100)); [ "$w" -lt 46 ] && w=46
+  local sw=0; [ -n "$side" ] && sw=5
+  max=$((W - LAYOUT_CHAT - 2 - sw))                    # 2 bordes, y la tira si está
+  [ "$w" -gt "$max" ] && w=$max
+  if [ -n "$rail" ] && [ "$w" -lt "$LAYOUT_RAIL" ]; then
+    if [ "$zoomed" != 1 ] && [ -n "$chat" ]; then
+      tmux set-option -w -t "$t" @bk_autozoom 1
+      tmux resize-pane -Z -t "$chat"
+    fi
+    return 0
+  fi
+  if [ "$zoomed" = 1 ]; then                           # zoom nuestro y ya hay lugar: deshacerlo
+    tmux set-option -wu -t "$t" @bk_autozoom
+    tmux resize-pane -Z -t "${chat:-$t}"
+  fi
   [ -n "$rail" ] && tmux resize-pane -t "$rail" -x "$w"
   [ -n "$side" ] && tmux resize-pane -t "$side" -x 5
   return 0

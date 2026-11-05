@@ -247,6 +247,10 @@ def ui(scr):
             cache, cache_t = items(), time.time()
         H, W = scr.getmaxyx()
         scr.erase()
+        if W < 4 or H < 3:   # mientras tmux reacomoda (zoom de Ghostty) la tira puede quedar sin lugar
+            scr.refresh()
+            scr.getch()
+            continue
         cur = current()
         rowmap.clear()
         y, n_ag, sep = 1, 0, False
