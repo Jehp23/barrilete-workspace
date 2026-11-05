@@ -196,7 +196,7 @@ def main():
             if a[0] == "ghconfig":
                 sys.exit(0 if ghconfig(d, repo) else 1)
             # Renovador: nunca morir por un error pasajero (sin red, GitHub caído). Si falla, reintentar
-            # al minuto; si anda, cada 15 min. Termina solo cuando ningún agente usa esta config.
+            # al minuto; si anda, cada 15 min.
             while True:
                 try:
                     ok = ghconfig(d, repo)
@@ -204,8 +204,9 @@ def main():
                     print(f"ghapp keep: {e}", file=sys.stderr)
                     ok = False
                 time.sleep(900 if ok else 60)
-                if not users(d):
-                    break
+                # Antes cortaba cuando ningún pane usaba esta config, pero users() daba falsos "nadie" y los
+                # agentes quedaban con el token vencido (3 veces el 2026-11-04). Un renovador ocioso cuesta casi
+                # nada: sigue.
         elif a[:1] == ["whoami"]:
             w = whoami()
             if not w:
