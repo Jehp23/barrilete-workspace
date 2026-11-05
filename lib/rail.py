@@ -9,6 +9,7 @@ import glob, json, os, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gentle as G
 import agents as AG   # título del issue/PR y "¿te pregunta algo?" (lo mismo que bk ls)
+import usage as U     # contexto de cada sesión (context_of) y sus umbrales: ámbar 200k, rojo 400k
 from gentle import (AMBER, BOLD, FRAME, GREEN, IRIS, MUTED, PETAL, RED, ROSE, RST, TEXT,
                     card, cut, fit, lr, vlen)
 
@@ -141,7 +142,15 @@ def wait_kind(s):
     return s.get("wait") or ("question" if s.get("tool") == "AskUserQuestion" else "permission")
 
 
-def card_status(W, cwd, live):
+def ctx_text(tokens):
+    """412k en ámbar o rojo según los umbrales de usage.py; apagado por debajo; vacío sin dato."""
+    if not tokens:
+        return ""
+    col = {"high": RED, "warn": AMBER}.get(U.ctx_level(tokens), MUTED)
+    return f"{col}{U.human_ctx(tokens)}{RST}"
+
+
+def card_status(W, cwd, live, here_sid=None):
     top = sh("git", "-C", cwd, "rev-parse", "--show-toplevel").strip()
     path = (PROJECT or top or cwd).replace(os.path.expanduser("~"), "~")
     br = sh("git", "-C", cwd, "branch", "--show-current").strip()
@@ -166,6 +175,11 @@ def card_status(W, cwd, live):
     else:
         rows += [f"{MUTED}Usage{RST}", f" {MUTED}hoy{RST} {TEXT}{human(u.get('tokens', 0))}{RST} {MUTED}tok ·{RST} "
                  f"{AMBER}${u.get('cost_usd', 0):.2f}{RST} {MUTED}≈API{RST}"]
+    # El contexto de este chat: cada llamada lo vuelve a leer y a pagar. Desde 200k, sugerir cortar.
+    here_ctx = U.context_of(here_sid) if here_sid else None
+    if here_ctx:
+        hint = f" {MUTED}· /clear o chat nuevo (alt+n){RST}" if U.ctx_level(here_ctx) else ""
+        rows.append(f" {MUTED}contexto{RST} {ctx_text(here_ctx)}{hint}")
     rows += ["", f"{MUTED}Integrations{RST}",
              f" {ROSE}✿{RST} {TEXT}claude code{RST} {MUTED}· ready{RST}   {PETAL}{RST}{TEXT}gh{RST} {MUTED}· ready{RST}"]
     working = sum(1 for a in live if a["s"].get("state") in ("working", "background", "waiting"))
@@ -250,7 +264,9 @@ def card_agents(W, live, ended, here_sid=None):
         elif s.get("state") == "background":
             g = HALF[(TICK[0] // 2) % len(HALF)]
         left = f"{col}{g}{RST} {TEXT}{BOLD}{a['win']}{RST} {MUTED}{s.get('role') or ''}{RST}"
-        right = f"{PETAL}{model(s.get('model'))}{RST}  {col}{txt}{RST}  {MUTED}{ago(s.get('ts', 0)):>5}{RST}"
+        cx = ctx_text(U.context_of(s.get("_sid")))
+        right = (f"{PETAL}{model(s.get('model'))}{RST}  " + (f"{cx}  " if cx else "")
+                 + f"{col}{txt}{RST}  {MUTED}{ago(s.get('ts', 0)):>5}{RST}")
         rows.append(lr(left, right, inner_w))
         # qué es: "#218 (PR #240) Agregar las reglas…" (de la cache de bk ls; acá no se consulta GitHub)
         m = AG.WIN_RE.match(a["win"])
@@ -429,8 +445,8 @@ def frame(W, H, cwd):
     by_pane, all_ = states()
     live, ended = agents(by_pane)
     out = []
-    out += memo(("status", W), 2, lambda: card_status(W, cwd, live))
     here_sid = memo(("chat_sid",), 2, lambda: chat_sid(by_pane))
+    out += memo(("status", W), 2, lambda: card_status(W, cwd, live, here_sid))
     out += card_agents(W, live, ended, here_sid)
     radio = memo(("radio", W), 5, lambda: line_radio(W))
     room = H - len(out) - len(radio) - 2

@@ -28,6 +28,36 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import usage as U   # noqa: E402  contexto de la sesión que corrió bk land (context_of y los umbrales)
+
+STATE_DIR = os.path.expanduser("~/.cache/sketchybar/agents")   # los estados del hook: pane → sesión de Claude
+
+
+def context_hint():
+    """Después de entrar a main, si el chat que corrió bk land ya carga mucho contexto: sugerir cortar. Cada
+    llamada vuelve a leer todo el contexto, así que lo próximo sale más barato en una sesión nueva. Nunca
+    frena ni rompe el land: ante cualquier duda, no dice nada."""
+    pane = os.environ.get("TMUX_PANE", "")
+    if not pane:
+        return ""
+    try:
+        best = None
+        for n in os.listdir(STATE_DIR):
+            if not n.endswith(".json"):
+                continue
+            f = os.path.join(STATE_DIR, n)
+            st = json.load(open(f))
+            if st.get("pane") == pane and (best is None or st.get("ts", 0) > best[1]):
+                best = (n[:-5], st.get("ts", 0))
+        tokens = U.context_of(best[0]) if best else None
+    except Exception:
+        return ""
+    if not U.ctx_level(tokens):
+        return ""
+    return (f"este chat lleva {U.human_ctx(tokens)} de contexto y cada llamada lo vuelve a leer: para lo próximo, "
+            "/clear o un chat nuevo (alt+n)")
+
 HERE = os.path.dirname(os.path.realpath(__file__))
 STATE = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
 CLAIMS_DIR = os.environ.get("BK_CLAIMS_DIR") or os.path.join(STATE, "bk", "claims")
@@ -221,6 +251,9 @@ def land(args):
         with Store(main) as st:
             st.data.pop(branch, None)
         say(f"{branch} entró a main ({sha}). Ya podés borrar el worktree: git worktree remove {wt}")
+        hint = context_hint()
+        if hint:
+            say(hint)
         return 0
     finally:
         fcntl.flock(lk, fcntl.LOCK_UN)

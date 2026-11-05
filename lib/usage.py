@@ -57,6 +57,88 @@ def cost(model, u):
             + u["cr"] * cr) / 1e6
 
 
+def row_of(u):
+    """El `usage` de un mensaje de Claude Code como fila de cost(): in, out, cw5, cw1h, cr."""
+    cc = u.get("cache_creation") or {}
+    cw1h = cc.get("ephemeral_1h_input_tokens", 0) or 0
+    cw = u.get("cache_creation_input_tokens", 0) or 0
+    return {"in": u.get("input_tokens", 0) or 0, "out": u.get("output_tokens", 0) or 0,
+            "cw5": max(cw - cw1h, 0), "cw1h": cw1h, "cr": u.get("cache_read_input_tokens", 0) or 0}
+
+
+def context_tokens(u):
+    """Cuánto contexto mandó ese turno: entrada + lo leído y escrito en cache. Es lo que se vuelve a leer
+    (y a pagar) en cada llamada de la sesión: el número que conviene mirar para cortar sesiones largas."""
+    r = row_of(u)
+    return r["in"] + r["cw5"] + r["cw1h"] + r["cr"]
+
+
+# Desde cuánto contexto avisar: ámbar y rojo (la persona eligió dos niveles, 2026-11-05). Las sesiones más
+# caras de las dos semanas anteriores andaban en 350-450k de contexto medio.
+CTX_WARN, CTX_HIGH = 200_000, 400_000
+_ctx_cache = {}   # ruta -> (tamaño, tokens)
+TAIL = 512 * 1024
+
+
+def transcript_of(sid):
+    """La ruta del transcript de una sesión de Claude Code (o None)."""
+    if not sid:
+        return None
+    hit = glob.glob(os.path.join(PROJECTS, "*", f"{sid}.jsonl"))
+    return hit[0] if hit else None
+
+
+def context_of(sid=None, path=None):
+    """El contexto del último turno de una sesión (tokens), o None. Lee solo el final del transcript y no lo
+    vuelve a leer mientras no crezca."""
+    path = path or transcript_of(sid)
+    if not path:
+        return None
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return None
+    hit = _ctx_cache.get(path)
+    if hit and hit[0] == size:
+        return hit[1]
+    tokens = _last_turn(path, size - TAIL)
+    if tokens is None and size > TAIL:   # un tool_result enorme después del último turno: buscar en todo
+        tokens = _last_turn(path, 0)
+    _ctx_cache[path] = (size, tokens)
+    return tokens
+
+
+def _last_turn(path, start):
+    """El contexto del último turno del asistente (no de un subagente) desde `start` hasta el final."""
+    with open(path, "rb") as f:
+        f.seek(max(0, start))
+        data = f.read()
+    for raw in reversed(data.splitlines()):
+        if b'"usage"' not in raw or b'"assistant"' not in raw:
+            continue
+        try:
+            e = json.loads(raw)
+        except ValueError:
+            continue   # la primera línea del pedazo puede venir cortada
+        m = e.get("message") or {}
+        if e.get("type") != "assistant" or e.get("isSidechain") or m.get("model") == "<synthetic>" or not m.get("usage"):
+            continue
+        return context_tokens(m["usage"])
+    return None
+
+
+def ctx_level(tokens):
+    """"high" desde CTX_HIGH, "warn" desde CTX_WARN, "" por debajo o sin dato."""
+    if not tokens:
+        return ""
+    return "high" if tokens >= CTX_HIGH else "warn" if tokens >= CTX_WARN else ""
+
+
+def human_ctx(tokens):
+    """412k (siempre en miles: es para comparar contra 200k y 400k)."""
+    return f"{round(tokens / 1000)}k" if tokens else ""
+
+
 def project_name(cwd):
     if not cwd:
         return "?"

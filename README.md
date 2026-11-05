@@ -36,6 +36,12 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   y lo último que dijeron); los terminados van abajo en una línea. Solo lectura.
 - **Tablas**: agentes ordenados por urgencia y uso del día por modelo (`lib/dash.py`).
 - Las proporciones se reacomodan solas al conectarse o redimensionar (hooks de tmux → `bk _layout`).
+- **Número fijo**: cada workspace toma al crearse el número libre más bajo (`@bk_id`) y lo conserva aunque se
+  cierren otros; la tira, el header, `bk ls` y `alt+1…9` usan ese número, cada uno con su color.
+- **Contexto de cada sesión**: cada llamada vuelve a leer todo el contexto, así que una sesión larga sale cara.
+  La tira marca `▪` (ámbar desde 200k, rojo desde 400k; el número en el tooltip), el riel lo muestra por agente y
+  para este chat, `bk monitor` en la columna CTX, y `bk land` sugiere `/clear` o un chat nuevo si el chat que lo
+  corrió pasa los 200k. Sale del último turno del transcript (`usage.context_of`), sin llamar a ningún modelo.
 
 ## Sesiones (`bk s` · `C-a s`)
 Selector estilo Orca (`lib/sessions.py`): arriba las sesiones abiertas (Enter salta a su pane; un agente que
