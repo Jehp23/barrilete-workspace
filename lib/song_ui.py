@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""bk song ui — pantalla en vivo de la radio: el tema arriba, el espectro del sonido en el medio (16 barras de
-graves a agudos, con la marca del pico reciente) y abajo solo las estaciones del género.
+"""bk song ui — pantalla en vivo de la radio: el tema arriba, el espectro del sonido en el medio (de graves a
+agudos, una barra por columna: una curva continua con la línea del pico reciente) y abajo solo las estaciones.
 
 Le habla al mpv de `bk song` por su socket IPC. Es solo un control remoto: al salir, la música sigue.
-El gráfico es real: mpv separa el audio en 16 franjas de frecuencia (VIZ en song.sh) y astats mide cada una;
-acá se leen ~20 veces por segundo. Teclas: espacio pausa · g género · 1-9 radio · n/p · f guardar · +/- vol ·
+El gráfico es real: mpv separa el audio en 28 franjas de frecuencia (VIZ en song.sh) y astats mide cada una;
+acá se leen ~20 veces por segundo y se interpolan entre franjas para llenar el ancho. Teclas: espacio pausa · g género · 1-9 radio · n/p · f guardar · +/- vol ·
 s cortar · q salir · ? las muestra abajo.
 
 uso: song_ui.py <socket de mpv> <ruta a song.sh>
@@ -26,7 +26,7 @@ SOCK, SONG = sys.argv[1], sys.argv[2]
 CACHE = os.environ.get("BK_SONG_CACHE") or os.path.expanduser("~/.cache/bk")
 HISTORY_ROWS = 3          # últimos temas que se guardan (se ven con bk song hist)
 FPS = 20
-BANDS_N = 16              # franjas del espectro: lavfi.astats.3…18 (los canales 1-2 son el audio que suena)
+BANDS_N = 28              # franjas del espectro: lavfi.astats.3…30 (los canales 1-2 son el audio que suena)
 SPEC_RANGE = 30.0         # dB de la escala común: la franja más fuerte de los últimos segundos llena la altura
 BAND_RANGE = 15.0         # dB de la escala propia de cada franja (si no, los agudos casi no se mueven)
 MIX = 0.6                 # cuánto pesa la escala común (la forma del sonido) contra la propia (el movimiento)
@@ -147,7 +147,7 @@ def db_of(meta, ch):
 
 
 class Spectrum:
-    """Alturas de las 16 barras (0-1) con caída suave y marcas de pico. Cada barra mezcla una escala común
+    """Alturas de las franjas (0-1) con caída suave y marcas de pico. Cada barra mezcla una escala común
     (la franja más fuerte de los últimos segundos llena la altura: se ve la forma del sonido) con una propia
     (su máximo reciente: así también se mueven las franjas que varían poco)."""
 
@@ -190,31 +190,48 @@ def clip(text, width):
     return text if len(text) <= width else text[: max(0, width - 1)] + "…"
 
 
-def render_graph(vals, peaks, width, rows):
-    """Espectro: una barra por franja, de graves (izquierda) a agudos, que crece desde abajo con 1/8 de celda.
-    El color va por altura en franjas fijas (como un ecualizador): abajo apagado, arriba rosa. Arriba de cada
-    barra, la marca ▔ de su pico reciente."""
-    blocks = " ▁▂▃▄▅▆▇█"
+def spline(vals, width):
+    """Las franjas estiradas a `width` columnas con Catmull-Rom: una curva suave, no escalones."""
     n = len(vals)
-    bw = max(1, (width - (n - 1)) // n)          # ancho de barra, con una columna de aire entre barras
-    pad = " " * max(0, (width - (bw * n + n - 1)) // 2)
+    if width <= 1 or n < 2:
+        return [vals[0] if vals else 0.0] * max(1, width)
+    out = []
+    for x in range(width):
+        u = x * (n - 1) / (width - 1)
+        i = min(int(u), n - 2)
+        t = u - i
+        p0, p1, p2, p3 = vals[max(i - 1, 0)], vals[i], vals[i + 1], vals[min(i + 2, n - 1)]
+        v = 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t
+                   + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t)
+        out.append(max(0.0, min(1.0, v)))
+    return out
+
+
+def render_graph(vals, peaks, width, rows):
+    """Espectro de graves (izquierda) a agudos: una barra por columna, sin aire entre barras (como el área bajo
+    la curva), que crece desde abajo con 1/8 de celda. El color va por altura en franjas fijas: abajo apagado,
+    arriba rosa. Encima, la línea ▔ del pico reciente. Un solo color por fila (menos bytes por cuadro)."""
+    blocks = " ▁▂▃▄▅▆▇█"
+    cv = spline(vals, width)
+    cp = spline([p for p, _ in peaks], width)
     out = []
     for r in range(rows):                       # r = 0 es la fila de arriba
         h = rows - 1 - r                        # altura de esta fila desde abajo
         color = fg(BANDS[min(len(BANDS) - 1, h * len(BANDS) // max(1, rows))])
-        cells = []
-        for v, (p, _) in zip(vals, peaks):
+        line, cur = [color], "bar"
+        for v, p in zip(cv, cp):
             fill = v * rows - h
-            if fill >= 1:
-                c = color + "█"
-            elif fill > 0:
-                c = color + blocks[int(fill * 8)]
+            if fill > 0:
+                ch, want = ("█" if fill >= 1 else blocks[int(fill * 8)]), "bar"
             elif p > v and int(min(p, 0.999) * rows) == h:
-                c = fg(PINK) + "▔"
+                ch, want = "▔", "peak"
             else:
-                c = " "
-            cells.append(c * bw if len(c) == 1 else c[:-1] + c[-1] * bw)
-        out.append(pad + " ".join(cells))
+                ch, want = " ", cur              # un espacio no necesita color
+            if want != cur:
+                line.append(color if want == "bar" else fg(PINK))
+                cur = want
+            line.append(ch)
+        out.append("".join(line))
     return out
 
 
@@ -244,7 +261,7 @@ def main():
 
     def restore(*_):
         termios.tcsetattr(fd, termios.TCSADRAIN, old_tty)
-        out.write("\033[?25h\033[?1049l")         # cursor visible, salir de la pantalla alternativa
+        out.write("\033[?2026l\033[?25h\033[?1049l")   # cerrar la sincronización, cursor visible, pantalla normal
         out.flush()
 
     def on_term(*_):
@@ -301,7 +318,7 @@ def main():
             # ---- dibujo ----
             shown = view or info["genre"] or (genres[0] if genres else "")
             in_view = [st for st in stations if st[2] == shown][:9]
-            buf = ["\033[H"]
+            buf = ["\033[?2026h\033[H"]   # salida sincronizada: la terminal muestra el cuadro entero, sin cortes
             if info["alive"]:
                 title = info["title"] or info["station"] or "?"
                 datos = " · ".join(x for x in ("⏸ en pausa" if info["paused"] else "", info["genre"],
@@ -333,7 +350,7 @@ def main():
             line = fg(DIM) + shown + ": " + RESET + "  ".join(items)
             if msg and t0 < msg_until:   # el aviso o las teclas (?): al lado si entran, si no en lugar de las radios
                 line = line + fg(DIM) + "   " + msg + RESET if used + 3 + len(msg) <= width else fg(DIM) + clip(msg, width) + RESET
-            buf.append("\033[2K  " + line + "\033[J")
+            buf.append("\033[2K  " + line + "\033[J\033[?2026l")
             out.write("".join(buf))
             out.flush()
 

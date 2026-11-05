@@ -11,15 +11,16 @@ SOCK="$CACHE/song.sock"
 NOW="$CACHE/song.station"   # "clave<TAB>nombre<TAB>género" de lo que está sonando
 HIST="$CACHE/song.history"  # "hora<TAB>estación<TAB>tema", lo último al final
 LOG="$CACHE/song.log"
-# Espectro para bk song ui: el audio sigue igual (canales 1-2) y al lado, en mono, 16 franjas de graves a
-# agudos (40 Hz a 16 kHz, cada una ~0,6 de octava y filtrada dos veces para que no se pisen con las vecinas).
-# astats mide cada canal; song_ui.py lee lavfi.astats.3…18 y pan devuelve solo los dos originales.
-VIZ_HZ="40 60 89 133 198 295 439 655 977 1456 2172 3238 4827 7197 10731 16000"
+# Espectro para bk song ui: el audio sigue igual (canales 1-2) y al lado, en mono, 28 franjas de graves a
+# agudos (tercios de octava de 32 Hz a 16 kHz, como un ecualizador de 31 bandas; cada una filtrada dos veces
+# para que no se pise con las vecinas). astats mide cada canal; song_ui.py lee lavfi.astats.3…30 y pan
+# devuelve solo los dos originales. Una franja arriba de lo que da el stream (22 kHz → 11 kHz) mide silencio.
+VIZ_HZ="32 40 50 63 79 100 126 159 200 252 318 400 504 635 800 1008 1270 1600 2016 2540 3200 4032 5080 6400 8064 10160 12801 16128"
 viz_graph() {
   local n=0 f split="" bands="" merge="[o]" bp
   for f in $VIZ_HZ; do
     split+="[s$n]"; merge+="[b$n]"
-    bp="bandpass=f=$f:width_type=o:w=0.576"
+    bp="bandpass=f=$f:width_type=o:w=0.333"
     bands+=";[s$n]$bp,$bp[b$n]"; n=$((n + 1))
   done
   printf '%s' "aformat=channel_layouts=stereo,asplit=2[o][a];[a]pan=mono|c0=0.5*c0+0.5*c1,asplit=$n$split$bands"
