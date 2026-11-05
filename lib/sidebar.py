@@ -8,6 +8,9 @@
     1 ●▪    ▪ a la derecha: la sesión ya tiene mucho contexto (ámbar desde 200k, rojo desde 400k; cada
             llamada lo vuelve a leer y a pagar). El número exacto, en el tooltip.
     └⠋      debajo de un chat o agente: sus subagentes vivos (herramienta Agent); clic = su sesión en un popup
+   ╭3 ○     a la izquierda: une los workspaces del mismo proyecto (quedan juntos, ordenados por el número
+   │5 ○     más bajo de cada proyecto; el número de cada uno no cambia). El proyecto, en el tooltip.
+   ╰6 ●
     1 ●     el actual va resaltado. Clic en una fila para ir ahí; con el mouse encima, su nombre
             (proyecto · feature) aparece en la barra de tmux, como un tooltip.
 """
@@ -141,9 +144,36 @@ def pane_state(st, pane, cmd, dead):
     return state
 
 
+def link_projects(blocks):
+    """Junta los workspaces del mismo proyecto y marca la línea que los une, en la columna 0.
+    blocks: [(fila del workspace + su proyecto, [filas de sus subagentes])], en el orden de su número. El
+    proyecto es el BK_PROJECT del workspace (no la carpeta del chat, que cambia con cada cd). Cada proyecto queda
+    donde está su número más bajo; adentro, por número. Devuelve las filas con un glifo más al final:
+    ╭ el primero, │ los del medio y los subagentes de adentro, ╰ el último, "" solo o fuera del grupo."""
+    order, groups = [], {}
+    for b in blocks:
+        proj = b[0][7]
+        if proj not in groups:
+            order.append(proj)
+            groups[proj] = []
+        groups[proj].append(b)
+    out = []
+    for proj in order:
+        g = groups[proj]
+        for i, (ws, subs) in enumerate(g):
+            if len(g) == 1:
+                mark, inner = "", ""
+            else:
+                mark = "╭" if i == 0 else "╰" if i == len(g) - 1 else "│"
+                inner = "" if i == len(g) - 1 else "│"
+            out.append(ws[:7] + (mark,))
+            out += [sub + (inner,) for sub in subs]
+    return out
+
+
 def items():
     st = states()
-    out = []
+    out, blocks = [], []
     for wid, name in workspaces():
         # Estado del chat del workspace (el pane que corre claude en la ventana main)
         state, subs, info, ctx = "none", [], "", None
@@ -161,8 +191,14 @@ def items():
                 state = s
                 subs = subagents((st.get(pid) or {}).get("_sid"))
                 ctx = U.context_of((st.get(pid) or {}).get("_sid"))
-        out.append(("ws", name, name, state, info or (name[3:], ""), wid, ctx))
-        out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None, None) for d, bg, j in subs]
+        proj = sh("tmux", "show-environment", "-t", f"={name}", "BK_PROJECT").strip().partition("=")[2] \
+            or (info[0] if info else name)
+        if proj != (info[0] if info else name):   # el tooltip dice el proyecto del workspace, no el del cd
+            info = (project_name(proj), info[1] if info else "")
+        blocks.append((("ws", name, name, state, info or (name[3:], ""), wid, ctx, proj),
+                       [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None, None)
+                        for d, bg, j in subs]))
+    out = link_projects(blocks)
     for l in sh("tmux", "list-panes", "-s", "-t", AGENTS, "-F",
                 "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}\t#{pane_title}\t#{pane_current_path}").splitlines():
         win, pid, cmd, dead, ws, title, path = (l.split("\t") + [""] * 7)[:7]
@@ -172,9 +208,9 @@ def items():
         ref = (st.get(pid) or {}).get("ref") or ""
         ctx = U.context_of((st.get(pid) or {}).get("_sid")) if state != "none" else None
         out.append(("ag", win, f"{AGENTS}:{win}", state,
-                    (f"{project_name(path)} · {win}", " ".join(x for x in (ref, feature(title, path)) if x)), None, ctx))
+                    (f"{project_name(path)} · {win}", " ".join(x for x in (ref, feature(title, path)) if x)), None, ctx, ""))
         if state != "none":
-            out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None, None)
+            out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None, None, "")
                     for d, bg, j in subagents((st.get(pid) or {}).get("_sid"))]
     return out
 
@@ -266,7 +302,7 @@ def ui(scr):
         tips.clear()
         if hover_y >= 0 and time.time() - hover_t > TIP_MS / 1000:   # se fue el mouse: sacar el resaltado
             hover_y = -1
-        for kind, label, target, state, info, wid, ctx in cache:
+        for kind, label, target, state, info, wid, ctx, link in cache:
             if kind == "ag" and not sep:
                 if y < H - 1:
                     scr.addnstr(y, 1, "─" * max(1, W - 2), W - 2, MUTED)
@@ -275,6 +311,8 @@ def ui(scr):
             if y >= H - 1:
                 break
             hl = curses.A_REVERSE if y == hover_y else 0
+            if link:   # la línea que une los workspaces del mismo proyecto
+                scr.addnstr(y, 0, link, 1, MUTED)
             if kind == "sub":   # subagente: rama debajo de su chat, sin número; clic = su sesión
                 scr.addnstr(y, 1, "└", 1, MUTED | hl)
                 dot = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[tick % 10] if state == "working" else "◐◓◑◒"[(tick // 2) % 4]

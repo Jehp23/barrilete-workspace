@@ -122,18 +122,36 @@ def roles_profile(top):
 
 _profile = {"t": 0, "v": "—"}
 _account = {"t": 0, "v": ""}
+_who = {"t": 0, "v": {}}
+
+
+def account_who(name):
+    """El mail con el que está logueada una cuenta de claude (accounts.py list), o ""."""
+    if time.time() - _who["t"] > 300:
+        try:
+            got = json.loads(sh(sys.executable, os.path.join(HERE, "accounts.py"), "list", "--json") or "[]")
+            _who["v"] = {a["name"]: a.get("who") or "" for a in got if a.get("provider") == "claude" and a.get("logged_in")}
+        except Exception:
+            _who["v"] = {}
+        _who["t"] = time.time()
+    return _who["v"].get(name, "")
 
 
 def session_account():
-    """La cuenta de esta sesión (bk account use): "" si es la default en los dos proveedores."""
+    """La cuenta de esta sesión (bk account use), siempre, también la default: su mail ("soporte@coplero.com").
+    Codex solo si no es la default (casi nunca se usa)."""
     if time.time() - _account["t"] > 5:
         pane = os.environ.get("TMUX_PANE", "")
         got = []
         for prov in ("claude", "codex"):
             v = sh("tmux", "show-options", "-qv", *(["-t", pane] if pane else []), f"@bk_account_{prov}").strip()
-            if v and v != "default":
-                got.append(v if prov == "claude" else f"codex {v}")
-        _account["v"], _account["t"] = " · ".join(got), time.time()
+            if prov == "claude":
+                v = v or "default"
+                who = account_who(v)
+                got.append(who or v)   # el mail dice cuál es; sin login, el nombre de la carpeta
+            elif v and v != "default":
+                got.append(f"codex {v}")
+        _account["v"], _account["t"] = f" {MUTED}·{RST}{ROSE} ".join(got), time.time()
     return _account["v"]
 
 
@@ -162,9 +180,7 @@ def card_status(W, cwd, live, here_sid=None):
     rows = [f"{MUTED}Project{RST}", f" {TEXT}{path}{RST}",
             f" {MUTED}Branch{RST}  {TEXT}{BOLD}{br or '—'}{RST}" + (f" {AMBER}±{dirty}{RST}" if dirty else ""),
             f" {MUTED}Profile{RST} {TEXT}{_profile['v']}{RST}"]
-    acct = session_account()
-    if acct:
-        rows.append(f" {MUTED}Cuenta{RST}  {ROSE}{acct}{RST}")
+    rows.append(f" {MUTED}Cuenta{RST}  {ROSE}{session_account()}{RST}")
     rows.append("")
     if PROJECT:
         name = os.path.basename(PROJECT)

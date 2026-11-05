@@ -38,6 +38,8 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
 - Las proporciones se reacomodan solas al conectarse o redimensionar (hooks de tmux → `bk _layout`).
 - **Número fijo**: cada workspace toma al crearse el número libre más bajo (`@bk_id`) y lo conserva aunque se
   cierren otros; la tira, el header, `bk ls` y `alt+1…9` usan ese número, cada uno con su color.
+  En la tira, los workspaces del mismo proyecto (`BK_PROJECT`) quedan juntos y una línea a la izquierda los une
+  (`╭ │ ╰`); cada proyecto va donde está su número más bajo y el tooltip dice cuál es.
 - **Contexto de cada sesión**: cada llamada vuelve a leer todo el contexto, así que una sesión larga sale cara.
   La tira marca `▪` (ámbar desde 200k, rojo desde 400k; el número en el tooltip), el riel lo muestra por agente y
   para este chat, `bk monitor` en la columna CTX, y `bk land` sugiere `/clear` o un chat nuevo si el chat que lo
@@ -112,7 +114,9 @@ las mismas (`/resume` y `alt+s` ven todas).
   (`projects/`, settings, `CLAUDE.md`, skills, hooks) es un symlink a `~/.claude`; las credenciales son propias.
 - `bk account use trabajo` la pone en esta sesión: los agentes y chats que lances desde acá corren con ella
   (`--relaunch`: también el chat principal, retomando su conversación). `bk account use default` vuelve a la de siempre.
-- `bk run … --account X` solo para un lanzamiento. El riel la muestra en Status.
+- `bk run … --account X` solo para un lanzamiento. El riel muestra en Status el mail de la cuenta de la sesión,
+  también el de la default. Es la que eligió la sesión: con `bk account use` sin `--relaunch`, el chat que ya estaba
+  abierto sigue con la anterior hasta relanzarlo.
 - `bk account login <cuenta>` rehace el login de una cuenta; `bk account login default` el de la de siempre (`~/.claude`),
   aunque esta sesión use otra. Si dos cuentas muestran el mismo email en `bk account`, en la práctica son una sola.
 - `bk restore` retoma cada chat y agente con su cuenta (si la cuenta ya no existe, con la default y avisa).
