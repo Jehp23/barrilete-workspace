@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """bk song ui — pantalla en vivo de la radio: el tema arriba, el espectro del sonido en el medio (de graves a
-agudos, una barra por columna: una curva continua con la línea del pico reciente) y abajo solo las estaciones.
+agudos, una barra por columna: una curva continua) y abajo solo las estaciones.
 
 Le habla al mpv de `bk song` por su socket IPC. Es solo un control remoto: al salir, la música sigue.
 El gráfico es real: mpv separa el audio en 28 franjas de frecuencia (VIZ en song.sh) y astats mide cada una;
@@ -26,13 +26,13 @@ SOCK, SONG = sys.argv[1], sys.argv[2]
 CACHE = os.environ.get("BK_SONG_CACHE") or os.path.expanduser("~/.cache/bk")
 HISTORY_ROWS = 3          # últimos temas que se guardan (se ven con bk song hist)
 FPS = 20
-BANDS_N = 28              # franjas del espectro: lavfi.astats.3…30 (los canales 1-2 son el audio que suena)
+# Franjas del espectro: lavfi.astats.3… (los canales 1-2 son el audio que suena). Se usan las que traiga el
+# mpv que suena: uno arrancado con una versión anterior de VIZ (song.sh) puede tener otra cantidad.
 SPEC_RANGE = 30.0         # dB de la escala común: la franja más fuerte de los últimos segundos llena la altura
 BAND_RANGE = 15.0         # dB de la escala propia de cada franja (si no, los agudos casi no se mueven)
 MIX = 0.6                 # cuánto pesa la escala común (la forma del sonido) contra la propia (el movimiento)
 SCALE_SECONDS = 6         # ventana para las escalas automáticas (las radios de techno vienen muy comprimidas)
 FALL = 1.8                # cuánto baja una barra por segundo (en alturas); sube al instante
-PEAK_HOLD, PEAK_FALL = 0.5, 1.2   # la marca del pico se queda 0,5 s y después cae 1,2 alturas por segundo
 CURVE = 1.5               # >1 baja lo sostenido y deja los golpes altos (si no, el tercio de abajo queda siempre lleno)
 HEADER_ROWS, FOOTER_ROWS = 4, 3   # tema/datos/cita/vacía arriba; graves…agudos/vacía/estaciones abajo
 
@@ -147,20 +147,21 @@ def db_of(meta, ch):
 
 
 class Spectrum:
-    """Alturas de las franjas (0-1) con caída suave y marcas de pico. Cada barra mezcla una escala común
+    """Alturas de las franjas (0-1), que suben al instante y bajan suave. Cada barra mezcla una escala común
     (la franja más fuerte de los últimos segundos llena la altura: se ve la forma del sonido) con una propia
     (su máximo reciente: así también se mueven las franjas que varían poco)."""
 
     def __init__(self):
         self.reset()
 
-    def reset(self):
+    def reset(self, n=0):
         self.hist = []                      # (t, [dB por franja])
-        self.vals = [0.0] * BANDS_N
-        self.peaks = [(0.0, 0.0)] * BANDS_N  # (altura, cuándo llegó)
+        self.vals = [0.0] * n
         self.t = None
 
     def update(self, dbs, now):
+        if len(dbs) != len(self.vals):      # otro mpv, con otra cantidad de franjas: empezar de cero
+            self.reset(len(dbs))
         dt = 0.0 if self.t is None else min(0.5, now - self.t)
         self.t = now
         if any(d is not None for d in dbs):
@@ -177,13 +178,7 @@ class Spectrum:
                 common = (d - (top - SPEC_RANGE)) / SPEC_RANGE
                 own = (d - (btop - BAND_RANGE)) / BAND_RANGE
                 target = max(0.0, min(1.0, MIX * common + (1 - MIX) * own)) ** CURVE
-            v = max(target, self.vals[i] - FALL * dt)
-            self.vals[i] = v
-            ph, pt = self.peaks[i]
-            if v >= ph:
-                self.peaks[i] = (v, now)
-            elif now - pt > PEAK_HOLD:
-                self.peaks[i] = (max(v, ph - PEAK_FALL * dt), pt)
+            self.vals[i] = max(target, self.vals[i] - FALL * dt)
 
 
 def clip(text, width):
@@ -207,31 +202,21 @@ def spline(vals, width):
     return out
 
 
-def render_graph(vals, peaks, width, rows):
+def render_graph(vals, width, rows):
     """Espectro de graves (izquierda) a agudos: una barra por columna, sin aire entre barras (como el área bajo
     la curva), que crece desde abajo con 1/8 de celda. El color va por altura en franjas fijas: abajo apagado,
-    arriba rosa. Encima, la línea ▔ del pico reciente. Un solo color por fila (menos bytes por cuadro)."""
+    arriba rosa. Un solo color por fila (menos bytes por cuadro)."""
     blocks = " ▁▂▃▄▅▆▇█"
-    cv = spline(vals, width)
-    cp = spline([p for p, _ in peaks], width)
+    cv = spline(vals or [0.0], width)
     out = []
     for r in range(rows):                       # r = 0 es la fila de arriba
         h = rows - 1 - r                        # altura de esta fila desde abajo
         color = fg(BANDS[min(len(BANDS) - 1, h * len(BANDS) // max(1, rows))])
-        line, cur = [color], "bar"
-        for v, p in zip(cv, cp):
+        cells = []
+        for v in cv:
             fill = v * rows - h
-            if fill > 0:
-                ch, want = ("█" if fill >= 1 else blocks[int(fill * 8)]), "bar"
-            elif p > v and int(min(p, 0.999) * rows) == h:
-                ch, want = "▔", "peak"
-            else:
-                ch, want = " ", cur              # un espacio no necesita color
-            if want != cur:
-                line.append(color if want == "bar" else fg(PINK))
-                cur = want
-            line.append(ch)
-        out.append("".join(line))
+            cells.append("█" if fill >= 1 else blocks[int(fill * 8)] if fill > 0 else " ")
+        out.append(color + "".join(cells))
     return out
 
 
@@ -249,7 +234,7 @@ def main():
     genres = list(dict.fromkeys(g for _, _, g in stations))
     view = None           # género que muestran los números (sigue al que suena hasta que apretás g)
     spec = Spectrum()
-    old_viz = False       # el mpv que suena arrancó con el filtro de antes (solo volumen, sin franjas)
+    old_viz = False       # el mpv que suena arrancó con el filtro más viejo (solo volumen, sin franjas)
     info = {"station": "", "key": "", "genre": "", "title": "", "paused": False, "vol": 0, "alive": False,
             "br": "", "icy": ""}
     history = []
@@ -308,11 +293,12 @@ def main():
                     history = []
 
             # ---- espectro (cada frame; en pausa las barras bajan solas) ----
-            dbs = [None] * BANDS_N
+            dbs = [None] * len(spec.vals)
             if info["alive"] and not info["paused"]:
-                meta = mpv.get("af-metadata/viz")
-                old_viz = bool(meta) and "lavfi.astats.3.RMS_level" not in meta
-                dbs = [db_of(meta, 3 + i) for i in range(BANDS_N)]
+                meta = mpv.get("af-metadata/viz") or {}
+                n = sum(1 for k in meta if re.fullmatch(r"lavfi\.astats\.\d+\.RMS_level", k)) - 2
+                old_viz = bool(meta) and n <= 0
+                dbs = [db_of(meta, 3 + i) for i in range(max(0, n))] or dbs
             spec.update(dbs, t0)
 
             # ---- dibujo ----
@@ -332,7 +318,7 @@ def main():
                 buf.append("\033[2K  " + fg(DIM) + "■ no está sonando nada — [n] o [1-%d] para arrancar" % len(stations)
                            + RESET + "\n\033[2K\n\033[2K\n\033[2K\n")
             rows = max(3, lines - HEADER_ROWS - FOOTER_ROWS)
-            graph = render_graph(spec.vals, spec.peaks, width, rows)
+            graph = render_graph(spec.vals, width, rows)
             if old_viz:   # mpv viejo: sin franjas no hay espectro; al cambiar de estación arranca con el filtro nuevo
                 graph[rows // 2] = " " * max(0, (width - 52) // 2) + fg(DIM) + "el espectro aparece al cambiar de estación (n o 1-9)"
             for line in graph:
