@@ -31,16 +31,26 @@ S.states = lambda: {p: {"_sid": "s" + p[1:]} for p in ("%1", "%2", "%10", "%11",
 # Transcripts de verdad, creados en orden: la sesión del ws 3 lanzó tres (dos ya terminaron) y el agente f268, uno.
 import json, os, tempfile, time
 S.PROJECTS = tempfile.mkdtemp()
-def sub(sid, aid, kind, desc, done=False, bg=False):
+# El orden sale del timestamp de la 1.ª línea del transcript: Claude Code reescribe el meta.json al terminar (archivo
+# nuevo), así que su fecha no sirve. Acá los archivos se crean desordenados y un meta se reescribe al final.
+def meta(sid, aid, kind, desc, done=False, bg=False):
     d = os.path.join(S.PROJECTS, "proj", sid, "subagents"); os.makedirs(d, exist_ok=True)
+    tmp = os.path.join(d, f".tmp-{aid}")
     json.dump({"agentType": kind, "description": desc, "finished": done or None,
-               "requestShape": "background" if bg else "sync"}, open(os.path.join(d, f"agent-{aid}.meta.json"), "w"))
-    open(os.path.join(d, f"agent-{aid}.jsonl"), "w").close()
+               "requestShape": "background" if bg else "sync"}, open(tmp, "w"))
+    os.replace(tmp, os.path.join(d, f"agent-{aid}.meta.json"))
     time.sleep(0.02)
-sub("s1", "aff0001", "general-purpose", "/code-review", done=True)
-sub("s1", "a000002", "reviewer", "Review PR 268 segunda ronda", done=True)
-sub("s1", "a2f6743", "reviewer", "Review PR 268 cuarta ronda", bg=True)
-sub("s10", "a2c5a2b", "Explore", "Explorar")
+def sub(sid, aid, kind, desc, ts, done=False, bg=False):
+    d = os.path.join(S.PROJECTS, "proj", sid, "subagents"); os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, f"agent-{aid}.jsonl"), "w") as f:
+        f.write(json.dumps({"type": "user", "timestamp": ts}) + "\n")
+    meta(sid, aid, kind, desc, done, bg)
+sub("s1", "a2f6743", "reviewer", "Review PR 268 cuarta ronda", "2026-11-06T15:54:27.821Z", bg=True)
+sub("s1", "aff0001", "general-purpose", "/code-review", "2026-11-06T04:45:34.886Z", done=True)
+sub("s1", "a000002", "reviewer", "Review PR 268 segunda ronda", "2026-11-06T04:40:59.195Z", done=True)
+sub("s1", "a8ab28d", "general-purpose", "/code-review high", "2026-11-06T15:57:34.155Z")
+meta("s1", "a2f6743", "reviewer", "Review PR 268 cuarta ronda", done=True)   # terminó: meta nuevo, el más reciente
+sub("s10", "a2c5a2b", "Explore", "Explorar", "2026-11-06T10:00:00.000Z")
 S.AG.session_title = lambda sid: ""
 S.U.context_of = lambda sid: None
 S.HO.ready_sids = lambda: set()
@@ -61,7 +71,7 @@ S.project_name = lambda p: p.strip("/") or "?"
 print(" ".join(f"{r[0]}:{S.row_label(r)}" for r in S.items()))
 PY
 }
-check_eq "$(rows)" "ws:3 sub:3.3 reviewer kid:f268 ws:5 kid:i147 ag:f268 ←3 sub:f268.1 Explore kid:r268 ag:i147 ←5 ag:r268 ←f268 ag:viejo ag:suelto ←?" \
+check_eq "$(rows)" "ws:3 sub:3.4 general kid:f268 ws:5 kid:i147 ag:f268 ←3 sub:f268.1 Explore kid:r268 ag:i147 ←5 ag:r268 ←f268 ag:viejo ag:suelto ←?" \
   "cada ventana con sus subagentes (ventana.orden, contando los terminados) y los agentes que lanzó; cada agente, de dónde viene (←? si esa ventana ya se cerró)"
 
 echo "1..$N"

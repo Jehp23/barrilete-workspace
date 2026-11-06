@@ -90,20 +90,34 @@ def subagents(sid):
 KIND = {"general-purpose": "general"}   # el tipo de subagente, corto para la tira
 
 
+_born = {}   # transcript de subagente → cuándo arrancó (no cambia: se lee una vez)
+
+
+def started(j):
+    """Cuándo arrancó un subagente: el timestamp de la 1.ª línea de su transcript (.jsonl), que no se reescribe.
+    El meta.json no sirve: Claude Code lo reemplaza por uno nuevo cuando el subagente termina."""
+    if j not in _born:
+        try:
+            with open(j) as f:
+                ts = json.loads(f.readline()).get("timestamp") or ""
+        except Exception:
+            ts = ""
+        if not ts:   # sin 1.ª línea todavía: recién lanzado, no cachear
+            return "~"
+        _born[j] = ts
+    return _born[j]
+
+
 def sub_name(owner, j):
     """Nombre de un subagente en la tira: <ventana>.<orden> <tipo> (5.3 reviewer = el 3.º que lanzó el ws 5).
-    El orden cuenta también los que ya terminaron, así no cambia mientras vive."""
+    El orden cuenta también los que ya terminaron y sale de cuándo arrancó cada uno, así no cambia mientras vive."""
     d, me = os.path.dirname(j), j[:-len(".jsonl")] + ".meta.json"
-
-    def born(m):
-        st = os.stat(m)
-        return (getattr(st, "st_birthtime", st.st_mtime), m)
     try:
-        metas = sorted(glob.glob(os.path.join(d, "agent-*.meta.json")), key=born)
+        subs = sorted(glob.glob(os.path.join(d, "agent-*.jsonl")), key=lambda x: (started(x), x))
         kind = json.load(open(me)).get("agentType") or "subagente"
     except Exception:
-        metas, kind = [], "subagente"
-    n = metas.index(me) + 1 if me in metas else "?"
+        subs, kind = [], "subagente"
+    n = subs.index(j) + 1 if j in subs else "?"
     return f"{owner}.{n} {KIND.get(kind, kind)}"
 
 
