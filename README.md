@@ -40,8 +40,9 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   cierren otros; la tira, el header, `bk ls` y `alt+1…9` usan ese número, cada uno con su color.
   En la tira, los workspaces del mismo proyecto (`BK_PROJECT`) quedan juntos y una línea a la izquierda los une
   (`╭ │ ╰`); cada proyecto va donde está su número más bajo y el tooltip dice cuál es.
-- **Quién lanzó a quién**: debajo de cada ventana de la tira (`└`) van sus subagentes vivos con el id corto de su
-  transcript (`a00d67` de `agent-a00d67…`; el id entero, en el tooltip) y los agentes bk que lanzó, por su ventana
+- **Quién lanzó a quién**: debajo de cada ventana de la tira (`└`) van sus subagentes vivos como `5.3 reviewer`
+  (el 3.º que lanzó el workspace 5, contando los que ya terminaron, así el número no cambia; la descripción y el id
+  `agent-…`, en el tooltip) y los agentes bk que lanzó, por su ventana
   (`f268`). Abajo de la línea, cada agente bk va por el nombre de su ventana y con `←3` (lo lanzó el workspace 3),
   `←f268` (otro agente) o `←?` (esa ventana ya se cerró). `bk` lo anota al lanzar (`@bk_parent` de la ventana:
   la sesión, no su número, que se reusa). Los agentes lanzados antes de esto no lo tienen. La tira mide 14

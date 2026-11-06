@@ -10,8 +10,8 @@
             llamada lo vuelve a leer y a pagar). El número exacto, en el tooltip.
     1 ○↪    ↪ a la derecha (en lugar del ▪): ese chat dejó el resumen para seguir en uno nuevo (lib/handoff.py);
             bk chat --desde N o «Seguir desde ws N» en alt+n lo toma.
-    └⠋a00d67  debajo de un chat o agente: sus subagentes vivos (herramienta Agent) con el id corto de su
-            transcript (agent-a00d67…); clic = su sesión en un popup
+    └⠋5.3 reviewer  debajo de un chat o agente: sus subagentes vivos (herramienta Agent), por <ventana>.<orden en
+            que los lanzó> y su tipo; la descripción y el id, en el tooltip; clic = su sesión en un popup
     └○f268  y los agentes bk que lanzó, por su ventana; clic = ir a esa ventana
    ╭3 ○     a la izquierda: une los workspaces del mismo proyecto (quedan juntos, ordenados por el número
    │5 ○     más bajo de cada proyecto; el número de cada uno no cambia). El proyecto, en el tooltip.
@@ -87,9 +87,24 @@ def subagents(sid):
     return [(d_, bg, j) for d_, bg, _, j in sorted(out, key=lambda x: -x[2])]
 
 
-def short_id(j):
-    """Id corto de un subagente: agent-a00d678b53460124b.jsonl → a00d67 (el resto, en el tooltip)."""
-    return full_id(j)[:6]
+KIND = {"general-purpose": "general"}   # el tipo de subagente, corto para la tira
+
+
+def sub_name(owner, j):
+    """Nombre de un subagente en la tira: <ventana>.<orden> <tipo> (5.3 reviewer = el 3.º que lanzó el ws 5).
+    El orden cuenta también los que ya terminaron, así no cambia mientras vive."""
+    d, me = os.path.dirname(j), j[:-len(".jsonl")] + ".meta.json"
+
+    def born(m):
+        st = os.stat(m)
+        return (getattr(st, "st_birthtime", st.st_mtime), m)
+    try:
+        metas = sorted(glob.glob(os.path.join(d, "agent-*.meta.json")), key=born)
+        kind = json.load(open(me)).get("agentType") or "subagente"
+    except Exception:
+        metas, kind = [], "subagente"
+    n = metas.index(me) + 1 if me in metas else "?"
+    return f"{owner}.{n} {KIND.get(kind, kind)}"
 
 
 def full_id(j):
@@ -98,13 +113,13 @@ def full_id(j):
 
 
 def row_label(r):
-    """El texto de una fila de la tira, después de su glifo: número del workspace, id del subagente,
+    """El texto de una fila de la tira, después de su glifo: número del workspace, nombre del subagente (sub_name),
     ventana del agente bk (con ←quién lo lanzó en la lista de abajo)."""
     kind, label = r[0], r[1]
     if kind == "ws":
         return str(r[5])
     if kind == "sub":
-        return short_id(r[2][len("sub:"):])
+        return label
     if kind == "kid":
         return label
     return f"{label} ←{r[5]}" if r[5] else label
@@ -236,8 +251,8 @@ def items():
         """Los agentes bk que lanzó esa ventana (ws:<sesión> o ag:<ventana>), como filas colgadas."""
         return [("kid", w, f"{AGENTS}:{w}", stt, info, None, None) for w, _, stt, _, par, info in agents if par == key]
 
-    def subs_of(sid):
-        return [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None, None)
+    def subs_of(sid, owner):
+        return [("sub", sub_name(owner, j), "sub:" + j, "background" if bg else "working", ("", d), None, None)
                 for d, bg, j in subagents(sid)]
 
     for wid, name in wss:
@@ -263,7 +278,7 @@ def items():
         if proj != (info[0] if info else name):   # el tooltip dice el proyecto del workspace, no el del cd
             info = (project_name(proj), info[1] if info else "")
         blocks.append((("ws", name, name, state, info or (name[3:], ""), wid, ctx, proj),
-                       (subs_of(sid) if sid else []) + by("ws:" + name)))
+                       (subs_of(sid, wid) if sid else []) + by("ws:" + name)))
     out = link_projects(blocks)
     READY.clear()
     READY.update(ready_ws(chat_sids, HO.ready_sids()))
@@ -272,7 +287,7 @@ def items():
         src = str(ids[who]) if kind == "ws" and who in ids else who if kind == "ag" and who in wins else "?" if parent else ""
         out.append(("ag", win, f"{AGENTS}:{win}", state, info, src, ctx, ""))
         if state != "none":
-            out += [r + ("",) for r in subs_of((st.get(pid) or {}).get("_sid"))]
+            out += [r + ("",) for r in subs_of((st.get(pid) or {}).get("_sid"), win)]
         out += [r + ("",) for r in by("ag:" + win)]
     return out
 
@@ -388,7 +403,7 @@ def ui(scr):
                 scr.addnstr(y, 2, dot, 1, col)
                 if W > 4:
                     scr.addnstr(y, 3, row_label(row), W - 4, (MUTED if kind == "sub" else IRIS) | hl)
-                tips[y] = (f"↳ subagente {full_id(target[len('sub:'):])} · {info[1]}" if kind == "sub"
+                tips[y] = (f"↳ subagente {label} · {info[1]} · agent-{full_id(target[len('sub:'):])}" if kind == "sub"
                            else f"↳ agente bk {label} · {info[0]}" + (f" · {info[1]}" if info[1] else ""))
                 rowmap[y] = target
                 y += 1
