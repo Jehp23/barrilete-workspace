@@ -3,13 +3,16 @@
 
     1 ●     arriba: los workspaces (sesiones bk-*) por su número fijo, cada uno con su color; alt+1…9 salta
             a ese número. El número lo toma al crearse y no cambia aunque se cierren otros (bk _ids).
-    2 ○     abajo: los agentes (ventanas de la sesión "agents")
+    f268 ○ ←3  abajo: los agentes bk (ventanas de la sesión "agents"), por el nombre de su ventana; ←3 = lo
+            lanzó el workspace 3 (←f268: otro agente; ←?: esa ventana ya se cerró). bk lo anota (@bk_parent).
     ─       ● trabajando · ● rojo te espera · ○ libre/listo · · sin claude
     1 ●▪    ▪ a la derecha: la sesión ya tiene mucho contexto (ámbar desde 200k, rojo desde 400k; cada
             llamada lo vuelve a leer y a pagar). El número exacto, en el tooltip.
     1 ○↪    ↪ a la derecha (en lugar del ▪): ese chat dejó el resumen para seguir en uno nuevo (lib/handoff.py);
             bk chat --desde N o «Seguir desde ws N» en alt+n lo toma.
-    └⠋      debajo de un chat o agente: sus subagentes vivos (herramienta Agent); clic = su sesión en un popup
+    └⠋a00d67  debajo de un chat o agente: sus subagentes vivos (herramienta Agent) con el id corto de su
+            transcript (agent-a00d67…); clic = su sesión en un popup
+    └○f268  y los agentes bk que lanzó, por su ventana; clic = ir a esa ventana
    ╭3 ○     a la izquierda: une los workspaces del mismo proyecto (quedan juntos, ordenados por el número
    │5 ○     más bajo de cada proyecto; el número de cada uno no cambia). El proyecto, en el tooltip.
    ╰6 ●
@@ -82,6 +85,29 @@ def subagents(sid):
         desc = meta.get("description") or meta.get("agentType") or "subagente"
         out.append((desc, meta.get("requestShape") == "background", os.path.getmtime(j), j))
     return [(d_, bg, j) for d_, bg, _, j in sorted(out, key=lambda x: -x[2])]
+
+
+def short_id(j):
+    """Id corto de un subagente: agent-a00d678b53460124b.jsonl → a00d67 (el resto, en el tooltip)."""
+    return full_id(j)[:6]
+
+
+def full_id(j):
+    b = os.path.basename(j or "")
+    return b[len("agent-"):-len(".jsonl")] if b.startswith("agent-") and b.endswith(".jsonl") else b
+
+
+def row_label(r):
+    """El texto de una fila de la tira, después de su glifo: número del workspace, id del subagente,
+    ventana del agente bk (con ←quién lo lanzó en la lista de abajo)."""
+    kind, label = r[0], r[1]
+    if kind == "ws":
+        return str(r[5])
+    if kind == "sub":
+        return short_id(r[2][len("sub:"):])
+    if kind == "kid":
+        return label
+    return f"{label} ←{r[5]}" if r[5] else label
 
 
 def feature(title, path):
@@ -183,12 +209,40 @@ def ready_ws(chats, sids):
 
 
 def items():
+    """Las filas de la tira: (tipo, texto, destino del clic, estado, (proyecto, detalle), número o ←padre, contexto,
+    línea). Tipos: ws (workspace), ag (agente bk; en el 6.º lugar va ←quién lo lanzó), sub (subagente de la
+    herramienta Agent) y kid (agente bk colgado de la ventana que lo lanzó, la misma fila que su ag de abajo)."""
     st = states()
     out, blocks = [], []
     chat_sids = []
-    for wid, name in workspaces():
+    wss = workspaces()
+    # Los agentes bk primero: cada ventana muestra debajo los que lanzó (@bk_parent, lo anota bk al lanzar)
+    agents = []
+    for l in sh("tmux", "list-panes", "-s", "-t", AGENTS, "-F",
+                "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}\t#{pane_title}"
+                "\t#{pane_current_path}\t#{@bk_parent}").splitlines():
+        win, pid, cmd, dead, ws, title, path, parent = (l.split("\t") + [""] * 8)[:8]
+        if ws:      # el chat de un workspace, de visita mientras un agente ocupa su lugar
+            continue
+        state = pane_state(st, pid, cmd, dead)
+        ref = (st.get(pid) or {}).get("ref") or ""
+        ctx = U.context_of((st.get(pid) or {}).get("_sid")) if state != "none" else None
+        agents.append((win, pid, state, ctx, parent,
+                       (f"{project_name(path)} · {win}", " ".join(x for x in (ref, feature(title, path)) if x))))
+    ids = {name: wid for wid, name in wss}
+    wins = {a[0] for a in agents}
+
+    def by(key):
+        """Los agentes bk que lanzó esa ventana (ws:<sesión> o ag:<ventana>), como filas colgadas."""
+        return [("kid", w, f"{AGENTS}:{w}", stt, info, None, None) for w, _, stt, _, par, info in agents if par == key]
+
+    def subs_of(sid):
+        return [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None, None)
+                for d, bg, j in subagents(sid)]
+
+    for wid, name in wss:
         # Estado del chat del workspace (el pane que corre claude en la ventana main)
-        state, subs, info, ctx = "none", [], "", None
+        state, sid, info, ctx = "none", None, "", None
         for l in sh("tmux", "list-panes", "-t", f"{name}:main", "-F",
                     "#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{pane_start_command}\t#{pane_title}\t#{pane_current_path}").splitlines():
             pid, cmd, dead, start, title, path = (l.split("\t") + [""] * 6)[:6]
@@ -201,32 +255,25 @@ def items():
             s = pane_state(st, pid, cmd, dead)
             if s != "none":
                 state = s
-                subs = subagents((st.get(pid) or {}).get("_sid"))
-                ctx = U.context_of((st.get(pid) or {}).get("_sid"))
-                chat_sids.append((name, (st.get(pid) or {}).get("_sid")))
+                sid = (st.get(pid) or {}).get("_sid")
+                ctx = U.context_of(sid)
+                chat_sids.append((name, sid))
         proj = sh("tmux", "show-environment", "-t", f"={name}", "BK_PROJECT").strip().partition("=")[2] \
             or (info[0] if info else name)
         if proj != (info[0] if info else name):   # el tooltip dice el proyecto del workspace, no el del cd
             info = (project_name(proj), info[1] if info else "")
         blocks.append((("ws", name, name, state, info or (name[3:], ""), wid, ctx, proj),
-                       [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None, None)
-                        for d, bg, j in subs]))
+                       (subs_of(sid) if sid else []) + by("ws:" + name)))
     out = link_projects(blocks)
     READY.clear()
     READY.update(ready_ws(chat_sids, HO.ready_sids()))
-    for l in sh("tmux", "list-panes", "-s", "-t", AGENTS, "-F",
-                "#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{@bk_ws}\t#{pane_title}\t#{pane_current_path}").splitlines():
-        win, pid, cmd, dead, ws, title, path = (l.split("\t") + [""] * 7)[:7]
-        if ws:      # el chat de un workspace, de visita mientras un agente ocupa su lugar
-            continue
-        state = pane_state(st, pid, cmd, dead)
-        ref = (st.get(pid) or {}).get("ref") or ""
-        ctx = U.context_of((st.get(pid) or {}).get("_sid")) if state != "none" else None
-        out.append(("ag", win, f"{AGENTS}:{win}", state,
-                    (f"{project_name(path)} · {win}", " ".join(x for x in (ref, feature(title, path)) if x)), None, ctx, ""))
+    for win, pid, state, ctx, parent, info in agents:
+        kind, _, who = parent.partition(":")
+        src = str(ids[who]) if kind == "ws" and who in ids else who if kind == "ag" and who in wins else "?" if parent else ""
+        out.append(("ag", win, f"{AGENTS}:{win}", state, info, src, ctx, ""))
         if state != "none":
-            out += [("sub", d, "sub:" + j, "background" if bg else "working", ("", d), None, None, "")
-                    for d, bg, j in subagents((st.get(pid) or {}).get("_sid"))]
+            out += [r + ("",) for r in subs_of((st.get(pid) or {}).get("_sid"))]
+        out += [r + ("",) for r in by("ag:" + win)]
     return out
 
 
@@ -293,6 +340,12 @@ def ui(scr):
     def id_attr(n):
         return curses.color_pair(10 + (n - 1) % len(idpal)) | curses.A_BOLD if idpal and n else 0
 
+    def glyph(state):
+        """El glifo y el color de un estado (filas de workspace o agente, y ramas de subagente o agente bk)."""
+        return {"working": ("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[tick % 10], WORK), "background": ("◐◓◑◒"[(tick // 2) % 4], WORK),
+                "stale": ("~", WAIT), "question": ("?", WAIT), "permission": ("!", WAIT),
+                "waiting": ("●", WAIT), "none": ("·", MUTED)}.get(state, ("○", MUTED))
+
     def tooltip(text):
         """El nombre de la fila, como tooltip en la barra de tmux (la tira no cambia de ancho)."""
         if text:
@@ -317,7 +370,8 @@ def ui(scr):
         tips.clear()
         if hover_y >= 0 and time.time() - hover_t > TIP_MS / 1000:   # se fue el mouse: sacar el resaltado
             hover_y = -1
-        for kind, label, target, state, info, wid, ctx, link in cache:
+        for row in cache:
+            kind, label, target, state, info, wid, ctx, link = row
             if kind == "ag" and not sep:
                 if y < H - 1:
                     scr.addnstr(y, 1, "─" * max(1, W - 2), W - 2, MUTED)
@@ -328,47 +382,41 @@ def ui(scr):
             hl = curses.A_REVERSE if y == hover_y else 0
             if link:   # la línea que une los workspaces del mismo proyecto
                 scr.addnstr(y, 0, link, 1, MUTED)
-            if kind == "sub":   # subagente: rama debajo de su chat, sin número; clic = su sesión
+            if kind in ("sub", "kid"):   # rama debajo de quien lo lanzó; clic = su sesión (sub) o su ventana (kid)
                 scr.addnstr(y, 1, "└", 1, MUTED | hl)
-                dot = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[tick % 10] if state == "working" else "◐◓◑◒"[(tick // 2) % 4]
-                scr.addnstr(y, 3, dot, 1, WORK)
-                tips[y] = f"↳ subagente · {info[1]}"
+                dot, col = glyph(state)
+                scr.addnstr(y, 2, dot, 1, col)
+                if W > 4:
+                    scr.addnstr(y, 3, row_label(row), W - 4, (MUTED if kind == "sub" else IRIS) | hl)
+                tips[y] = (f"↳ subagente {full_id(target[len('sub:'):])} · {info[1]}" if kind == "sub"
+                           else f"↳ agente bk {label} · {info[0]}" + (f" · {info[1]}" if info[1] else ""))
                 rowmap[y] = target
                 y += 1
                 continue
+            dot, col = glyph(state)
             if kind == "ws":
                 num = wid
-            else:
-                n_ag += 1; num = n_ag
-            if state == "working":
-                dot, col = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[tick % 10], WORK
-            elif state == "background":
-                dot, col = "◐◓◑◒"[(tick // 2) % 4], WORK
-            elif state == "stale":
-                dot, col = "~", WAIT
-            elif state == "question":
-                dot, col = "?", WAIT
-            elif state == "permission":
-                dot, col = "!", WAIT
-            elif state == "waiting":
-                dot, col = "●", WAIT
-            elif state == "none":
-                dot, col = "·", MUTED
-            else:
-                dot, col = "○", MUTED
+            else:   # agente bk: el nombre de su ventana (f268), no un número que se confunda con un workspace
+                n_ag += 1; num = label
             here = kind == "ws" and label == cur
             idc = id_attr(num) if kind == "ws" else IRIS
             numattr = (idc | curses.A_BOLD | curses.A_REVERSE) if here else idc
-            scr.addnstr(y, 1, f"{num:>1}", 2, numattr | hl)
-            scr.addnstr(y, 3, dot, 1, col)
+            name = f"{num}" if kind == "ws" else f"{num}"[:max(1, W - 8)]
+            scr.addnstr(y, 1, name, max(1, W - 2), numattr | hl)
+            x = 1 + max(1, len(name)) + (0 if kind == "ws" and len(name) > 1 else 1)
+            if x < W - 1:
+                scr.addnstr(y, x, dot, 1, col)
             lvl = U.ctx_level(ctx)
             ready = kind == "ws" and label in READY
-            if ready and W >= 5:
-                scr.addnstr(y, 4, "↪", 1, ROSE | curses.A_BOLD)
-            elif lvl and W >= 5:
-                scr.addnstr(y, 4, "▪", 1, CTX[lvl])
+            if ready and x + 1 < W - 1:
+                scr.addnstr(y, x + 1, "↪", 1, ROSE | curses.A_BOLD)
+            elif lvl and x + 1 < W - 1:
+                scr.addnstr(y, x + 1, "▪", 1, CTX[lvl])
+            if kind == "ag" and wid and x + 2 < W - 1:   # ←quién lo lanzó (el id entero, en el tooltip)
+                scr.addnstr(y, x + 2, f"←{wid}", W - 1 - (x + 2), MUTED)
             proj, feat = info
             tips[y] = (f"{'workspace' if kind == 'ws' else 'agente'} {num} · {proj}" + (f" · {feat}" if feat else "")
+                       + (f" · lanzado por {wid}" if kind == "ag" and wid else "")
                        + (f" · {U.human_ctx(ctx)} de contexto" if ctx else "")
                        + (f" · ↪ resumen listo: bk chat --desde {num} (o alt+n)" if ready else ""))
             rowmap[y] = target

@@ -7,6 +7,7 @@ set -euo pipefail
 WS="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 SESSION="${BK_SESSION:-agents}"
 STATE_DIR="$HOME/.cache/sketchybar/agents"
+SIDE_W=14   # ancho de la tira: número de ventana + id de cada subagente y de quién lanzó cada agente
 export BK_STATE_DIR="$STATE_DIR"   # lib/agents.py lee el mismo estado
 DRY=0
 TASKS="$WS/lib/tasks.py"   # tareas de los agentes (ADR-005 del kit): task.json + events.jsonl
@@ -379,6 +380,20 @@ mem_ok() {
   fi
 }
 
+# launcher_of: quién está lanzando, para la tira (@bk_parent de la ventana nueva). ws:<sesión> si bk corre
+# en un workspace (o en su chat de visita en la sesión de agentes), ag:<ventana> si corre en un agente bk;
+# nada fuera de tmux o de bk. La sesión y no su número: los números se reusan cuando cerrás un workspace.
+launcher_of() {
+  [ -n "${TMUX_PANE:-}" ] || return 0
+  local ses id ws win
+  IFS='|' read -r ses id ws win < <(tmux display-message -p -t "$TMUX_PANE" \
+    '#{session_name}|#{@bk_id}|#{@bk_ws}|#{window_name}' 2>/dev/null) || return 0
+  if [ -n "$ws" ]; then echo "ws:$ws"
+  elif [ "$ses" = "$SESSION" ]; then echo "ag:$win"
+  elif [ -n "$id" ]; then echo "ws:$ses"
+  fi
+}
+
 # launch <ventana> <dir> <rol> <ref> <comando> [tarea] [orquestado: 1 si lo lanzó un orquestador]
 # Con tarea (ADR-005): la crea (o arranca la pendiente), le pasa BK_TASK_DIR al agente y, si el proceso
 # del agente termina sin `bk done`, la cierra como incomplete.
@@ -423,7 +438,7 @@ launch() {
     env+=(-e "BK_TASK_DIR=$tdir")
     full="$full; $(sq "$WS/bin/bk") _ended $(sq "$tdir")"
   fi
-  local pane
+  local pane parent; parent=$(launcher_of)
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$SESSION:" -n "$win" -c "$dir" "${env[@]}" "$full")
   else
@@ -437,6 +452,8 @@ launch() {
   tmux set-option -w -t "$SESSION:$win" remain-on-exit on >/dev/null
   # bk restore la lee para retomar al agente con la misma cuenta
   [ -z "$cta" ] || tmux set-option -w -t "$SESSION:$win" @bk_account "$cta"
+  # La tira lo cuelga de la ventana que lo lanzó
+  [ -z "$parent" ] || tmux set-option -w -t "$SESSION:$win" @bk_parent "$parent"
   pre_register "$win" "$pane" "$dir" "$role" "$model" "$ref"
   # El título del issue/PR para bk ls, la tira y Sketchybar (una consulta a GitHub, en segundo plano)
   (python3 "$WS/lib/agents.py" warm >/dev/null 2>&1 &)
@@ -753,7 +770,7 @@ workspace() {
     rail=$(tmux split-window -d -P -F '#{pane_id}' -h -l 34% -t "$chat" -c "$dir" -e "BK_PROJECT=$top" "bk rail")
     # Tira izquierda: sesiones activas (workspaces y agentes), a lo Gentle Shell 4
     local side
-    side=$(tmux split-window -d -P -F '#{pane_id}' -hb -l 5 -t "$chat" -c "$dir" "bk sidebar")
+    side=$(tmux split-window -d -P -F '#{pane_id}' -hb -l "$SIDE_W" -t "$chat" -c "$dir" "bk sidebar")
     local p
     for p in "$chat" "$rail" "$side"; do tmux set-option -p -t "$p" allow-set-title off >/dev/null 2>&1; done
     tmux select-pane -t "$chat" -T "✿ chat"
@@ -829,7 +846,7 @@ ws_chat_pane() {
     tmux select-pane -t "$chat" -T "✿ chat"
     # La tira va a la izquierda del chat (tira | chat | riel), como al crear el workspace
     local side; side=$(tmux list-panes -t "$w" -F '#{pane_id} #{pane_start_command}' | grep 'bk sidebar' | head -1 | cut -d' ' -f1)
-    [ -n "$side" ] && tmux move-pane -d -hb -l 5 -s "$side" -t "$chat" 2>/dev/null
+    [ -n "$side" ] && tmux move-pane -d -hb -l "$SIDE_W" -s "$side" -t "$chat" 2>/dev/null
     bk _layout "$s" >/dev/null 2>&1
   fi
   echo "$chat"
@@ -1177,7 +1194,7 @@ ws_layout() {
   auto=$(tmux show-options -wqv -t "$t" @bk_autozoom)
   [ "$zoomed" = 1 ] && [ -z "$auto" ] && return 0      # zoom a mano: respetarlo
   w=$((W * 34 / 100)); [ "$w" -lt 46 ] && w=46
-  local sw=0; [ -n "$side" ] && sw=5
+  local sw=0; [ -n "$side" ] && sw=$SIDE_W
   max=$((W - LAYOUT_CHAT - 2 - sw))                    # 2 bordes, y la tira si está
   [ "$w" -gt "$max" ] && w=$max
   if [ -n "$rail" ] && [ "$w" -lt "$LAYOUT_RAIL" ]; then
@@ -1192,7 +1209,7 @@ ws_layout() {
     tmux resize-pane -Z -t "${chat:-$t}"
   fi
   [ -n "$rail" ] && tmux resize-pane -t "$rail" -x "$w"
-  [ -n "$side" ] && tmux resize-pane -t "$side" -x 5
+  [ -n "$side" ] && tmux resize-pane -t "$side" -x "$SIDE_W"
   return 0
 }
 
@@ -1546,6 +1563,7 @@ case "${1:-}" in
   name)        shift; cmd_name "$@" ;;
   _nth)        ws_ids | awk -F'\t' -v n="${2:-1}" '$1 == n {print $2}' ;;   # alt+N: el workspace con ese número
   _ids)        ws_ids ;;
+  _launcher)   launcher_of ;;   # lo que launch anota como @bk_parent (la tira lo usa; tests)
   changes)     exec python3 "$WS/lib/changes.py" ;;
   palette|k)   exec python3 "$WS/lib/palette.py" ;;
   _layout)     ws_layout "${2:-}" ;;
