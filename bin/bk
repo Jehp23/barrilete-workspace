@@ -7,7 +7,10 @@ set -euo pipefail
 WS="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 SESSION="${BK_SESSION:-agents}"
 STATE_DIR="$HOME/.cache/sketchybar/agents"
-SIDE_W=14   # ancho de la tira: número de ventana + id de cada subagente y de quién lanzó cada agente
+# Proporciones del workspace (SIDE_W, RAIL_PCT, RAIL_MIN, LAYOUT_CHAT, LAYOUT_RAIL): lib/layout.conf, la misma
+# fuente que lib/gentle.py
+# shellcheck source=lib/layout.conf
+. "$WS/lib/layout.conf"
 export BK_STATE_DIR="$STATE_DIR"   # lib/agents.py lee el mismo estado
 DRY=0
 TASKS="$WS/lib/tasks.py"   # tareas de los agentes (ADR-005 del kit): task.json + events.jsonl
@@ -767,7 +770,7 @@ workspace() {
     # Número fijo: el que pide bk restore (BK_WS_ID) si está libre; si no, el libre más bajo (ws_ids)
     [ -z "${BK_WS_ID:-}" ] || tmux set-option -t "=$WS_SESSION:" @bk_id "$BK_WS_ID"
     BK_IDS_NOSTYLE=1 ws_ids >/dev/null
-    rail=$(tmux split-window -d -P -F '#{pane_id}' -h -l 34% -t "$chat" -c "$dir" -e "BK_PROJECT=$top" "bk rail")
+    rail=$(tmux split-window -d -P -F '#{pane_id}' -h -l "${RAIL_PCT}%" -t "$chat" -c "$dir" -e "BK_PROJECT=$top" "bk rail")
     # Tira izquierda: sesiones activas (workspaces y agentes), a lo Gentle Shell 4
     local side
     side=$(tmux split-window -d -P -F '#{pane_id}' -hb -l "$SIDE_W" -t "$chat" -c "$dir" "bk sidebar")
@@ -1166,7 +1169,7 @@ ws_footer() {
   printf '∗ %s %s#[default] · %s ≈API · usage alt+u' "${act:-0}" "$word" "${u:-—}"
 }
 
-# Proporciones: riel derecho 34 % (mínimo 46 columnas)
+# Proporciones (lib/layout.conf): riel derecho RAIL_PCT % del ancho, mínimo RAIL_MIN columnas; tira de SIDE_W
 ws_layout() {
   # Al cambiar el tamaño (zoom de Ghostty con cmd +/-, otra pantalla): el chat nunca queda con menos de
   # LAYOUT_CHAT columnas; el riel se achica para dejarle lugar y, si ni así entra (menos de LAYOUT_RAIL),
@@ -1185,7 +1188,6 @@ ws_layout() {
   done
   trap 'rmdir "$lock" 2>/dev/null' RETURN
   local t="$ses:main" W rail w side chat max zoomed auto
-  local LAYOUT_CHAT=80 LAYOUT_RAIL=30
   W=$(tmux display-message -p -t "$t" '#{window_width}')
   [ -n "$W" ] || return 0
   rail=$(tmux list-panes -t "$t" -F '#{pane_id} #{pane_start_command}' | awk '/bk rail/{print $1; exit}')
@@ -1194,7 +1196,7 @@ ws_layout() {
   zoomed=$(tmux display-message -p -t "$t" '#{window_zoomed_flag}')
   auto=$(tmux show-options -wqv -t "$t" @bk_autozoom)
   [ "$zoomed" = 1 ] && [ -z "$auto" ] && return 0      # zoom a mano: respetarlo
-  w=$((W * 34 / 100)); [ "$w" -lt 46 ] && w=46
+  w=$((W * RAIL_PCT / 100)); [ "$w" -lt "$RAIL_MIN" ] && w=$RAIL_MIN
   local sw=0; [ -n "$side" ] && sw=$SIDE_W
   max=$((W - LAYOUT_CHAT - 2 - sw))                    # 2 bordes, y la tira si está
   [ "$w" -gt "$max" ] && w=$max

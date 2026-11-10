@@ -183,6 +183,49 @@ class SongUiPaleta(unittest.TestCase):
         self.assertEqual(G.ramp(2, "tint", "rose", G.DAY), [G.DAY["tint"], G.DAY["rose"]])
 
 
+class Proporciones(unittest.TestCase):
+    def test_inner_es_lo_que_la_tarjeta_no_corta(self):
+        # una fila de exactamente inner(W) entra entera; una más larga se corta con "…"
+        import rail
+        for cards in ("float", "neon"):
+            G.save_ui({**G.ui(), "cards": cards})
+            try:
+                for W in (40, 80):
+                    n = G.inner(W)
+                    self.assertEqual(n, rail.inner(W), cards)
+                    txt = lambda rows: "".join(STRIP.sub("", l) for l in G.card("t", rows, W))
+                    self.assertNotIn("…", txt(["a" * n]), (cards, W))
+                    self.assertIn("…", txt(["a" * (n + 1)]), (cards, W))
+            finally:
+                G.save_ui({**G.ui(), "cards": "float"})
+
+    def test_la_tarjeta_mide_exactamente_lo_pedido(self):
+        # inner() y la tarjeta usan CARD_PAD: si el margen se corre, el ancho total deja de ser W
+        for cards in ("float", "neon"):
+            G.save_ui({**G.ui(), "cards": cards})
+            try:
+                for W in (30, 80):
+                    filas = [l for l in G.card("Título", ["fila", "a" * 200], W) if l]
+                    self.assertEqual({G.vlen(l) for l in filas}, {W}, (cards, W))
+            finally:
+                G.save_ui({**G.ui(), "cards": "float"})
+
+    def test_layout_conf_lo_lee_gentle(self):
+        self.assertEqual((G.SIDE_W, G.RAIL_PCT, G.RAIL_MIN), (14, 34, 46))
+        self.assertEqual(set(G.layout()), {"SIDE_W", "RAIL_PCT", "RAIL_MIN", "LAYOUT_CHAT", "LAYOUT_RAIL"})
+
+    def test_customize_descripcion_al_lado_o_debajo(self):
+        import customize as CU
+        self.assertIsNone(CU.desc_col(CU.CAT_W + CU.DESC_OFFSET + CU.DESC_MIN))        # justo no entra
+        self.assertEqual(CU.desc_col(CU.CAT_W + CU.DESC_OFFSET + CU.DESC_MIN + 1), CU.CAT_W + CU.DESC_OFFSET)
+        self.assertIsNone(CU.desc_col(60))                                             # terminal angosta
+        self.assertEqual(CU.desc_col(120), CU.CAT_W + CU.DESC_OFFSET)
+
+    def test_changes_ancho_de_la_lista(self):
+        import changes as CH
+        self.assertEqual([CH.list_width(w) for w in (30, 90, 120, 300)], [28, 30, 40, 48])
+
+
 class NoTocaLaConfig(unittest.TestCase):
     def test_la_suite_no_toca_tu_ui_json(self):
         self.assertNotEqual(os.path.realpath(G.UI_FILE), os.path.realpath(REAL_UI))
