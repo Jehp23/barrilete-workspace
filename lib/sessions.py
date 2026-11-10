@@ -15,6 +15,9 @@ workspace, con confirmación; la conversación queda en recientes) · q/esc sali
 import curses, glob, json, os, re, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import gentle as G  # noqa: E402  (paleta del tema, una sola para todas las vistas)
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import handoff as HO  # noqa: E402  (resumenes listos para seguir en un chat nuevo)
 
 PROJECTS = os.path.expanduser("~/.claude/projects")
@@ -287,20 +290,12 @@ def open_row(r):
 def ui(scr):
     curses.curs_set(0)
     curses.use_default_colors()
-    for i, c in enumerate([183, 114, 222, 210, 111, 245], 1):
-        curses.init_pair(i, c, -1)
-    MAUVE, GREEN, YELLOW, RED, BLUE, GRAY = (curses.color_pair(i) for i in range(1, 7))
-    try:   # el color de cada número de workspace, el mismo de la tira y el header (gentle.py)
-        sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-        from gentle import ID_DAY, ID_NIGHT, is_day
-        idpal = ID_DAY if is_day() else ID_NIGHT
-    except Exception:
-        idpal = []
-    for i, v in enumerate(idpal):
-        curses.init_pair(20 + i, v, -1)
+    A = G.curses_attrs(ids=True)   # con ids: el color de cada número de workspace, el de la tira y el header
+    MAUVE, GREEN, YELLOW, RED, BLUE, GRAY = (A[k] for k in ("rose", "green", "amber", "red", "iris", "muted"))
+    n_ids = len(G.ID_NIGHT)
 
     def id_attr(n):
-        return curses.color_pair(20 + (int(n) - 1) % len(idpal)) | curses.A_BOLD if idpal and n else BLUE
+        return A[f"id{(int(n) - 1) % n_ids}"] | curses.A_BOLD if n else BLUE
     confirm = None   # ("session", nombre, número, estado): esperando y/n para cerrar un workspace
     st_color = {"background": YELLOW, "working": YELLOW, "waiting": RED, "done": GREEN, "idle": GRAY, "ended": GRAY}
     opened, recent = load()

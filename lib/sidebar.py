@@ -22,6 +22,7 @@
 import curses, glob, json, os, re, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import gentle as G   # noqa: E402  (paleta del tema, la misma que el riel)
 import agents as AG  # noqa: E402  (nombre de los chats: bk name, /rename o el título de Claude)
 import usage as U    # noqa: E402  (contexto de cada sesión: context_of, los umbrales y el formato)
 import handoff as HO  # noqa: E402  (resumenes listos para seguir en un chat nuevo)
@@ -347,27 +348,15 @@ def ui(scr):
     me = os.environ.get("TMUX_PANE", "")
     client = sh("tmux", "display-message", "-p", "-t", me, "#{client_name}").strip() if me else ""
     hover_y, hover_t, tips = -1, 0.0, {}
-    try:   # de día, tonos oscuros y apagados (los de noche son pastel y sobre fondo claro gritan)
-        from gentle import ID_DAY, ID_NIGHT, is_day
-        day = is_day()
-    except Exception:
-        ID_DAY = ID_NIGHT = []
-        day = False
-    colors = {1: 137, 2: 131, 3: 243, 4: 132, 5: 60} if day else {1: 222, 2: 210, 3: 244, 4: 218, 5: 147}
-    for k, v in colors.items():
-        curses.init_pair(k, v, -1)
-    WORK, WAIT, MUTED, ROSE, IRIS = (curses.color_pair(i) for i in range(1, 6))
-    # Un color por número de workspace (los mismos que el header de tmux, de gentle.py)
-    idpal = ID_DAY if day else ID_NIGHT
-    for i, v in enumerate(idpal):
-        curses.init_pair(10 + i, v, -1)
-    # Contexto alto: ámbar y rojo (de día, más oscuros)
-    curses.init_pair(6, 136 if day else 214, -1)
-    curses.init_pair(7, 160 if day else 203, -1)
-    CTX = {"warn": curses.color_pair(6) | curses.A_BOLD, "high": curses.color_pair(7) | curses.A_BOLD}
+    # Los mismos colores que el riel, de día y de noche; con ids: un color por número de workspace
+    # (los del header de tmux) y los de contexto alto
+    A = G.curses_attrs(ids=True)
+    WORK, WAIT, MUTED, ROSE, IRIS = (A[k] for k in ("amber", "red", "muted", "rose", "iris"))
+    CTX = {"warn": A["warn"] | curses.A_BOLD, "high": A["high"] | curses.A_BOLD}
+    n_ids = len(G.ID_NIGHT)
 
     def id_attr(n):
-        return curses.color_pair(10 + (n - 1) % len(idpal)) | curses.A_BOLD if idpal and n else 0
+        return A[f"id{(n - 1) % n_ids}"] | curses.A_BOLD if n else 0
 
     def glyph(state):
         """El glifo y el color de un estado (filas de workspace o agente, y ramas de subagente o agente bk)."""

@@ -7,12 +7,13 @@ Fuentes: estado de la barra (~/.cache/sketchybar/agents/*.json), ventanas de tmu
 import glob, json, os, shutil, subprocess, sys, time, unicodedata
 
 HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE)
+import gentle as G  # noqa: E402  (paleta del tema, una sola para todas las vistas)
 STATE = os.path.expanduser("~/.cache/sketchybar/agents")
 SESSION = os.environ.get("BK_SESSION", "agents")
 
 RST, DIM, BOLD = "\033[0m", "\033[2m", "\033[1m"
-C = {"mauve": "\033[38;5;183m", "green": "\033[38;5;114m", "yellow": "\033[38;5;222m",
-     "red": "\033[38;5;210m", "blue": "\033[38;5;111m", "gray": "\033[38;5;245m"}
+C = {"mauve": G.ROSE, "green": G.GREEN, "yellow": G.AMBER, "red": G.RED, "blue": G.IRIS, "gray": G.MUTED}
 STATE_STYLE = {  # estado -> (texto, color)
     "working": ("● trabajando", C["yellow"]), "waiting": ("● te espera", C["red"]),
     "background": ("◐ 2º plano", C["yellow"]),
