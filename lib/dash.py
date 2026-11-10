@@ -14,11 +14,12 @@ SESSION = os.environ.get("BK_SESSION", "agents")
 
 RST, DIM, BOLD = "\033[0m", "\033[2m", "\033[1m"
 C = {"mauve": G.ROSE, "green": G.GREEN, "yellow": G.AMBER, "red": G.RED, "blue": G.IRIS, "gray": G.MUTED}
-STATE_STYLE = {  # estado -> (texto, color)
-    "working": ("● trabajando", C["yellow"]), "waiting": ("● te espera", C["red"]),
-    "background": ("◐ 2º plano", C["yellow"]),
-    "done": ("✓ listo", C["green"]), "idle": ("· libre", C["gray"]),
-}
+
+
+def state_style(state):
+    """("● trabajando", color ANSI): glifo y texto de gentle.STATES, la misma tabla que la tira y el riel."""
+    g, txt, col = G.state_ansi(state)
+    return f"{g} {txt}", col
 
 
 def width(s):
@@ -80,11 +81,11 @@ def agents():
             proj = parts[-2][:-3] + "#" + parts[-1]
         win = panes.get(a.get("pane") or "", "")
         ref = a.get("ref") or ""
-        st, col = STATE_STYLE.get(a.get("state"), (a.get("state") or "—", ""))
+        st, col = state_style(a.get("state"))
         if a.get("phase") == "plan_pending" and a.get("state") in ("done", "idle"):
             st, col = "● plan: tu sí", C["red"]
         if a.get("tool") == "confianza":
-            st, col = "● confiá carpeta", C["red"]
+            st, col = state_style("trust")
         mins = int((now - a.get("ts", now)) // 60)
         ago = f"{mins}m" if mins < 60 else f"{mins // 60}h{mins % 60:02d}"
         rows.append([win or "chat", proj + (f" {ref}" if ref and ref not in proj else ""),

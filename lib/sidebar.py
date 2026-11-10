@@ -5,7 +5,8 @@
             a ese número. El número lo toma al crearse y no cambia aunque se cierren otros (bk _ids).
     f268 ○ ←3  abajo: los agentes bk (ventanas de la sesión "agents"), por el nombre de su ventana; ←3 = lo
             lanzó el workspace 3 (←f268: otro agente; ←?: esa ventana ya se cerró). bk lo anota (@bk_parent).
-    ─       ● trabajando · ● rojo te espera · ○ libre/listo · · sin claude
+    ─       ⠋ trabajando · ! te espera o pide permiso · ? te pregunta · ⚠ ¿trabado? · ✓ listo · ○ libre ·
+            · sin claude (glifo y color de cada estado: gentle.STATES, la misma tabla que el riel y el monitor)
     1 ●▪    ▪ a la derecha: la sesión ya tiene mucho contexto (ámbar desde 200k, rojo desde 400k; cada
             llamada lo vuelve a leer y a pagar). El número exacto, en el tooltip.
     1 ○↪    ↪ a la derecha (en lugar del ▪): ese chat dejó el resumen para seguir en uno nuevo (lib/handoff.py);
@@ -338,6 +339,19 @@ def go(target):
     subprocess.run(["tmux", "switch-client"] + c + ["-t", target], capture_output=True)
 
 
+SPIN, HALF = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", "◐◓◑◒"
+
+
+def dot_for(state, tick, attrs):
+    """(glifo, atributo curses) de una fila de la tira: los de gentle.STATES; trabajando y 2º plano giran."""
+    g, _, color = G.state_ui(state)
+    if state == "working":
+        g = SPIN[tick % len(SPIN)]
+    elif state == "background":
+        g = HALF[(tick // 2) % len(HALF)]
+    return g, attrs[color]
+
+
 def ui(scr):
     curses.curs_set(0)
     curses.use_default_colors()
@@ -351,7 +365,7 @@ def ui(scr):
     # Los mismos colores que el riel, de día y de noche; con ids: un color por número de workspace
     # (los del header de tmux) y los de contexto alto
     A = G.curses_attrs(ids=True)
-    WORK, WAIT, MUTED, ROSE, IRIS = (A[k] for k in ("amber", "red", "muted", "rose", "iris"))
+    MUTED, ROSE, IRIS = (A[k] for k in ("muted", "rose", "iris"))
     CTX = {"warn": A["warn"] | curses.A_BOLD, "high": A["high"] | curses.A_BOLD}
     n_ids = len(G.ID_NIGHT)
 
@@ -360,9 +374,7 @@ def ui(scr):
 
     def glyph(state):
         """El glifo y el color de un estado (filas de workspace o agente, y ramas de subagente o agente bk)."""
-        return {"working": ("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[tick % 10], WORK), "background": ("◐◓◑◒"[(tick // 2) % 4], WORK),
-                "stale": ("~", WAIT), "question": ("?", WAIT), "permission": ("!", WAIT),
-                "waiting": ("●", WAIT), "none": ("·", MUTED)}.get(state, ("○", MUTED))
+        return dot_for(state, tick, A)
 
     def tooltip(text):
         """El nombre de la fila, como tooltip en la barra de tmux (la tira no cambia de ancho)."""

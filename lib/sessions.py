@@ -227,7 +227,7 @@ def ago(ts):
     return time.strftime("%d/%m", time.localtime(ts))
 
 
-STATE_TXT = {"background": "2º plano", "working": "trabajando", "waiting": "te espera", "done": "listo", "idle": "libre", "ended": "terminó"}
+STATE_TXT = {k: G.STATES[k][1] for k in ("background", "working", "waiting", "done", "idle", "ended")}
 
 
 def current_workspace():
@@ -297,7 +297,7 @@ def ui(scr):
     def id_attr(n):
         return A[f"id{(int(n) - 1) % n_ids}"] | curses.A_BOLD if n else BLUE
     confirm = None   # ("session", nombre, número, estado): esperando y/n para cerrar un workspace
-    st_color = {"background": YELLOW, "working": YELLOW, "waiting": RED, "done": GREEN, "idle": GRAY, "ended": GRAY}
+    st_color = {k: A[G.STATES[k][2]] for k in STATE_TXT}   # el color de cada estado, el mismo que en la tira
     opened, recent = load()
     query, typing, sel, top, msg = "", False, 0, 0, ""
 
