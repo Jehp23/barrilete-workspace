@@ -104,6 +104,8 @@ Cada agente de `bk run`, `bk review` o `bk fix` trabaja sobre una tarea (`<issue
 eventos, en `~/.local/state/bk/tasks/<proyecto>/<id>/` (`task.json` y `events.jsonl`); el agente recibe la carpeta en
 `BK_TASK_DIR` y los hooks del kit anotan inicio, espera, commits y PRs.
 - Un segundo `bk run` sobre el mismo issue no lanza otro agente (con cualquiera de los dos implementers).
+- `bk run` suelta el candado del worktree (`agent-lock` del kit) que tomó `prepare.sh` antes de lanzar al agente: el
+  agente lo toma como su primer paso y `bk done` lo suelta. Si el candado es de otro agente vivo, `bk run` no lanza.
 - El agente cierra con `bk done pr <n>` (o `blockers`, `dropped "…"`, `escalate "…"`); si termina sin cerrarla queda
   `incomplete`, y `bk stop` la deja `cancelled`.
 - Su PR propone `pr<n>-reviewer`, que arranca solo con `bk approve`. Con `--orchestrated` (lo usa `/orchestrate`) no hay

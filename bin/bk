@@ -1433,6 +1433,29 @@ cmd_fix() {
   launch "$win" "$wt" "$role" "#${issue:-$n}" "Retomás el PR #$n (rama $branch, ya hecha por otro implementer). Seguí el flujo de /implement-issue ${issue:-} para correcciones de un PR existente (TDD, red.sh, verify, cuerpo del PR) y no abras otro PR. Tarea: $msg" "pr$n-$role" "$orch"
 }
 
+# lock_release <repo> <worktree> <nombre>: suelta el candado del worktree (agent-lock, scripts/agents/worktree-lock.sh
+# del kit) si es de este proceso con ese nombre. Libre, vencido o un kit sin candado: nada que hacer (0).
+# Si es de otro agente vivo o el script falla: imprime lo que dijo y sale con 1.
+lock_release() {
+  local sh="$1/scripts/agents/worktree-lock.sh" out
+  [ -x "$sh" ] || return 0
+  out=$(WORKTREE_LOCK_AGENT="$3" "$sh" release "$2" 2>&1) || { printf '%s' "$out"; return 1; }
+  case "$out" in held:*) printf '%s' "$out"; return 1 ;; esac
+}
+
+# done_release: bk done cerró la tarea de este agente (BK_TASK_DIR): suelta su candado del worktree, que tomó
+# con el nombre de la tarea. Corre como hijo del claude del agente, así que el dueño es el mismo pid.
+# Nunca hace fallar el cierre: si el candado es de otro, avisa.
+done_release() {
+  local d="${BK_TASK_DIR:-}" wt repo out
+  [ -f "$d/task.json" ] || return 0
+  wt=$(jq -r '.worktree // ""' "$d/task.json"); repo=$(jq -r '.repo // ""' "$d/task.json")
+  [ -d "$wt" ] || return 0
+  [ -x "$repo/scripts/agents/worktree-lock.sh" ] || repo=$wt
+  out=$(lock_release "$repo" "$wt" "$(basename "$d")") || printf 'bk: no solté el candado de %s: %s\n' "$wt" "$out" >&2
+  return 0
+}
+
 cmd_run() {
   local n="" role="" orch=0
   while [ $# -gt 0 ]; do
@@ -1467,11 +1490,15 @@ cmd_run() {
 
   # Mismo camino que /orchestrate: fetch una vez, prepare.sh valida, asigna y crea el worktree
   git -C "$root" fetch -q origin
-  local prep wt
-  prep=$(cd "$root" && .claude/skills/implement-issue/prepare.sh "$n" --worktree 2>&1) \
+  # prepare.sh toma el candado del worktree a nombre de la tarea y bk lo suelta antes de lanzar: el agente lo
+  # toma como su primer paso (implement-issue) y bk done lo suelta. Sin esto el candado quedaba a nombre del
+  # proceso que llamó a bk (un chat que sigue vivo) y el agente veía su propio worktree como ajeno (#5).
+  local prep wt held
+  prep=$(cd "$root" && WORKTREE_LOCK_AGENT="$n-$role" .claude/skills/implement-issue/prepare.sh "$n" --worktree 2>&1) \
     || { printf '%s\n' "$prep" >&2; die "prepare.sh rechazó #$n (ver arriba)"; }
   wt=$(sed -nE 's/^Worktree: (.+)$/\1/p' <<<"$prep" | tail -1)
   [ -d "$wt" ] || { printf '%s\n' "$prep" >&2; die "prepare.sh no informó el worktree"; }
+  held=$(lock_release "$root" "$wt" "$n-$role") || die "no pude soltar el candado de $wt: $held"
   launch "i$n" "$wt" "$role" "#$n" "/implement-issue $n" "$n-$role" "$orch"
 }
 
@@ -1504,6 +1531,7 @@ case "${1:-}" in
   watch)       shift; watch "${1:-}" ;;
   stop)        shift; stop "${1:-}" ;;
   done)        shift; rc=0; python3 "$TASKS" done "$@" || rc=$?
+               [ "$rc" -ne 0 ] || done_release
                sketchybar --trigger agent_update >/dev/null 2>&1 || true; exit $rc ;;
   tasks)       shift; case "${1:-}" in prune) shift; exec python3 "$TASKS" prune "$@" ;;
                                      *) exec python3 "$TASKS" list "$@" ;; esac ;;
