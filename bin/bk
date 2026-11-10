@@ -65,7 +65,7 @@ uso: bk [comando] [--dry-run]
   term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
   bot               verifica la GitHub App de los agentes (~/.config/bk/gh-app.json)
-  customize         estilo del workspace: tarjetas float/neon, densidad, header, tema (alt+,)
+  customize         estilo del workspace: header, tema y fuente (alt+,)
   s                 sesiones de Claude estilo Orca: abiertas (saltar) y recientes de todas las
                     carpetas (retomar con claude --resume). En tmux: prefijo + s
   peek [ventana] [n] ver qué hace un agente sin entrar (sin ventana: todos, últimas líneas)

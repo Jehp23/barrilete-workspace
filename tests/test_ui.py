@@ -187,28 +187,27 @@ class Proporciones(unittest.TestCase):
     def test_inner_es_lo_que_la_tarjeta_no_corta(self):
         # una fila de exactamente inner(W) entra entera; una más larga se corta con "…"
         import rail
-        for cards in ("float", "neon"):
-            G.save_ui({**G.ui(), "cards": cards})
-            try:
-                for W in (40, 80):
-                    n = G.inner(W)
-                    self.assertEqual(n, rail.inner(W), cards)
-                    txt = lambda rows: "".join(STRIP.sub("", l) for l in G.card("t", rows, W))
-                    self.assertNotIn("…", txt(["a" * n]), (cards, W))
-                    self.assertIn("…", txt(["a" * (n + 1)]), (cards, W))
-            finally:
-                G.save_ui({**G.ui(), "cards": "float"})
+        for W in (40, 80):
+            n = G.inner(W)
+            self.assertEqual(n, rail.inner(W))
+            txt = lambda rows: "".join(STRIP.sub("", l) for l in G.card("t", rows, W))
+            self.assertNotIn("…", txt(["a" * n]), W)
+            self.assertIn("…", txt(["a" * (n + 1)]), W)
 
     def test_la_tarjeta_mide_exactamente_lo_pedido(self):
         # inner() y la tarjeta usan CARD_PAD: si el margen se corre, el ancho total deja de ser W
-        for cards in ("float", "neon"):
-            G.save_ui({**G.ui(), "cards": cards})
-            try:
-                for W in (30, 80):
-                    filas = [l for l in G.card("Título", ["fila", "a" * 200], W) if l]
-                    self.assertEqual({G.vlen(l) for l in filas}, {W}, (cards, W))
-            finally:
-                G.save_ui({**G.ui(), "cards": "float"})
+        for W in (30, 80):
+            filas = G.card("Título", ["fila", "a" * 200], W)
+            self.assertEqual({G.vlen(l) for l in filas}, {W}, W)
+
+    def test_un_solo_estilo_de_tarjeta(self):
+        # un ui.json viejo con cards/density no cambia la tarjeta, y alt+, ya no los ofrece
+        import customize
+        base = G.card("t", ["x"], 30)
+        G.save_ui({**G.ui(), "cards": "float", "density": "compact"})
+        self.assertEqual(G.card("t", ["x"], 30), base)
+        self.assertTrue(STRIP.sub("", base[0]).startswith("╭"))
+        self.assertFalse({"cards", "density"} & {c[1] for c in customize.CATS})
 
     def test_layout_conf_lo_lee_gentle(self):
         self.assertEqual((G.SIDE_W, G.RAIL_PCT, G.RAIL_MIN), (14, 34, 46))
