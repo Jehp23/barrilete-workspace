@@ -31,6 +31,7 @@ ENTRIES = [
     ("GitHub", "Ver checks fallidos para re-correr", "rerun", None, "show"),
     ("GitHub", "Re-correr los checks fallidos", "rerun --go", None, "show"),
     ("Sesión", "Lista de agentes", "ls", None, "show"),
+    ("Sesión", "Limpiar procesos sin dueño (muestra antes)", "clean", None, "show"),
     ("Sesión", "Tokens y costo de hoy", "tokens", None, "show"),
     ("Sesión", "Roles y modelos", "roles", None, "show"),
     ("Sesión", "Cuentas de Claude y Codex", "account", None, "show"),

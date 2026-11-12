@@ -74,6 +74,8 @@ uso: bk [comando] [--dry-run]
   watch [ventana]   pantalla de un agente en vivo, solo lectura (sin ventana: toma el próximo
                     agente que nadie esté mirando; --all: todos en un panel, como en el workspace)
   stop <agente>     cerrar la ventana del agente (el worktree queda; su tarea queda cancelada)
+  clean [--yes]     limpiar restos: claude, codex o scripts de bk sin padre (PPID 1) y estado de la barra de
+                    panes cerrados. No toca nada vivo ni tmux; sin --yes solo muestra
   done <resultado>  (lo corre el agente) cerrar su tarea: pr <n> | blockers | dropped "…" | escalate "…"
   tasks [--all]     las tareas de los agentes con su estado, su resultado y su carpeta
   tasks prune [--days N] [--yes]  borrar tareas terminadas (nunca las activas; sin --yes solo muestra)
@@ -1530,6 +1532,7 @@ case "${1:-}" in
   say)         shift; say "$@" ;;
   watch)       shift; watch "${1:-}" ;;
   stop)        shift; stop "${1:-}" ;;
+  clean)       shift; exec python3 "$WS/lib/clean.py" "$@" ;;
   done)        shift; rc=0; python3 "$TASKS" done "$@" || rc=$?
                [ "$rc" -ne 0 ] || done_release
                sketchybar --trigger agent_update >/dev/null 2>&1 || true; exit $rc ;;

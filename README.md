@@ -6,7 +6,7 @@ Los agentes corren en la sesión tmux `agents`; Sketchybar muestra su estado (ro
 ```
 bk                 (workspace)      bk s             (sesiones)
 bk plan "<idea>"   bk run <issue>   bk review <pr>   bk fix <pr> "…"   bk orchestrate
-bk ls              bk go <ventana>  bk stop <ventana>
+bk ls              bk go <ventana>  bk stop <ventana>  bk clean [--yes]
 bk peek [ventana]  bk say <ventana> "…"   bk watch [ventana|--all]
 bk monitor         bk checkpoints   bk tasks         bk done <resultado>   bk approve <tarea>
 bk account         bk account use <cuenta> [--relaunch]   bk run … --account <cuenta>
