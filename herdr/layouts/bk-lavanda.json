@@ -68,12 +68,16 @@
               "id": "tareas",
               "type": "block",
               "size": {
-                "weight": 1
+                "px": 56
               },
-              "min": 90,
+              "min": 56,
               "content": {
-                "mod": "bk-tareas"
-              }
+                "mod": "bk-tareas",
+                "props": {
+                  "launcher": true
+                }
+              },
+              "max": 56
             }
           ]
         },
