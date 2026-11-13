@@ -19,6 +19,7 @@ y explican en stderr; con una terminal, resolve y auto abren el selector en vez 
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -42,6 +43,60 @@ def sh(*args, timeout=5):
         return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
+
+
+# ---------- tmux o Herdr ----------
+# Con Herdr (bk backend herdr, lib/herdr.sh) no hay ventanas de tmux: cada agente y cada chat es una terminal de
+# herdr-core con etiquetas bk.* y su "pane" es la dirección de la terminal (t7), la misma que anota el hook.
+# hc por su ruta si no está en el PATH: Sketchybar corre los plugins con un PATH corto.
+HC = os.environ.get("BK_HC") or shutil.which("hc") or os.path.expanduser("~/.local/bin/hc")
+_HC_CWD = {}   # dirección -> carpeta, de la última consulta
+
+
+def backend():
+    """tmux o herdr: lo mismo que decide bin/bk (BK_BACKEND; si no, ~/.config/bk/backend)."""
+    b = os.environ.get("BK_BACKEND", "")
+    if not b:
+        try:
+            with open(os.path.expanduser("~/.config/bk/backend")) as f:
+                b = f.read().strip()
+        except OSError:
+            b = ""
+    return "herdr" if b == "herdr" else "tmux"
+
+
+def hc_terms(kind):
+    """Terminales vivas de Herdr con bk.kind=<kind>: [(dirección, etiquetas)]. Vacío si Herdr no responde."""
+    try:
+        ls = json.loads(sh(HC, "ls", "--json", "--label", f"bk.kind={kind}") or "{}")
+    except ValueError:
+        return []
+    out = []
+    for t in ls.get("terminals") or []:
+        addr = t.get("address") or ""
+        try:
+            g = json.loads(sh(HC, "get", addr, "--json") or "{}")
+        except ValueError:
+            continue
+        labels = g.get("labels") or {}
+        if not addr or not labels.get("bk.win"):
+            continue
+        _HC_CWD[addr] = (g.get("foreground") or {}).get("cwd") or g.get("cwd") or t.get("cwd") or ""
+        out.append((addr, labels))
+    return out
+
+
+def pane_text(pane, lines=40):
+    """Lo último que se ve en el pane (tmux) o en la terminal (Herdr)."""
+    if backend() == "herdr":
+        return sh(HC, "read", pane, "--lines", str(lines))
+    return sh("tmux", "capture-pane", "-p", "-J", "-t", pane, "-S", f"-{lines}")
+
+
+def pane_cwd(pane):
+    if backend() == "herdr":
+        return _HC_CWD.get(pane, "")
+    return sh("tmux", "display-message", "-p", "-t", pane, "#{pane_current_path}").strip()
 
 
 def fold(s):
@@ -124,7 +179,7 @@ def last_question(pane):
     """La última línea con '?' de lo que escribió el agente, si su último mensaje termina preguntando."""
     if not pane:
         return ""
-    text = sh("tmux", "capture-pane", "-p", "-J", "-t", pane, "-S", "-40")
+    text = pane_text(pane, 40)
     lines = [l.rstrip() for l in text.splitlines()]
     # cortar en el prompt de Claude Code (la caja con ❯) y la línea de estado de abajo
     for i in range(len(lines) - 1, -1, -1):
@@ -203,8 +258,13 @@ def subagents(sid):
 
 
 def chats(sts):
-    """Los chats de los workspaces (bk-<proyecto>, bk-<proyecto>-2…): {sesión: (pane, nombre)}."""
+    """Los chats de los workspaces (bk-<proyecto>, bk-<proyecto>-2…): {sesión: (pane, nombre)}.
+    Con Herdr: las terminales con bk.kind=chat, por su nombre (<proyecto>, <proyecto>-2…); no tienen número."""
     out = {}
+    if backend() == "herdr":
+        for addr, labels in hc_terms("chat"):
+            out.setdefault(labels["bk.win"], (addr, labels.get("bk.name", ""), ""))
+        return out
     raw = sh("tmux", "list-sessions", "-F", "#{session_name}")
     for ws in raw.split():
         if not ws.startswith("bk"):
@@ -231,8 +291,13 @@ def chats(sts):
 
 # ---------- agentes ----------
 def windows():
-    """{ventana: pane del agente}. Si el agente está de visita en un workspace (alt+shift+N), su pane real."""
+    """{ventana: pane del agente}. Si el agente está de visita en un workspace (alt+shift+N), su pane real.
+    Con Herdr: las terminales con bk.kind=agent, por su etiqueta bk.win."""
     out = {}
+    if backend() == "herdr":
+        for addr, labels in hc_terms("agent"):
+            out.setdefault(labels["bk.win"], addr)
+        return out
     raw = sh("tmux", "list-panes", "-s", "-t", SESSION, "-F", "#{window_name}\t#{pane_id}\t#{@bk_ws}")
     for line in raw.splitlines():
         parts = line.split("\t")
@@ -328,7 +393,7 @@ def gather(fetch_titles=True, look=True, chats_too=True):
         m = WIN_RE.match(win)
         kind, num = (m.group(1), m.group(2)) if m else ("", "")
         ref = (st.get("ref") or "").lstrip("#")
-        cwd = st.get("cwd") or sh("tmux", "display-message", "-p", "-t", pane, "#{pane_current_path}").strip()
+        cwd = st.get("cwd") or pane_cwd(pane)
         # el título del número de la ventana (pr241 → PR #241; f240 → PR #240; i218 → issue #218)
         title = title_for(cwd, num or ref, titles, fetch_titles)
         pr = num if kind in ("pr", "f") else (pr_of_branch(cwd, titles, fetch_titles) if kind == "i" else "")

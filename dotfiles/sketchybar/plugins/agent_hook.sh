@@ -9,13 +9,15 @@
 #   ref    issue/PR (#N): de /implement-issue N, /review-pr N, $BARRILETE_ISSUE o la rama
 #   role   planner | implementer | reviewer | orchestrator, o $BARRILETE_ROLE
 #   model  $BARRILETE_MODEL, o el último modelo que respondió (transcript)
-#   pane   $TMUX_PANE si la sesión corre dentro de tmux
+#   pane   $TMUX_PANE si la sesión corre dentro de tmux; en Herdr, la dirección de la terminal ($HC_TERMINAL_ID)
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 DIR="$HOME/.cache/sketchybar/agents"
 mkdir -p "$DIR" 2>/dev/null || exit 0
 
 INPUT=$(cat)
+# Dónde corre la sesión: el pane de tmux (%12) o la terminal de Herdr (t7, bk backend herdr). bk lo usa igual.
+PANE="${TMUX_PANE:-${HC_TERMINAL_ID:-}}"
 # Todos los campos con placeholder "-": con IFS=tab, bash colapsa campos vacíos.
 IFS=$'\t' read -r SID EVENT CWD TOOL NTYPE PCMD PARG PLANNER TRANSCRIPT < <(
   printf '%s' "$INPUT" | jq -r '
@@ -37,8 +39,8 @@ trigger() { sketchybar --trigger agent_update >/dev/null 2>&1 & }
 
 # bk registra al agente antes de que Claude Code corra hooks (bk-<ventana>.json, "esperando
 # confianza"). Cuando la sesión real arranca en ese mismo pane, ese registro previo sobra.
-if [ -n "$TMUX_PANE" ] && { [ "$EVENT" = "SessionStart" ] || [ "$EVENT" = "UserPromptSubmit" ]; }; then
-  grep -l "\"pane\": *\"$TMUX_PANE\"" "$DIR"/bk-*.json 2>/dev/null | xargs rm -f 2>/dev/null
+if [ -n "$PANE" ] && { [ "$EVENT" = "SessionStart" ] || [ "$EVENT" = "UserPromptSubmit" ]; }; then
+  grep -l "\"pane\": *\"$PANE\"" "$DIR"/bk-*.json 2>/dev/null | xargs rm -f 2>/dev/null
 fi
 
 if [ "$EVENT" = "SessionEnd" ]; then
@@ -172,7 +174,7 @@ fi
 
 jq --arg state "$STATE" --arg cwd "$CWD" --arg tool "$TOOL_ARG" \
    --arg phase "$PHASE" --arg role "$ROLE" --arg ref "$REF" --arg model "$MODEL" \
-   --arg pane "${TMUX_PANE:-}" --argjson bg "${BG:-0}" \
+   --arg pane "$PANE" --argjson bg "${BG:-0}" \
    --argjson d "$DELTA" --argjson reset "$RESET_SUB" '
   (if $state != "" then .state = $state else . end)
   | .background = $bg
@@ -197,9 +199,9 @@ SOUND="$HOME/barrilete-workspace/lib/agent_sound.sh"
 # bk say encolado mientras el agente trabajaba (ADR-005 D8 del kit): al terminar el turno, escribirlo en su pane.
 # Solo en "done" (el turno terminó y el chat espera texto): en un permiso o una pregunta, lo tipeado
 # respondería otra cosa. En segundo plano y con un segundo de margen, para no frenar a Claude Code.
-if [ -n "${BK_TASK_DIR:-}" ] && [ -n "${TMUX_PANE:-}" ] && [ -s "$BK_TASK_DIR/queue.jsonl" ] \
+if [ -n "${BK_TASK_DIR:-}" ] && [ -n "$PANE" ] && [ -s "$BK_TASK_DIR/queue.jsonl" ] \
    && [ "$(jq -r '.state // ""' "$F" 2>/dev/null)" = done ]; then
-  (sleep "${BK_DRAIN_DELAY:-1}"; "$HOME/barrilete-workspace/bin/bk" _drain "$BK_TASK_DIR" "$TMUX_PANE") </dev/null >/dev/null 2>&1 &
+  (sleep "${BK_DRAIN_DELAY:-1}"; "$HOME/barrilete-workspace/bin/bk" _drain "$BK_TASK_DIR" "$PANE") </dev/null >/dev/null 2>&1 &
 fi
 trigger
 exit 0

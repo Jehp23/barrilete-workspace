@@ -70,6 +70,24 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   argumento de `claude`, sin `send-keys`), lo borra y te pregunta si cierra el viejo. `bk handoff --listos`: los que hay. Los tres están también en la paleta (`alt+k`). Mientras espera, la tira
   marca ese workspace con `↪` (en lugar del `▪` de contexto) y `bk s` marca su fila con `↪`, también en recientes.
 
+## Herdr en vez de tmux (`bk backend herdr`)
+`bk backend herdr` hace que los chats y los agentes vivan en la app [Herdr](https://herdr.dev) y no en tmux
+(`bk backend tmux` vuelve; queda en `~/.config/bk/backend`, y `BK_BACKEND` manda para un comando). No hay riel,
+tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
+
+- **Un espacio por proyecto**: `bk` en la carpeta del proyecto abre (o muestra) el espacio `<proyecto>` con su
+  chat en la pestaña `chat`. `bk chat` suma otra pestaña (`chat-2`…), `bk chat --rama X` abre el espacio
+  `<proyecto>-<x>` en su worktree y `bk chat --suelto` va al espacio `chats`.
+- **Una pestaña por agente**: `bk run`, `fix`, `review`, `plan` y `orchestrate` lanzan al agente en una pestaña
+  del espacio de su proyecto (`i42`, `pr57`…) sin sacarte de la que estás mirando. Herdr muestra su estado.
+- `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
+  su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`, `dash`, `new`, `snapshot`, `restore`) avisa y no
+  corre: herdr-core ya mantiene vivas las terminales. `bk account use` sigue siendo de tmux; `--account X` anda.
+- Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra
+  las terminales. Lo que en tmux era el nombre de la ventana y sus `@opciones` son etiquetas de la terminal
+  (`bk.kind`, `bk.win`, `bk.project`, `bk.role`, `bk.ref`), y el "pane" es su dirección (`t7`), que el hook de
+  estado toma de `HC_TERMINAL_ID`. Tests: `tests/test_herdr.sh`, con un Herdr falso (`tests/herdr_fake.py`).
+
 ## Sesiones (`bk s` · `C-a s`)
 Selector estilo Orca (`lib/sessions.py`): arriba las sesiones abiertas (Enter salta a su pane; un agente que
 terminó se revive con `claude --resume` en el mismo pane), abajo las recientes de todas las carpetas

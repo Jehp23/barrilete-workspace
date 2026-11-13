@@ -5,7 +5,8 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(dirname "$HERE")"
 TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$TMP"' EXIT
 export BK_HANDOFF_DIR="$TMP/h" BK_CONTEXT_HOOK_STATE="$TMP/state"
-unset TMUX TMUX_PANE BK_ACCOUNT BK_ACCOUNT_CLAUDE
+unset TMUX TMUX_PANE HC_TERMINAL_ID BK_ACCOUNT BK_ACCOUNT_CLAUDE
+export BK_BACKEND=tmux   # este test no cambia HOME: que no lea tu ~/.config/bk/backend
 # Un tmux falso para bk: si algo se escapa del --dry-run (el 2026-11-05 un caso roto abrió cuatro workspaces
 # reales), falla acá y queda anotado en vez de abrir chats en tu tmux
 mkdir -p "$TMP/fake"; printf '#!/bin/sh\necho "$*" >> "%s/tmux.log"\nexit 1\n' "$TMP" >"$TMP/fake/tmux"; chmod +x "$TMP/fake/tmux"

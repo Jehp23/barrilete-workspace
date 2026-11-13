@@ -1,0 +1,265 @@
+# shellcheck shell=bash
+# bk sobre Herdr en vez de tmux (lo carga bin/bk; se elige con `bk backend herdr`).
+# Cada proyecto es un espacio de Herdr; cada chat y cada agente, una pestaña de ese espacio. No hay riel,
+# tira ni footer: la lista de espacios y la de agentes de Herdr ya muestran lo mismo.
+#   herdr-app  maneja la ventana: espacios y pestañas (necesita la app abierta)
+#   hc         herdr-core: las terminales. Leer la pantalla, escribir, etiquetar, cerrar
+# Lo que en tmux era el nombre de la ventana (i42, pr57) y sus @opciones acá son etiquetas de la terminal:
+#   bk.kind     agent | chat
+#   bk.win      la "ventana" del agente (i42) o el nombre del chat (abra, abra-2, abra-<rama>)
+#   bk.project  el proyecto · bk.role · bk.ref · bk.account · bk.name (el nombre que le pusiste a un chat)
+# El "pane" de bk es la dirección de la terminal (t7): la que el hook de estado anota como pane
+# (HC_TERMINAL_ID), así que pane_state, bk say en cola y el pre-registro andan igual que en tmux.
+HD_APP="${BK_HERDR_APP:-herdr-app}"
+HD_HC="${BK_HC:-hc}"
+
+hd_app() { "$HD_APP" "$@"; }
+hd_hc()  { "$HD_HC" "$@"; }
+
+need_herdr() {
+  command -v "$HD_APP" >/dev/null || die "falta herdr-app (instalá Herdr, o volvé a tmux: bk backend tmux)"
+  command -v "$HD_HC" >/dev/null || die "falta hc, el herdr-core (instalá Herdr, o volvé a tmux: bk backend tmux)"
+}
+
+# hd_up: crear espacios y pestañas necesita la ventana de Herdr abierta. Si no lo está, la abre y espera.
+hd_up() {
+  need_herdr
+  hd_app status >/dev/null 2>&1 && return 0
+  info "abriendo Herdr…"
+  if [ -n "${BK_HERDR_OPEN:-}" ]; then $BK_HERDR_OPEN >/dev/null 2>&1 || true
+  else open -ga Herdr >/dev/null 2>&1 || true; fi
+  local i
+  for i in $(seq "${BK_HERDR_WAIT:-30}"); do
+    hd_app status >/dev/null 2>&1 && return 0
+    sleep 0.5
+  done
+  die "Herdr no respondió: abrilo y volvé a correr el comando"
+}
+
+# hd_json <arg…>: los argumentos como un array JSON (el argv de una pestaña). Con python y no con jq --args,
+# que se queda con los que empiezan con guion (-c).
+hd_json() { python3 -c 'import json, sys; print(json.dumps(sys.argv[1:], ensure_ascii=False))' "$@"; }
+
+# hd_space_id <nombre>: el id del espacio de esta máquina con ese nombre (vacío si no hay)
+hd_space_id() {
+  hd_app ls 2>/dev/null | jq -r --arg n "$1" '[.spaces[]? | select(.name == $n and .machine == null) | .id] | first // empty' 2>/dev/null || true
+}
+
+# hd_find <etiqueta=valor>…: direcciones de las terminales vivas que tienen todas esas etiquetas
+hd_find() {
+  local a=() kv
+  for kv in "$@"; do a+=(--label "$kv"); done
+  hd_hc ls --json "${a[@]}" 2>/dev/null | jq -r '.terminals[]?.address // empty' 2>/dev/null || true
+}
+
+# hd_label <terminal> <etiqueta>: su valor (vacío si no la tiene)
+hd_label() { hd_hc get "$1" --json 2>/dev/null | jq -r --arg k "$2" '.labels[$k] // empty' 2>/dev/null || true; }
+
+# Las consultas de este archivo nunca cortan bk: si Herdr no responde devuelven vacío (con pipefail, un hc
+# caído dentro de $(…) hacía salir a bk sin decir nada).
+hd_term_of_win() { hd_find bk.kind=agent "bk.win=$1" | head -1; }   # la terminal del agente de esa ventana
+hd_chat_term()   { hd_find bk.kind=chat "bk.win=$1" | head -1; }    # la terminal del chat con ese nombre
+
+# hd_agents: "ventana<TAB>terminal" de cada agente vivo
+hd_agents() {
+  local t
+  for t in $(hd_find bk.kind=agent); do printf '%s\t%s\n' "$(hd_label "$t" bk.win)" "$t"; done
+}
+
+# Lo que estás mirando ("espacio<TAB>pestaña") y volver a eso: lanzar un agente no te saca de donde estás
+hd_view() { hd_app status 2>/dev/null | jq -r '[.space // "", .tab // ""] | @tsv' 2>/dev/null || true; }
+hd_show() {
+  [ -z "${1:-}" ] || hd_app do space.select --id "$1" >/dev/null 2>&1 || true
+  [ -z "${2:-}" ] || hd_app do tab.select --id "$2" >/dev/null 2>&1 || true
+}
+
+# hd_open_tab <espacio> <pestaña> <carpeta> <argv…>: una pestaña nueva en el espacio con ese nombre; si el espacio
+# no existe, lo crea con esa pestaña. Imprime la dirección de la terminal. Los argumentos van como un objeto
+# JSON: con --name, un nombre como "42" o "true" llegaría como número. Antes de llamarla: hd_up.
+hd_open_tab() {
+  local space="$1" tab="$2" dir="$3" sp out args; shift 3
+  sp=$(hd_space_id "$space")
+  if [ -n "$sp" ]; then
+    args=$(jq -cn --arg space "$sp" --arg name "$tab" --arg folder "$dir" --argjson argv "$(hd_json "$@")" \
+             '{space: $space, name: $name, folder: $folder, argv: $argv}')
+    out=$(hd_app do tab.new "$args") \
+      || { printf 'bk: Herdr no creó la pestaña %s: %s\n' "$tab" "$out" >&2; return 1; }
+  else
+    args=$(jq -cn --arg name "$space" --arg tab "$tab" --arg folder "$dir" --argjson argv "$(hd_json "$@")" \
+             '{name: $name, tab: $tab, folder: $folder, argv: $argv}')
+    out=$(hd_app do space.new "$args") \
+      || { printf 'bk: Herdr no creó el espacio %s: %s\n' "$space" "$out" >&2; return 1; }
+  fi
+  out=$(jq -r '.terminal // empty' <<<"$out" 2>/dev/null)
+  [ -n "$out" ] || { printf 'bk: Herdr no informó la terminal de %s\n' "$tab" >&2; return 1; }
+  printf '%s' "$out"
+}
+
+# hd_launch <ventana> <carpeta> <comando de shell> [-e VAR=valor …]: el agente en una pestaña nueva del espacio
+# de su proyecto, con esas variables. No cambia lo que estás mirando. Imprime la dirección de la terminal.
+# Herdr corre el argv en tu shell interactiva y la deja abierta cuando el agente termina (para leer lo último).
+# Antes de llamarla: hd_up (acá no, porque su salida se captura).
+hd_launch() {
+  local win="$1" dir="$2" full="$3" kv envv=() view t; shift 3
+  for kv in "$@"; do [ "$kv" = -e ] || envv+=("$kv"); done
+  view=$(hd_view)
+  t=$(hd_open_tab "$(project_of "$dir")" "$win" "$dir" \
+        env BK_BACKEND=herdr "${envv[@]+"${envv[@]}"}" bash -c "$full") || return 1
+  # shellcheck disable=SC2086
+  [ -z "${view//[[:space:]]/}" ] || hd_show $view
+  printf '%s' "$t"
+}
+
+# hd_chat <nombre del chat> <espacio> <pestaña> <carpeta> <proyecto>: un claude en una pestaña del espacio (que se
+# crea si no está) y a la vista. WS_CHAT_CMD cambia lo que corre (bk chat --desde); BK_WS_NAME lo nombra.
+hd_chat() {
+  local ws="$1" space="$2" tab="$3" dir="$4" top="$5" t kv CTA envv=()
+  account_args claude
+  for kv in "${CTA[@]+"${CTA[@]}"}"; do [ "$kv" = -e ] || envv+=("$kv"); done
+  hd_up
+  if [ -n "${WS_CHAT_CMD:-}" ]; then
+    t=$(hd_open_tab "$space" "${BK_WS_NAME:-$tab}" "$dir" \
+          env BK_BACKEND=herdr "BK_PROJECT=$top" "${envv[@]+"${envv[@]}"}" bash -c "$WS_CHAT_CMD") || exit 1
+  else
+    t=$(hd_open_tab "$space" "${BK_WS_NAME:-$tab}" "$dir" \
+          env BK_BACKEND=herdr "BK_PROJECT=$top" "${envv[@]+"${envv[@]}"}" claude) || exit 1
+  fi
+  local lab=(bk.kind=chat "bk.win=$ws" "bk.project=$(project_of "$top")") cta
+  cta=$(account_of claude); [ -z "$cta" ] || lab+=("bk.account=$cta")
+  [ -z "${BK_WS_NAME:-}" ] || lab+=("bk.name=$BK_WS_NAME")
+  hd_hc label "$t" "${lab[@]}" >/dev/null 2>&1 || info "(no pude etiquetar el chat $ws: bk ls no lo va a mostrar)"
+  info "chat $ws → Herdr, espacio $space"
+}
+
+# hd_free <base>: el primer nombre de chat libre: <base>-2, <base>-3…
+hd_free() {
+  local k=2
+  while [ -n "$(hd_chat_term "$1-$k")" ]; do k=$((k + 1)); done
+  printf '%s-%s' "$1" "$k"
+}
+
+# hd_workspace [carpeta]: el espacio del proyecto de esa carpeta con su chat. Si ya está, lo muestra; si se le
+# cerró el chat, le pone uno nuevo.
+hd_workspace() {
+  if [ "$DRY" -eq 1 ]; then
+    info "(dry-run: abriría el espacio $(project_of "${1:-$PWD}" 2>/dev/null) de Herdr en ${1:-$PWD})"
+    return 0
+  fi
+  local dir top name sp t
+  dir=$(cd "${1:-$PWD}" && pwd) || die "no existe $1"
+  top=$(project_top "$dir"); name=$(project_of "$dir")
+  hd_up
+  sp=$(hd_space_id "$name")
+  t=$(hd_chat_term "$name")
+  if [ -z "$sp" ] || [ -z "$t" ]; then hd_chat "$name" "$name" chat "$dir" "$top"; return; fi
+  hd_go "$t"
+  info "→ $name (ya estaba abierto)"
+}
+
+# hd_go <terminal>: mostrar su pestaña
+hd_go() {
+  local t="$1" sp tab
+  IFS='|' read -r sp tab < <(hd_hc get "$t" --json 2>/dev/null | jq -r '[.labels["herdr.space"] // "", .labels["herdr.tab"] // ""] | join("|")' 2>/dev/null) || true
+  [ -n "$tab" ] || die "no encuentro la pestaña de $t en Herdr"
+  hd_up
+  hd_show "$sp" "$tab"
+  hd_app do pane.focus --terminal "$t" >/dev/null 2>&1 || true
+}
+
+# hd_chat_cmd: bk chat [--suelto | --rama <nombre> | --desde <chat> | --nombre <X>] con Herdr
+hd_chat_cmd() {
+  local loose=0 branch="" want_branch=0 from="" top name
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --suelto) loose=1; shift ;;
+      --desde) from="${2:-}"; [ -n "$from" ] || die "bk chat --desde <chat|sesión>   (los resumenes listos: bk handoff --listos)"; shift 2 ;;
+      --nombre) export BK_WS_NAME="${2:?--nombre necesita un nombre}"; shift 2 ;;
+      --rama) want_branch=1; branch="${2:-}"; [ $# -ge 2 ] && shift 2 || shift ;;
+      *) break ;;
+    esac
+  done
+  if [ -n "$from" ]; then hd_chat_from "$from"; return; fi
+  if [ "$loose" = 1 ]; then
+    # Chat sin proyecto: en una carpeta propia (~/.bk/chats), así Claude no lee tu home ni pide confiar en ella
+    top="$HOME/.bk/chats"
+    [ "$DRY" -eq 1 ] && { info "(dry-run: abriría un chat sin proyecto en $top)"; return 0; }
+    mkdir -p "$top"
+    name=suelto; [ -z "$(hd_chat_term suelto)" ] || name=$(hd_free suelto)
+    hd_chat "$name" chats "$name" "$top" "$top"
+    return
+  fi
+  top=$(project_top "${BK_PROJECT:-$PWD}"); name=$(project_of "$top")
+  if [ "$want_branch" = 1 ]; then
+    # Una rama aparte: su worktree y su espacio (<proyecto>-<rama>), para varios cambios del proyecto sin pisarse
+    chat_branch_wt "$top" "$branch"
+    [ "$DRY" -eq 1 ] && { info "(dry-run: abriría el espacio $name-$CHAT_SLUG de Herdr en $CHAT_WT)"; return 0; }
+    [ -z "$(hd_chat_term "$name-$CHAT_SLUG")" ] || { hd_go "$(hd_chat_term "$name-$CHAT_SLUG")"; info "→ $name-$CHAT_SLUG (ya estaba abierto)"; return; }
+    hd_chat "$name-$CHAT_SLUG" "$name-$CHAT_SLUG" chat "$CHAT_WT" "$top"
+    return
+  fi
+  # Otro chat del proyecto: una pestaña más de su espacio (chat-2, chat-3…)
+  [ "$DRY" -eq 1 ] && { info "(dry-run: abriría otro chat en el espacio $name de Herdr)"; return 0; }
+  local ws; ws=$(hd_free "$name")
+  hd_chat "$ws" "$name" "chat-${ws##*-}" "$top" "$top"
+}
+
+# bk chat --desde <chat|sesión>: un chat nuevo del mismo proyecto que arranca con el resumen que dejó otro
+# (lib/handoff.py). El resumen va como argumento de claude y el chat nuevo lo borra al tomarlo.
+hd_chat_from() {
+  local q="$1" row sid dir acct old top name ws
+  row=$(python3 "$WS/lib/handoff.py" find "$q") \
+    || die "no hay un resumen listo de «$q» (bk handoff $q lo pide; los listos: bk handoff --listos)"
+  IFS=$'\t' read -r sid dir acct old <<<"$row"
+  [ -d "$dir" ] || die "la carpeta del resumen ya no existe: $dir"
+  top=$(project_top "$dir"); name=$(project_of "$top")
+  [ -z "${BK_ACCOUNT:-}" ] || acct="$BK_ACCOUNT"   # bk --account X chat --desde abra: manda la que pediste
+  BK_ACCOUNT="$acct"
+  WS_CHAT_CMD="p=\$(python3 $(sq "$WS/lib/handoff.py") take $(sq "$sid")) && claude -- \"\$p\" || claude"
+  if [ "$DRY" -eq 1 ]; then printf '%s\t%s\t%s\t%s\n' "$name" "$dir" "$acct" "$WS_CHAT_CMD"; return; fi
+  ws=$(hd_free "$name")
+  hd_chat "$ws" "$name" "chat-${ws##*-}" "$dir" "$top"
+  info "→ $ws sigue desde ${old:-$sid}, con la cuenta $acct. El chat viejo sigue abierto: cerrá su pestaña cuando quieras"
+}
+
+# bk name ["nombre" | -]: el nombre del chat de esta terminal (la etiqueta bk.name y el de su pestaña)
+hd_name() {
+  local t="${HC_TERMINAL_ID:-}" tab
+  [ -n "$t" ] && [ "$(hd_label "$t" bk.kind)" = chat ] || die "bk name va desde un chat de bk en Herdr"
+  if [ $# -eq 0 ]; then hd_label "$t" bk.name; return; fi
+  tab=$(hd_label "$t" herdr.tab)
+  if [ "$1" = - ]; then
+    hd_hc label "$t" bk.name= >/dev/null 2>&1 || true
+    [ -z "$tab" ] || hd_app do tab.rename "$(jq -cn --arg id "$tab" '{id: $id, name: ""}')" >/dev/null 2>&1 || true
+    info "sin nombre: $(hd_label "$t" bk.win)"; return
+  fi
+  hd_hc label "$t" "bk.name=$*" >/dev/null || die "no pude nombrar el chat"
+  [ -z "$tab" ] || hd_app do tab.rename "$(jq -cn --arg id "$tab" --arg name "$*" '{id: $id, name: $name}')" >/dev/null 2>&1 || true
+  info "$(hd_label "$t" bk.win) se llama «$*» (bk say/go $*)"
+}
+
+# bk open [proyecto|ruta]: el espacio de ese proyecto. Sin argumento: los espacios abiertos.
+hd_open() {
+  local q="${1:-}" dir
+  if [ -z "$q" ]; then
+    need_herdr
+    hd_app ls 2>/dev/null | jq -r '.spaces[]? | "  \(.name)\t\(.tabs | length) pestañas\t\(.folder)"' | column -t -s $'\t'
+    echo; info "bk open <proyecto|ruta> abre (o muestra) el espacio de ese proyecto"
+    return
+  fi
+  dir=$(resolve_project "$q"); [ -n "$dir" ] || die "no encuentro el proyecto '$q' (pasá la ruta, o bk open para ver los abiertos)"
+  hd_workspace "$dir"
+}
+
+# bk stop <agente>: cierra su terminal (con ella se va su pestaña) y limpia su estado
+hd_stop() {
+  local win="$1" t td f
+  t=$(hd_term_of_win "$win"); [ -n "$t" ] || die "no encuentro la terminal de $win en Herdr"
+  td=$(python3 "$TASKS" find --window "$win" 2>/dev/null || true)
+  [ -z "$td" ] || python3 "$TASKS" cancel "$td" >/dev/null
+  hd_hc kill "$t" >/dev/null 2>&1 || die "Herdr no cerró $win ($t)"
+  for f in "$STATE_DIR"/*.json; do
+    [ -f "$f" ] && [ "$(jq -r '.pane // ""' "$f" 2>/dev/null)" = "$t" ] && rm -f "$f"
+  done
+  sketchybar --trigger agent_update >/dev/null 2>&1 || true
+  info "cerrada $win (el worktree, si había, queda: cleanup.sh lo limpia cuando el issue cierre)"
+}

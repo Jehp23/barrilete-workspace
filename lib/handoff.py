@@ -45,15 +45,27 @@ def sh(*a):
 
 def origin(sid, pane=None, cwd=None):
     """De dónde viene: lo que bk sabe de la sesión (tmux, git, cuenta), sin preguntarle al agente."""
-    pane = pane or os.environ.get("TMUX_PANE", "")
-    session = sh("tmux", "display-message", "-p", "-t", pane, "#{session_name}") if pane else ""
-    # La carpeta del chat (donde arrancó claude), no la del Bash del agente, que puede haber hecho cd
-    cwd = cwd or (sh("tmux", "display-message", "-p", "-t", pane, "#{pane_current_path}") if pane else "") or os.getcwd()
-    ws = name = account = ""
-    if session.startswith("bk"):
-        ws = sh("tmux", "show-options", "-qv", "-t", f"={session}:", "@bk_id")
-        name = sh("tmux", "show-options", "-qv", "-t", f"={session}:", "@bk_name")
-        account = sh("tmux", "show-options", "-qv", "-t", f"={session}:", "@bk_account_claude")
+    pane = pane or os.environ.get("TMUX_PANE", "") or os.environ.get("HC_TERMINAL_ID", "")
+    session = ws = name = account = ""
+    if pane.startswith("%"):
+        session = sh("tmux", "display-message", "-p", "-t", pane, "#{session_name}")
+        # La carpeta del chat (donde arrancó claude), no la del Bash del agente, que puede haber hecho cd
+        cwd = cwd or sh("tmux", "display-message", "-p", "-t", pane, "#{pane_current_path}")
+        if session.startswith("bk"):
+            ws = sh("tmux", "show-options", "-qv", "-t", f"={session}:", "@bk_id")
+            name = sh("tmux", "show-options", "-qv", "-t", f"={session}:", "@bk_name")
+            account = sh("tmux", "show-options", "-qv", "-t", f"={session}:", "@bk_account_claude")
+    elif pane:
+        # Herdr (bk backend herdr): el pane es la dirección de la terminal (t7) y el chat se conoce por sus
+        # etiquetas: bk.win es su nombre (lo que toma bk chat --desde) y no hay número de workspace
+        try:
+            g = json.loads(sh(os.environ.get("BK_HC") or "hc", "get", pane, "--json") or "{}")
+        except ValueError:
+            g = {}
+        labels = g.get("labels") or {}
+        session, name, account = labels.get("bk.win", ""), labels.get("bk.name", ""), labels.get("bk.account", "")
+        cwd = cwd or g.get("cwd") or ""
+    cwd = cwd or os.getcwd()
     account = account or os.environ.get("BK_ACCOUNT_CLAUDE", "") or "default"
     top = sh("git", "-C", cwd, "rev-parse", "--show-toplevel") or cwd
     branch = sh("git", "-C", cwd, "branch", "--show-current")

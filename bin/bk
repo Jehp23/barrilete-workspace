@@ -14,6 +14,11 @@ STATE_DIR="$HOME/.cache/sketchybar/agents"
 export BK_STATE_DIR="$STATE_DIR"   # lib/agents.py lee el mismo estado
 DRY=0
 TASKS="$WS/lib/tasks.py"   # tareas de los agentes (ADR-005 del kit): task.json + events.jsonl
+# Dónde viven los chats y los agentes: tmux (el workspace de siempre) o herdr (la app Herdr, lib/herdr.sh).
+# Manda BK_BACKEND; si no, ~/.config/bk/backend (bk backend tmux|herdr). Sin nada: tmux.
+BACKEND="${BK_BACKEND:-$(cat "$HOME/.config/bk/backend" 2>/dev/null || true)}"
+[ "$BACKEND" = herdr ] || BACKEND=tmux
+export BK_BACKEND="$BACKEND"   # lib/agents.py, lib/handoff.py y lo que bk lance usan el mismo
 
 # bk corre como vos: si este shell heredó la config de gh del bot (un chat que retomó el entorno
 # de un agente), no usarla. El bot es solo para los agentes, que la reciben con -e al lanzarse.
@@ -28,6 +33,8 @@ fi
 
 die()  { printf 'bk: %s\n' "$*" >&2; exit 1; }
 info() { printf '\033[2m%s\033[0m\n' "$*"; }
+# shellcheck source=lib/herdr.sh
+. "$WS/lib/herdr.sh"
 
 usage() {
   cat <<'EOF'
@@ -35,6 +42,9 @@ uso: bk [comando] [--dry-run]
 
   (sin comando)     el workspace del proyecto de esta carpeta: chat + riel (sesión tmux "bk-<proyecto>";
                     si ya existe, vuelve a ella). Uno por proyecto, cada uno en su escritorio
+                    Con Herdr (bk backend herdr): el espacio del proyecto, con su chat en una pestaña
+  backend [tmux|herdr]  dónde viven los chats y agentes: el workspace de tmux o la app Herdr (cada proyecto un
+                    espacio, cada chat o agente una pestaña; sin riel ni tira: la lista de agentes es la de Herdr)
   rerun [--go] [pr…]  volver a correr los checks de Actions que fallaron (sin --go: solo muestra)
   new | n           popup "Nuevo": chat nuevo en este proyecto u otro workspace (alt+n, o + en la tira)
   chat [--suelto]   un claude nuevo en el proyecto del workspace (o sin proyecto), en el lugar del chat (alt+q vuelve)
@@ -326,8 +336,32 @@ relaunch_chat() {
 
 # ---------- tmux ----------
 need_tmux() { command -v tmux >/dev/null || die "falta tmux (brew install tmux)"; }
+need_backend() { if [ "$BACKEND" = herdr ]; then need_herdr; else need_tmux; fi; }
+# tmux_only <comando> <qué hay en Herdr>: lo que es del workspace de tmux (riel, tira, fotos) no corre con Herdr
+tmux_only() { [ "$BACKEND" = tmux ] || die "bk $1 es del workspace de tmux. Con Herdr: $2"; }
 
-has_window() { tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "$1"; }
+has_window() {
+  if [ "$BACKEND" = herdr ]; then [ -n "$(hd_term_of_win "$1")" ]; return; fi
+  tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "$1"
+}
+
+# Lo mismo en tmux y en Herdr; el pane es %12 en tmux y la dirección de la terminal (t7) en Herdr.
+# be_screen <pane> [líneas de historia]: lo que muestra la pantalla (sin líneas: solo lo visible)
+be_screen() {
+  if [ "$BACKEND" = herdr ]; then hd_hc read "$1" --lines "${2:-0}" 2>/dev/null
+  else tmux capture-pane -p -J -t "$1" ${2:+-S "-$2"} 2>/dev/null; fi
+}
+# be_type <pane> <texto> [force]: escribirlo y Enter. force (solo Herdr): también si el programa espera en un
+# diálogo; sin eso hc no escribe ahí. Lo usa bk say para responder un menú con su número.
+be_type() {
+  if [ "$BACKEND" = herdr ]; then hd_hc send ${3:+--force} -- "$1" "$2" >/dev/null
+  else tmux send-keys -t "$1" -l -- "$2"; sleep 0.2; tmux send-keys -t "$1" Enter; fi
+}
+# agent_wins: las ventanas de los agentes, una por línea
+agent_wins() {
+  if [ "$BACKEND" = herdr ]; then hd_agents | cut -f1
+  else tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null || true; fi
+}
 
 # Identidad de bot (GitHub App, lib/ghapp.py): si está configurada y llega al repo, el agente usa
 # gh y git push con el token de la App y firma los commits como el bot. Si no, corre como vos.
@@ -343,8 +377,12 @@ bot_env() {
   cfg="$HOME/.cache/bk/bot/gh/${slug//\//_}"
   python3 "$WS/lib/ghapp.py" ghconfig "$cfg" "$slug" 2>/dev/null || return 0
   # El renovador lo lanza el server de tmux: así no queda colgado de esta terminal
-  pgrep -f "ghapp.py keep $cfg" >/dev/null ||
+  if pgrep -f "ghapp.py keep $cfg" >/dev/null; then :
+  elif [ "$BACKEND" = herdr ]; then   # sin server de tmux: suelto de esta terminal con nohup
+    (nohup python3 "$WS/lib/ghapp.py" keep "$cfg" "$slug" >/dev/null 2>&1 &)
+  else
     tmux run-shell -b "python3 $(sq "$WS/lib/ghapp.py") keep $(sq "$cfg") $(sq "$slug") >/dev/null 2>&1; true" 2>/dev/null
+  fi
   # La persona responsable: una App no puede preguntar "gh api user" ni asignarse issues
   local human; human=$(env -u GH_CONFIG_DIR -u GH_TOKEN gh api user -q .login 2>/dev/null || true)
   env+=(-e "GH_CONFIG_DIR=$cfg" -e "BK_BOT=$login" ${human:+-e "BK_HUMAN=$human"}
@@ -360,6 +398,12 @@ bot_env() {
 # proyecto del pane; alt+x de nuevo la esconde y vuelve a aparecer como la dejaste.
 ws_term() {
   local dir="$1" top name
+  if [ "$BACKEND" = herdr ]; then   # una pestaña con una shell en esa carpeta
+    hd_up
+    hd_app do terminal.open "$(jq -cn --arg f "$(cd "$dir" && pwd)" '{folder: $f, name: "term"}')" >/dev/null \
+      || die "Herdr no abrió la terminal"
+    return
+  fi
   # El repo principal también desde un worktree de agente (su .git común está en el repo)
   top=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
   case "$top" in */.git) top=${top%/.git} ;; *) top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "$dir") ;; esac
@@ -415,11 +459,12 @@ launch() {
   [ "$DRY" -eq 1 ] && { info "(dry-run: no se lanzó nada)"; return 0; }
 
   mem_ok || exit 1
-  need_tmux
+  if [ "$BACKEND" = herdr ]; then hd_up; else need_tmux; fi
   if has_window "$win"; then
     # Misma ventana en otro proyecto (#12 de abra y #12 del kit): prefijar con el proyecto
     local other mine
-    other=$(project_of "$(tmux display-message -p -t "$SESSION:$win" '#{pane_current_path}')")
+    if [ "$BACKEND" = herdr ]; then other=$(hd_label "$(hd_term_of_win "$win")" bk.project)
+    else other=$(project_of "$(tmux display-message -p -t "$SESSION:$win" '#{pane_current_path}')"); fi
     mine=$(project_of "$dir")
     if [ "$other" != "$mine" ]; then win="${mine:0:8}-$win"; fi
     has_window "$win" && die "ya existe la ventana '$win' (bk go $win, o bk stop $win)"
@@ -428,13 +473,14 @@ launch() {
   [ -n "$ref" ] && env+=(-e "BARRILETE_ISSUE=$ref")
   env+=("${CTA[@]+"${CTA[@]}"}")
   bot_env "$dir"
+  local tdir="" fresh=0
   if [ -n "$tid" ]; then
-    local proj tdir rc=0 extra=(); proj=$(project_of "$dir")
+    local proj rc=0 extra=(); proj=$(project_of "$dir")
     [ "$orch" = 1 ] && extra=(--orchestrated)
     tdir=$(python3 "$TASKS" create "$proj" "$tid" --role "$role" --ref "$ref" --repo "$(project_top "$dir")" \
            --worktree "$dir" --window "$win" "${extra[@]+"${extra[@]}"}") || rc=$?
     case $rc in
-      0) ;;
+      0) fresh=1 ;;
       3) # ya existe: solo se lanza si es una propuesta pendiente (lanzarla es aprobarla, D6)
          [ "$(python3 "$TASKS" state "$proj" "$tid")" = pending ] || die "ya hay una tarea activa $tid (bk tasks)"
          python3 "$TASKS" start "$tdir" --window "$win" ;;
@@ -443,7 +489,20 @@ launch() {
     env+=(-e "BK_TASK_DIR=$tdir")
     full="$full; $(sq "$WS/bin/bk") _ended $(sq "$tdir")"
   fi
-  local pane parent; parent=$(launcher_of)
+  local pane parent
+  if [ "$BACKEND" = herdr ]; then
+    # Una pestaña del espacio del proyecto; rol, issue y cuenta van como etiquetas de la terminal (lib/herdr.sh)
+    local lab=(bk.kind=agent "bk.win=$win" "bk.project=$(project_of "$dir")" "bk.role=$role")
+    [ -z "$ref" ] || lab+=("bk.ref=$ref")
+    [ -z "$cta" ] || lab+=("bk.account=$cta")
+    if ! pane=$(hd_launch "$win" "$dir" "$full" "${env[@]}") || ! hd_hc label "$pane" "${lab[@]}" >/dev/null; then
+      # sin etiquetas bk no lo encuentra: no dejar una terminal suelta ni una tarea recién creada sin agente
+      [ -z "$pane" ] || hd_hc kill "$pane" >/dev/null 2>&1 || true
+      [ "$fresh" = 0 ] || python3 "$TASKS" cancel "$tdir" >/dev/null 2>&1 || true
+      die "no pude lanzar $win en Herdr"
+    fi
+  else
+  parent=$(launcher_of)
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$SESSION:" -n "$win" -c "$dir" "${env[@]}" "$full")
   else
@@ -459,6 +518,7 @@ launch() {
   [ -z "$cta" ] || tmux set-option -w -t "$SESSION:$win" @bk_account "$cta"
   # La tira lo cuelga de la ventana que lo lanzó
   [ -z "$parent" ] || tmux set-option -w -t "$SESSION:$win" @bk_parent "$parent"
+  fi
   pre_register "$win" "$pane" "$dir" "$role" "$model" "$ref"
   # El título del issue/PR para bk ls, la tira y Sketchybar (una consulta a GitHub, en segundo plano)
   (python3 "$WS/lib/agents.py" warm >/dev/null 2>&1 &)
@@ -506,7 +566,7 @@ task_drain() {
   [ -z "$(open_menu "$tp")" ] || return 0
   python3 "$TASKS" drain "$td" | while IFS= read -r line; do
     msg=$(jq -r '.msg // empty' <<<"$line"); [ -n "$msg" ] || continue
-    tmux send-keys -t "$tp" -l -- "$msg"; sleep 0.2; tmux send-keys -t "$tp" Enter; sleep 0.5
+    be_type "$tp" "$msg"; sleep 0.5
   done
 }
 
@@ -532,6 +592,10 @@ cmd_approve() {
 # palabra del título. Si no alcanza, en una terminal abre el selector; si no, lista los candidatos y falla.
 # Pane de lo que devolvió resolve_win: un agente (su ventana) o un chat (chat:<workspace>)
 win_pane() {
+  if [ "$BACKEND" = herdr ]; then
+    case "$1" in chat:*) hd_chat_term "${1#chat:}" ;; *) hd_term_of_win "$1" ;; esac
+    return
+  fi
   case "$1" in
     chat:*) ws_chat_pane "${1#chat:}" ;;
     *)      agent_target "$1" ;;
@@ -544,8 +608,16 @@ resolve_win() {
 }
 
 go() {
-  need_tmux
   local win="${1:-}"
+  if [ "$BACKEND" = herdr ]; then
+    # Sin agente: Herdr abierto (su lista de agentes es el "bk go" de siempre). Con agente o chat: su pestaña.
+    hd_up
+    [ -n "$win" ] || { info "Herdr está abierto: los agentes están en su lista (bk go <agente> muestra uno)"; return; }
+    win=$(resolve_win "$win") || exit 1
+    local t; t=$(win_pane "$win"); [ -n "$t" ] || die "no encuentro a ${win#chat:} en Herdr"
+    hd_go "$t"; return
+  fi
+  need_tmux
   tmux has-session -t "$SESSION" 2>/dev/null || die "no hay agentes (sesión tmux '$SESSION' vacía)"
   if [ -n "$win" ]; then win=$(resolve_win "$win") || exit 1; fi
   local target="$SESSION${win:+:$win}"
@@ -563,19 +635,20 @@ agent_target() {
 
 # Ver la pantalla de un agente sin entrar. Sin ventana: un resumen de todas.
 peek() {
-  need_tmux
-  tmux has-session -t "$SESSION" 2>/dev/null || die "no hay agentes (sesión tmux '$SESSION' vacía)"
+  need_backend
+  [ "$BACKEND" = herdr ] || tmux has-session -t "$SESSION" 2>/dev/null || die "no hay agentes (sesión tmux '$SESSION' vacía)"
   local win="${1:-}" n="${2:-}"
   if [ -n "$win" ]; then
     win=$(resolve_win "$win") || exit 1
-    tmux capture-pane -p -J -t "$(win_pane "$win")" -S "-${n:-60}"
+    be_screen "$(win_pane "$win")" "${n:-60}"
     return
   fi
   local w
-  for w in $(tmux list-windows -t "$SESSION" -F '#{window_name}'); do
+  for w in $(agent_wins); do
     printf '\033[1;35m── %s\033[0m\n' "$w"
     # Sin líneas vacías ni el marco del prompt de Claude Code, para que entre en pantalla
-    tmux capture-pane -p -J -t "$(agent_target "$w")" -S -80 | grep -v '^[[:space:]]*$' | grep -v '^[─╭╰│ ]*$' | tail -n "${n:-8}"
+    # (|| true: una pantalla vacía hace salir a grep con 1 y, con pipefail, cortaba el resto)
+    be_screen "$(win_pane "$w")" 80 | grep -v '^[[:space:]]*$' | grep -v '^[─╭╰│ ]*$' | tail -n "${n:-8}" || true
     echo
   done
 }
@@ -588,16 +661,16 @@ peek() {
 # open_menu <pane>: si el agente muestra un menú de Claude Code (pregunta con opciones o pedido de permiso),
 # imprime sus opciones; si no, nada. Se reconoce por el pie del menú ("Enter to select", "Esc to cancel").
 open_menu() {
-  local scr; scr=$(tmux capture-pane -p -J -t "$1" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 25)
+  local scr; scr=$(be_screen "$1" | grep -v '^[[:space:]]*$' | tail -n 25 || true)
   grep -qE 'Enter to (select|confirm)|Esc to (cancel|exit)|↑/↓ to navigate' <<<"$scr" || return 0
   grep -E '^[[:space:]]*(❯[[:space:]]*)?[0-9]+\.[[:space:]]' <<<"$scr" | sed -E 's/^[[:space:]]*//' | head -n 9
 }
 
 say() {
-  need_tmux
+  need_backend
   local now=0; [ "${1:-}" = "--now" ] && { now=1; shift; }
   [ $# -gt 0 ] || die 'bk say [--now] ["agente"] "mensaje"   (agente: nombre, número o palabra; sin él, el que te espera)'
-  tmux has-session -t "$SESSION" 2>/dev/null || die "no hay agentes (sesión tmux '$SESSION' vacía)"
+  [ "$BACKEND" = herdr ] || tmux has-session -t "$SESSION" 2>/dev/null || die "no hay agentes (sesión tmux '$SESSION' vacía)"
   local win msg
   if [ $# -eq 1 ]; then
     msg="$1"; win=$(python3 "$WS/lib/agents.py" auto) || exit 1
@@ -606,6 +679,7 @@ say() {
   fi
   [ -n "$msg" ] || die "falta el mensaje"
   local tp; tp=$(win_pane "$win")
+  [ -n "$tp" ] || die "no encuentro dónde corre ${win#chat:}"
   # Trabajando (ADR-005 D8): se encola y el hook lo escribe cuando el agente termina el turno
   case "$win" in chat:*) ;; *)
     local td; td=$(python3 "$TASKS" find --window "$win" 2>/dev/null || true)
@@ -624,9 +698,9 @@ say() {
     printf '    Respondé con el número: bk say %s <n>\n' "${win#chat:}" >&2
     exit 1
   fi
-  tmux send-keys -t "$tp" -l -- "$msg"
-  sleep 0.2
-  tmux send-keys -t "$tp" Enter
+  # Con un menú abierto solo llegó hasta acá un número: es la respuesta al menú (en Herdr hace falta forzarlo)
+  be_type "$tp" "$msg" "${menu:+force}" \
+    || die "no pude escribirle a ${win#chat:} (si espera en un diálogo: bk peek ${win#chat:})"
   info "→ ${win#chat:}: $msg   (bk peek ${win#chat:} para ver la respuesta)"
 }
 
@@ -649,6 +723,11 @@ watch_pick() {
   done < <(tmux list-windows -t "$SESSION" -F '#{window_name} #{pane_dead} #{pane_current_command}' 2>/dev/null)
 }
 watch() {
+  if [ "$BACKEND" = herdr ]; then
+    # En Herdr el agente se mira en su pestaña: bk watch <agente> la muestra
+    [ -n "${1:-}" ] && [ "$1" != --all ] && { go "$1"; return; }
+    tmux_only watch "los agentes están en la lista de Herdr (bk go <agente> muestra uno)"
+  fi
   need_tmux
   # Columna del workspace: todos los agentes en un panel que se reparte solo
   [ "${1:-}" = "--all" ] && exec python3 "$WS/lib/agents_view.py"
@@ -745,6 +824,7 @@ project_of() { basename "$(project_top "$1")" | tr '.:' '__'; }
 WS_SESSION="${BK_WS_SESSION:-}"
 
 workspace() {
+  if [ "$BACKEND" = herdr ]; then hd_workspace "$@"; return; fi
   need_tmux
   # --dry-run: decir qué abriría y nada más (todo lo que abre workspaces pasa por acá: bk ws, bk chat, --rama,
   # --desde). La carpeta puede no existir todavía (el worktree de --rama no se crea en dry-run).
@@ -905,6 +985,7 @@ cmd_focus() {
 # bk name "<nombre>": cómo se llama el chat de este workspace (bk ls, la tira, bk say/go <nombre>).
 # Sin nombre: lo muestra. bk name -: lo borra (vuelve al de /rename o al título de Claude).
 cmd_name() {
+  if [ "$BACKEND" = herdr ]; then hd_name "$@"; return; fi
   need_tmux
   local ws="${BK_FROM:-$(tmux display-message -p '#{session_name}' 2>/dev/null || true)}"
   case "$ws" in bk*) ;; *) die "bk name va desde el chat de un workspace (bk-…)" ;; esac
@@ -970,34 +1051,71 @@ chat_from() {
 # bk handoff --pedido [--sid S]: el pedido completo, para el chat de este pane · bk handoff --listos: los listos
 cmd_handoff() {
   set +euo pipefail
-  local s pane sid st wsid
+  local s pane sid st wsid me="${TMUX_PANE:-${HC_TERMINAL_ID:-}}"   # el pane de quien llama, en tmux o en Herdr
   case "${1:-}" in
     --listos|-l) python3 "$WS/lib/handoff.py" list; return ;;
     --pedido)
       [ "${2:-}" = --sid ] && sid="${3:-}"
-      [ -n "$sid" ] || [ -z "${TMUX_PANE:-}" ] || read -r sid st < <(pane_sid "$TMUX_PANE"; echo)
+      [ -n "$sid" ] || [ -z "$me" ] || read -r sid st < <(pane_sid "$me"; echo)
       [ -n "$sid" ] || die "no sé qué sesión de Claude es esta: bk handoff --pedido --sid <id>"
-      exec python3 "$WS/lib/handoff.py" pedido --sid "$sid" ${TMUX_PANE:+--pane "$TMUX_PANE"} ;;
+      exec python3 "$WS/lib/handoff.py" pedido --sid "$sid" ${me:+--pane "$me"} ;;
   esac
-  need_tmux
-  s=$(ws_session "${1:-$(caller_session)}")
-  case "$s" in bk*) tmux has-session -t "=$s" 2>/dev/null || die "no hay un workspace $s" ;;
-    *) die "bk handoff [número de workspace]: desde un workspace, o nombrando uno" ;; esac
-  pane=$(chat_pane "$s")
-  [ -n "$pane" ] || die "no encontré el chat de $s (si hay un agente en su lugar, alt+q lo devuelve)"
+  need_backend
+  if [ "$BACKEND" = herdr ]; then
+    # El chat por su nombre (bk ls), o el de esta terminal
+    if [ -n "${1:-}" ]; then s="$1"; pane=$(hd_chat_term "$s"); else pane="$me"; s=$(hd_label "$pane" bk.win); fi
+    [ -n "$pane" ] && [ -n "$s" ] || die "bk handoff [chat]: desde un chat de bk, o nombrando uno (bk ls)"
+  else
+    s=$(ws_session "${1:-$(caller_session)}")
+    case "$s" in bk*) tmux has-session -t "=$s" 2>/dev/null || die "no hay un workspace $s" ;;
+      *) die "bk handoff [número de workspace]: desde un workspace, o nombrando uno" ;; esac
+    pane=$(chat_pane "$s")
+    [ -n "$pane" ] || die "no encontré el chat de $s (si hay un agente en su lugar, alt+q lo devuelve)"
+  fi
   read -r sid st < <(pane_sid "$pane"; echo)
   case "$sid" in ""|bk-*) die "no sé qué sesión de Claude corre en el chat de $s" ;; esac
-  if [ "$pane" = "${TMUX_PANE:-}" ]; then exec python3 "$WS/lib/handoff.py" pedido --sid "$sid" --pane "$pane"; fi
+  if [ "$pane" = "$me" ]; then exec python3 "$WS/lib/handoff.py" pedido --sid "$sid" --pane "$pane"; fi
   # Un menú abierto: el Enter elegiría la opción marcada (como en bk say)
   [ -z "$(open_menu "$pane")" ] || die "el chat de $s tiene un menú abierto: respondelo y volvé a pedirlo"
-  tmux send-keys -t "$pane" -l -- "Pasemos a un chat nuevo: corré \`bk handoff --pedido --sid $sid\` y hacé lo que dice."
-  sleep 0.2
-  tmux send-keys -t "$pane" Enter
-  wsid=$(tmux show-options -qv -t "=$s:" @bk_id)
+  be_type "$pane" "Pasemos a un chat nuevo: corré \`bk handoff --pedido --sid $sid\` y hacé lo que dice." \
+    || die "no pude escribirle al chat de $s"
+  [ "$BACKEND" = herdr ] || wsid=$(tmux show-options -qv -t "=$s:" @bk_id)
   info "→ $s: le pedí el resumen. Cuando lo escriba: bk chat --desde ${wsid:-$s}"
 }
 
+# chat_branch_wt <repo> <nombre del cambio>: el worktree de un chat en una rama aparte (../<repo>-wt/chat-<nombre>,
+# rama chat/<nombre>), desde la rama principal actualizada. Lo crea si falta (con --dry-run solo lo dice) y
+# deja CHAT_SLUG y CHAT_WT.
+chat_branch_wt() {
+  local top="$1" branch="$2" slug wt base
+  [ -n "${branch// /}" ] || die "bk chat --rama <nombre del cambio>"
+  git -C "$top" rev-parse --show-toplevel >/dev/null 2>&1 || die "una rama aparte necesita un repo git"
+  # iconv de macOS translitera "ñ" como "~n": sacar esas marcas antes de pasar a guiones
+  # (|| true: iconv sale con 1 cuando translitera, pero lo que imprimió sirve)
+  slug=$(printf '%s' "$branch" | iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null) || true
+  [ -n "$slug" ] || slug=$branch
+  slug=$(printf '%s' "$slug" | tr -d "~'^\`\"" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' \
+         | cut -c1-30 | sed 's/^-*//; s/-*$//') || slug=""
+  [ -n "$slug" ] || die "el nombre '$branch' no deja un nombre de rama válido (usá letras o números)"
+  wt="$(dirname "$top")/$(basename "$top")-wt/chat-$slug"
+  # La rama de un chat: el repo principal aunque el chat actual ya esté en un worktree
+  if [ ! -d "$wt" ] && [ "$DRY" -eq 1 ]; then
+    info "(dry-run: crearía la rama chat/$slug en $wt)"
+  elif [ ! -d "$wt" ]; then
+    git -C "$top" fetch -q origin 2>/dev/null || true
+    base=$(git -C "$top" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo HEAD)
+    if git -C "$top" show-ref -q --verify "refs/heads/chat/$slug"; then
+      git -C "$top" worktree add -q "$wt" "chat/$slug" || die "no pude crear el worktree $wt"
+    else
+      git -C "$top" worktree add -q -b "chat/$slug" "$wt" "$base" || die "no pude crear el worktree $wt"
+    fi
+    info "rama chat/$slug desde $base · $wt"
+  fi
+  CHAT_SLUG="$slug"; CHAT_WT="$wt"
+}
+
 cmd_chat() {
+  if [ "$BACKEND" = herdr ]; then hd_chat_cmd "$@"; return; fi
   set +euo pipefail
   local loose=0 branch="" want_branch=0
   while [ $# -gt 0 ]; do
@@ -1017,30 +1135,10 @@ cmd_chat() {
     top=$(tmux show-environment -t "$s" BK_PROJECT 2>/dev/null | sed -n 's/^BK_PROJECT=//p')
     git -C "${top:-$PWD}" rev-parse --show-toplevel >/dev/null 2>&1 || die "una rama aparte necesita un repo git"
     top=$(project_top "${top:-$PWD}")   # el repo principal, aunque estemos en un worktree
-    local slug wt base
-    # iconv de macOS translitera "ñ" como "~n": sacar esas marcas antes de pasar a guiones
-    slug=$(printf '%s' "$branch" | iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null)
-    [ -n "$slug" ] || slug=$branch
-    slug=$(printf '%s' "$slug" | tr -d "~'^\`\"" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' \
-           | cut -c1-30 | sed 's/^-*//; s/-*$//')
-    [ -n "$slug" ] || die "el nombre '$branch' no deja un nombre de rama válido (usá letras o números)"
-    wt="$(dirname "$top")/$(basename "$top")-wt/chat-$slug"
-    # La rama de un chat: el repo principal aunque el chat actual ya esté en un worktree
-    if [ ! -d "$wt" ] && [ "$DRY" -eq 1 ]; then
-      info "(dry-run: crearía la rama chat/$slug en $wt)"
-    elif [ ! -d "$wt" ]; then
-      git -C "$top" fetch -q origin 2>/dev/null
-      base=$(git -C "$top" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo HEAD)
-      if git -C "$top" show-ref -q --verify "refs/heads/chat/$slug"; then
-        git -C "$top" worktree add -q "$wt" "chat/$slug" || die "no pude crear el worktree $wt"
-      else
-        git -C "$top" worktree add -q -b "chat/$slug" "$wt" "$base" || die "no pude crear el worktree $wt"
-      fi
-      info "rama chat/$slug desde $base · $wt"
-    fi
+    chat_branch_wt "$top" "$branch"
     # Un workspace propio (otro número en la tira, alt+N): bk-<proyecto>-<nombre>
-    WS_SESSION="bk-$(project_of "$top")-$slug"
-    workspace "$wt"
+    WS_SESSION="bk-$(project_of "$top")-$CHAT_SLUG"
+    workspace "$CHAT_WT"
     return
   elif [ "$loose" = 1 ]; then
     # Chat sin proyecto: en una carpeta propia (~/.bk/chats), así Claude no lee tu home ni pide confiar en ella
@@ -1073,6 +1171,7 @@ cmd_chat() {
 }
 
 cmd_open() {
+  if [ "$BACKEND" = herdr ]; then hd_open "$@"; return; fi
   local q="${1:-}"
   if [ -z "$q" ]; then
     tmux list-sessions -F '#{session_name}	#{?session_attached,abierto,en segundo plano}	#{session_path}' 2>/dev/null \
@@ -1219,10 +1318,11 @@ ws_layout() {
 }
 
 stop() {
-  need_tmux
+  need_backend
   local win="${1:?bk stop <ventana>}" panes
   win=$(resolve_win "$win") || exit 1
   case "$win" in chat:*) die "bk stop cierra agentes; un chat se cierra desde su workspace (/exit)" ;; esac
+  if [ "$BACKEND" = herdr ]; then hd_stop "$win"; return; fi
   # Si el agente está de visita en un workspace, en esta ventana quedó el chat de ese workspace:
   # devolverlo antes de cerrar, para no matarlo. || true: sin match grep sale con 1 y, con pipefail,
   # cortaba el script en silencio (sin limpiar el estado ni avisar)
@@ -1244,13 +1344,15 @@ stop() {
 # bk ls: los agentes de la sesión con el título de su issue/PR, los que te esperan primero.
 # bk ls --all: la tabla de antes, con todas las sesiones de Claude que reporta el hook (chats incluidos).
 ls_agents() {
-  if [ "${1:-}" != "--all" ] && tmux has-session -t "$SESSION" 2>/dev/null; then
+  if [ "${1:-}" != "--all" ] && { [ "$BACKEND" = herdr ] || tmux has-session -t "$SESSION" 2>/dev/null; }; then
     python3 "$WS/lib/agents.py" list; task_proposals; return
   fi
   local files=("$STATE_DIR"/*.json)
-  # Ventanas tmux por pane, para mostrar a qué ventana saltar
+  # Ventanas por pane, para mostrar a qué ventana saltar
   local map='{}'
-  if command -v tmux >/dev/null && tmux has-session -t "$SESSION" 2>/dev/null; then
+  if [ "$BACKEND" = herdr ]; then
+    map=$(hd_agents | jq -R 'split("\t") | {(.[1]): .[0]}' | jq -s 'add // {}')
+  elif command -v tmux >/dev/null && tmux has-session -t "$SESSION" 2>/dev/null; then
     map=$(tmux list-panes -s -t "$SESSION" -F '#{pane_id} #{window_name}' \
           | jq -R 'split(" ") | {(.[0]): .[1]}' | jq -s 'add // {}')
   fi
@@ -1564,7 +1666,7 @@ case "${1:-}" in
   ""|ws)       shift || true
                # tmux se cayó (o es el primer bk del día): si no hay ningún workspace y hay una foto de las
                # últimas 12 h, volver a poner todo antes de abrir el pedido (restore saltea lo que ya está)
-               if [ -z "${BK_RESTORING:-}" ] && ! tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -q '^bk' \
+               if [ "$BACKEND" = tmux ] && [ -z "${BK_RESTORING:-}" ] && ! tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -q '^bk' \
                   && [ -n "$(find "$HOME/.cache/bk/snapshots" -name '*.json' -mmin -720 2>/dev/null | head -1)" ]; then
                  info "tmux no tiene workspaces: restauro la última foto (bk restore --list para ver otras)"
                  python3 "$WS/lib/snapshot.py" restore || true
@@ -1583,31 +1685,44 @@ case "${1:-}" in
                  c = ($1 < t) ? "\033[31m" : ($1 == t ? "\033[33m" : "")
                  printf "%s%2d  %s  %-5s %-40s %s\033[0m\n", c, NR, $1, $2, $5, ($4 != "" ? "· " $4 : "") }'
                info "bk entregas <n> la abre en Notion" ;;
-  dash)        dash ;;
+  backend)     shift
+               case "${1:-}" in
+                 "") echo "$BACKEND" ;;
+                 tmux|herdr)
+                   [ "$1" = tmux ] || need_herdr
+                   [ "$DRY" -eq 1 ] && { info "(dry-run: bk pasaría a $1)"; exit 0; }
+                   mkdir -p "$HOME/.config/bk"; echo "$1" >"$HOME/.config/bk/backend"
+                   if [ "$1" = herdr ]; then info "bk usa Herdr: bk abre el espacio del proyecto y cada agente es una pestaña (bk backend tmux vuelve)"
+                   else info "bk usa tmux: el workspace de siempre (bk backend herdr vuelve a Herdr)"; fi ;;
+                 *) die "bk backend [tmux|herdr]" ;;
+               esac ;;
+  dash)        tmux_only dash "bk ls y bk tokens"; dash ;;
   monitor)     exec python3 "$WS/lib/monitor.py" "$@" ;;
-  rail)        exec python3 "$WS/lib/rail.py" ;;
-  sidebar)     exec python3 "$WS/lib/sidebar.py" ;;
+  rail)        tmux_only rail "la lista de agentes de Herdr"; exec python3 "$WS/lib/rail.py" ;;
+  sidebar)     tmux_only sidebar "la lista de espacios de Herdr"; exec python3 "$WS/lib/sidebar.py" ;;
   term|t)      shift; ws_term "${1:-$PWD}" ;;
   sub)         shift; exec python3 "$WS/lib/subwatch.py" "$@" ;;
-  snapshot)    shift; exec python3 "$WS/lib/snapshot.py" save "$@" ;;
-  restore)     shift; case "${1:-}" in --list|-l|list) exec python3 "$WS/lib/snapshot.py" list ;;
+  snapshot)    tmux_only snapshot "no hace falta, herdr-core mantiene vivas las terminales"
+               shift; exec python3 "$WS/lib/snapshot.py" save "$@" ;;
+  restore)     tmux_only restore "no hace falta, herdr-core mantiene vivas las terminales"
+               shift; case "${1:-}" in --list|-l|list) exec python3 "$WS/lib/snapshot.py" list ;;
                         *) exec python3 "$WS/lib/snapshot.py" restore "$@" ;; esac ;;
   _botenv)     shift; env=(); bot_env "${1:?}" >/dev/null 2>&1; for kv in "${env[@]+"${env[@]}"}"; do [ "$kv" = -e ] || printf '%s\n' "$kv"; done ;;
   sound)       shift; cmd_sound "${1:-status}" ;;
   name)        shift; cmd_name "$@" ;;
-  _nth)        ws_ids | awk -F'\t' -v n="${2:-1}" '$1 == n {print $2}' ;;   # alt+N: el workspace con ese número
-  _ids)        ws_ids ;;
+  _nth)        tmux_only _nth "los espacios de Herdr"; ws_ids | awk -F'\t' -v n="${2:-1}" '$1 == n {print $2}' ;;   # alt+N: el workspace con ese número
+  _ids)        tmux_only _ids "los espacios de Herdr"; ws_ids ;;
   _launcher)   launcher_of ;;   # lo que launch anota como @bk_parent (la tira lo usa; tests)
   changes)     exec python3 "$WS/lib/changes.py" ;;
   palette|k)   exec python3 "$WS/lib/palette.py" ;;
-  _layout)     ws_layout "${2:-}" ;;
-  _agent)      ws_agent "${2:-}" "${3:-0}" ;;
+  _layout)     tmux_only _layout "el layout de Herdr"; ws_layout "${2:-}" ;;
+  _agent)      tmux_only _agent "bk go <agente>"; ws_agent "${2:-}" "${3:-0}" ;;
   chat)        shift; cmd_chat "$@" ;;
   handoff)     shift; cmd_handoff "$@" ;;
-  new|n)       exec python3 "$WS/lib/new.py" ;;
-  _footer)     ws_footer "${2:-}" ;;
-  _model)      ws_model "${2:-}" ;;
-  _style)      WS_SESSION="${2:?}"; ws_style ;;
+  new|n)       tmux_only new "bk chat (otro chat) o bk open <proyecto>"; exec python3 "$WS/lib/new.py" ;;
+  _footer)     tmux_only _footer "bk tokens"; ws_footer "${2:-}" ;;
+  _model)      tmux_only _model "la pestaña del chat"; ws_model "${2:-}" ;;
+  _style)      tmux_only _style "los temas de Herdr"; WS_SESSION="${2:?}"; ws_style ;;
   stats)       exec python3 "$WS/lib/stats.py" ;;
   metrics)     shift; exec python3 "$WS/lib/metrics.py" "$@" ;;
   bot)         exec python3 "$WS/lib/ghapp.py" check ;;
