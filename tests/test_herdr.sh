@@ -176,6 +176,11 @@ check_eq "$(( $(tabs) - n0 )) $(has "$last" "take 'rojo1'")" "1 si" "handoff --s
 rm -f "$BK_HANDOFF_DIR"/rojo1.*
 bk handoff --seguir >/dev/null 2>&1; check_eq "$?" "1" "handoff --seguir sin resumenes listos: falla"
 
+# --- bk s retoma una sesión cerrada (lib/sessions.py): bk chat con WS_CHAT_CMD, un chat más del proyecto ---
+n0=$(tabs); WS_CHAT_CMD="cd '$REPO' && claude --resume abc-123" BK_PROJECT="$REPO" bk chat >/dev/null 2>&1
+last=$(st -r '.terms | to_entries | last | .value | (.argv | join(" ")) + " | " + .labels["bk.kind"] + " " + .labels["bk.project"]')
+check_eq "$(( $(tabs) - n0 )) $(has "$last" "bash -c cd '$REPO' && claude --resume abc-123 | chat proj")" "1 si" "bk chat con WS_CHAT_CMD: un chat más del proyecto que corre ese comando (retomar desde bk s)"
+
 # --- Herdr cerrado: lo abre y espera; si no responde, no lanza ni deja una tarea ---
 : >"$HD_FAKE/closed"; rm -f "$TMP/opened"
 out=$(cd "$REPO" && bk run 12 --role implementer 2>&1); rc=$?

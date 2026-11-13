@@ -9,16 +9,24 @@ Cada chat de un workspace lleva su número fijo (el de la tira y alt+N), con su 
 Con ↪ en lugar del ●: ese chat dejó el resumen para seguir en uno nuevo (lib/handoff.py). También en recientes,
 si ya se cerró: bk chat --desde o «Seguir desde» en alt+n lo toma.
 
+Con Herdr (bk backend herdr): una sesión abierta vive en una terminal de Herdr (su "pane" es la dirección, t7);
+Enter muestra su pestaña y retomar una reciente abre un chat más en el espacio de su proyecto (bk chat). x no
+cierra pestañas de Herdr. Las sesiones que sigan en tmux andan como siempre.
+
 Teclas: ↑↓/jk moverse · / buscar · enter abrir · x cerrar (un agente: su ventana; un workspace: todo el
 workspace, con confirmación; la conversación queda en recientes) · q/esc salir
 """
-import curses, glob, json, os, re, subprocess, sys, time
+import curses, glob, json, os, re, shlex, shutil, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gentle as G  # noqa: E402  (paleta del tema, una sola para todas las vistas)
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import handoff as HO  # noqa: E402  (resumenes listos para seguir en un chat nuevo)
+from agents import backend, HC  # noqa: E402  (tmux o Herdr, lo mismo que decide bin/bk)
+
+APP = os.environ.get("BK_HERDR_APP") or shutil.which("herdr-app") or "herdr-app"
+BK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "bin", "bk")
 
 PROJECTS = os.path.expanduser("~/.claude/projects")
 STATE = os.path.expanduser("~/.cache/sketchybar/agents")
@@ -45,6 +53,30 @@ def tmux_panes():
             out[p[0]] = {"session": p[1], "target": f"{p[1]}:{p[2]}", "window": p[3], "dead": p[4] == "1",
                          "wsid": p[5] if p[1].startswith("bk") and p[5].isdigit() else ""}
     return out
+
+
+def herdr_panes():
+    """dirección -> dict como el de tmux_panes, de las terminales vivas de Herdr. Vacío si Herdr no responde."""
+    try:
+        ls = json.loads(sh(HC, "ls", "--json") or "{}")
+    except ValueError:
+        return {}
+    out = {}
+    for t in ls.get("terminals") or []:
+        addr = t.get("address")
+        if addr and t.get("state") == "live":
+            out[addr] = {"session": "herdr", "target": addr, "window": t.get("where") or addr, "dead": False,
+                         "wsid": "", "herdr": True}
+    return out
+
+
+def gone(pane, panes, hpanes):
+    """¿La sesión corría en un pane que ya no existe? Cada pane lo juzga su dueño, y solo si respondió: un pane
+    de tmux (%5) con la lista de tmux, una terminal de Herdr (t7) con la de Herdr. Una lista vacía no prueba nada."""
+    if not pane:
+        return False
+    mine = panes if pane.startswith("%") else hpanes
+    return bool(mine) and pane not in mine
 
 
 def transcript_meta(path, cache):
@@ -96,6 +128,7 @@ def mark_handoffs(rows, sids):
 
 def load():
     panes = tmux_panes()
+    hpanes = herdr_panes() if backend() == "herdr" else {}
     live = {}  # session_id -> estado
     for f in glob.glob(os.path.join(STATE, "*.json")):
         sid = os.path.basename(f)[:-5]
@@ -108,8 +141,8 @@ def load():
         # Corría en un pane de tmux que ya no existe: la ventana se cerró sin que Claude mandara
         # Stop/SessionEnd y el estado quedó congelado ("trabajando" para siempre). Está muerta:
         # va a recientes (enter la retoma) y se borra el estado para que la barra no la cuente.
-        # Solo si tmux respondió: sin servidor, `panes` vacío no prueba nada.
-        if panes and s.get("pane") and s["pane"] not in panes:
+        # Solo si tmux (o Herdr, si el pane es una terminal suya) respondió: una lista vacía no prueba nada.
+        if gone(s.get("pane"), panes, hpanes):
             try:
                 os.remove(f)
             except OSError:
@@ -141,8 +174,9 @@ def load():
                "mtime": mtime}
         if sid in live:
             s = live[sid]
-            pane = panes.get(s.get("pane") or "")
+            pane = panes.get(s.get("pane") or "") or hpanes.get(s.get("pane") or "")
             row.update(state=s.get("state"), role=s.get("role"), ref=s.get("ref"), pane=s.get("pane"),
+                       herdr=bool(pane and pane.get("herdr")),
                        target=pane["target"] if pane else None, window=where(pane),
                        dead=pane["dead"] if pane else False, session=pane["session"] if pane else None,
                        wsid=pane["wsid"] if pane else "")
@@ -153,8 +187,8 @@ def load():
     # Abiertas sin transcript todavía (recién lanzadas): igual se muestran
     for sid, s in live.items():
         if sid not in seen:
-            pane = panes.get(s.get("pane") or "")
-            rows_open.append({"sid": sid, "cwd": s.get("cwd", ""), "proj": project_name(s.get("cwd", "")),
+            pane = panes.get(s.get("pane") or "") or hpanes.get(s.get("pane") or "")
+            rows_open.append({"sid": sid, "herdr": bool(pane and pane.get("herdr")), "cwd": s.get("cwd", ""), "proj": project_name(s.get("cwd", "")),
                               "title": "(recién abierta)", "mtime": s.get("ts", 0), "state": s.get("state"),
                               "role": s.get("role"), "ref": s.get("ref"), "pane": s.get("pane"),
                               "target": pane["target"] if pane else None,
@@ -184,6 +218,8 @@ def where(pane):
     número fijo, el de la tira); si no, la sesión tmux."""
     if not pane:
         return None
+    if pane.get("herdr"):   # "espacio / pestaña", como lo muestra Herdr
+        return pane["window"]
     if pane["session"] == SESSION:
         return pane["window"]
     if pane.get("wsid"):
@@ -195,6 +231,8 @@ def close_action(it, current):
     """Qué hace x sobre una fila: ("window", destino) un agente · ("session", sesión) un workspace entero ·
     ("error", motivo). El workspace desde el que abriste el selector no: te dejaría sin sesión."""
     sess = it.get("session")
+    if it.get("herdr"):
+        return "error", "vive en Herdr: cerrá su pestaña ahí (o bk stop <agente>)"
     if it.get("target") and it.get("pane") and sess == SESSION:
         return "window", it["target"]
     if sess and sess.startswith("bk"):
@@ -238,6 +276,32 @@ def current_workspace():
     return s if s.startswith("bk") else None
 
 
+def quiet(*cmd, env=None):
+    return subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env).returncode
+
+
+def herdr_show(addr):
+    """Los pasos para mostrar la pestaña de esa terminal de Herdr (lo que hace bk go), o None si no tiene."""
+    try:
+        labels = json.loads(sh(HC, "get", addr, "--json") or "{}").get("labels") or {}
+    except ValueError:
+        labels = {}
+    if not labels.get("herdr.tab"):
+        return None
+    steps = [[APP, "do", "space.select", "--id", labels["herdr.space"]]] if labels.get("herdr.space") else []
+    steps += [[APP, "do", "tab.select", "--id", labels["herdr.tab"]], [APP, "do", "pane.focus", "--terminal", addr]]
+    return [lambda c=c: quiet(*c) for c in steps]
+
+
+def herdr_resume(r, cwd):
+    """Retomar una sesión cerrada con Herdr: un chat más en el espacio de su proyecto (bk chat), que arranca con
+    claude --resume en la carpeta de la sesión (Claude la busca por carpeta)."""
+    env = dict(os.environ, BK_BACKEND="herdr", BK_PROJECT=cwd,
+               WS_CHAT_CMD=f"cd {shlex.quote(cwd)} && claude --resume {shlex.quote(r['sid'])}")
+    if quiet(BK, "chat", env=env) != 0:
+        print("bk: no pude abrir el chat en Herdr (probá: bk chat)", file=sys.stderr)
+
+
 def open_row(r):
     """Devuelve (mensaje_error | None, pasos a ejecutar después de cerrar curses).
 
@@ -257,6 +321,9 @@ def open_row(r):
                     ["tmux", "select-pane", "-t", pane]]
         return [["tmux", "attach", "-t", pane]]
 
+    if r.get("herdr"):
+        steps = herdr_show(r["pane"])
+        return (None, steps) if steps else ("no encuentro su pestaña en Herdr (¿un subagente sin pestaña?)", None)
     if r.get("dead"):
         # Pane muerto (remain-on-exit): no acepta teclas. Revivirlo con la misma sesión de Claude.
         if not r.get("sid"):
@@ -268,6 +335,8 @@ def open_row(r):
     if r.get("state"):  # abierta pero fuera de tmux (otra ventana de Ghostty): no duplicarla
         return "esa sesión está abierta en otra terminal: retomala ahí", None
     cwd = r["cwd"] if r["cwd"] and os.path.isdir(r["cwd"]) else os.path.expanduser("~")
+    if backend() == "herdr":
+        return None, [lambda: herdr_resume(r, cwd)]
     name = "r-" + re.sub(r"[^A-Za-z0-9#-]", "", r["proj"])[:12]
 
     def resume():
@@ -393,7 +462,7 @@ def ui(scr):
             opened, recent = load()
         elif k == "x" and cur >= 0:
             it = dict(items[cur][1])
-            if it.get("pane"):   # dónde vive ahora (pudo moverse desde que se cargó la lista)
+            if it.get("pane") and not it.get("herdr"):   # dónde vive ahora (pudo moverse desde que se cargó la lista)
                 it["session"] = tmux_panes().get(it["pane"], {}).get("session")
             what, arg = close_action(it, current_workspace())
             if what == "window":

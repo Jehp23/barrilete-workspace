@@ -99,7 +99,10 @@ tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
   (`mod.open:bk-palette`), que hace lo suyo y se cierra; todos son el mismo archivo. Nada queda abierto (una ventana
   del mod siempre a la escucha tapaba los clics de toda la app). Herdr deja de actualizar un `keys.json` editado.
   Dos mods más, sin tecla: `bk-aviso` (muestra un aviso que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic
-  del aviso «Resumen listo»). Falta: `alt+0` (espacio anterior) no tiene equivalente, y en `bk s` saltar a una sesión o retomarla usa tmux.
+  del aviso «Resumen listo»). En `bk s` (`alt+s`), Enter sobre una sesión abierta
+  muestra su pestaña de Herdr y sobre una reciente la retoma en un chat más del espacio de su proyecto (`bk chat`
+  con `claude --resume`, en la carpeta de la sesión); `x` no cierra pestañas de Herdr, y una sesión cuya terminal
+  ya no está pasa a recientes. Falta: `alt+0` (espacio anterior) no tiene equivalente.
 - **El layout `bk`**: `bk backend herdr` también instala dos paneles dibujados por Herdr (no terminales) y un layout
   que los muestra, copia del `main` de Herdr: en la barra, las tareas activas del kit (`herdr/mods/tareas`, de
   `bk tasks --json`: por aprobar, te esperan, trabajando; clic va a la pestaña del agente) y, a la derecha, lo que
