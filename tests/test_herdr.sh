@@ -231,24 +231,25 @@ check_eq "$(jq -r '.global["alt-g"]' "$APP/keys.json") $(cat "$APP/keys.json.ant
 echo '{roto' >"$APP/keys.json"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cat "$APP/keys.json")" "{roto" "atajos: un keys.json inválido no se toca"
 
-# Los paneles de bk y el layout `bk`: el main de Herdr más un bloque por panel, sin pisar lo retocado
+# Los paneles de bk y su layout, uno solo (bk-lavanda): sigue al repo mientras no lo retoques
 rm -rf "$APP/mods" "$APP/layouts"; mkdir -p "$APP/layouts"; echo '{}' >"$APP/keys.json"
-MAINL='{"id":"root","type":"row","children":[{"id":"sidebar","type":"column","children":[{"id":"sidebar-lists","type":"column","children":[{"id":"agents","type":"block"}]}]},{"id":"work-body","type":"row","children":[{"id":"main","type":"block"}]}]}'
-echo "$MAINL" >"$APP/layouts/main.json"
+echo '{"id":"root"}' >"$APP/layouts/main.json"; : >"$HD_FAKE/log"
+L="$APP/layouts/bk-lavanda.json"; SRC="$ROOT/herdr/layouts/bk-lavanda.json"; MARK="$APP/bk-lavanda.instalado"
+sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
 bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$ROOT/herdr/mods/tareas/main.js" "$APP/mods/bk-tareas/main.js" && cmp -s "$ROOT/herdr/mods/lado/mod.json" "$APP/mods/bk-lado/mod.json" && echo igual)" "igual" "paneles: copia tareas y lado a mods/bk-<nombre>"
-node() { jq -c --arg p "$1" '[.. | objects | select(.id? == $p) | .children[]? | [.id, (.content.mod // "")] | join("=")]' "$APP/layouts/bk.json"; }
-check_eq "$(node sidebar-lists) $(node work-body)" '["agents=","tareas=bk-tareas"] ["main=","lado=bk-lado"]' "layout bk: el main de Herdr con tareas en la barra y lado a la derecha"
-check_eq "$(cat "$APP/layouts/main.json")" "$MAINL" "layout bk: no toca el main de Herdr"
-check_eq "$(log | grep -c 'layout.switch')" "0" "layout bk: instalar no cambia el layout que se muestra"
-jq '(.. | objects | select(.id? == "lado") | .size.px) = 444' "$APP/layouts/bk.json" >"$TMP/bk.retocado"; cp "$TMP/bk.retocado" "$APP/layouts/bk.json"
-bk backend herdr >/dev/null 2>&1
-check_eq "$(cmp -s "$TMP/bk.retocado" "$APP/layouts/bk.json" && echo igual)" "igual" "layout bk: instalar de nuevo no pisa lo que retocaste"
-jq 'del(.. | objects | select(.id? == "work-body") | .children[] | select(.id == "lado"))' "$TMP/bk.retocado" >"$APP/layouts/bk.json"
-bk backend herdr >/dev/null 2>&1
-check_eq "$(node work-body) $(node sidebar-lists | jq length)" '["main=","lado=bk-lado"] 2' "layout bk: repone el bloque que falta y no duplica el otro"
-echo '{roto' >"$APP/layouts/bk.json"; bk backend herdr >/dev/null 2>&1
-check_eq "$(cat "$APP/layouts/bk.json")" "{roto" "layout bk: un bk.json inválido no se toca"
+check_eq "$(cmp -s "$SRC" "$L" && echo igual) $(cat "$MARK")" "igual $(sha "$SRC")" "layout: instala bk-lavanda y anota qué instaló"
+check_eq "$(ls "$APP/layouts" | tr '\n' ' ') $(cat "$APP/layouts/main.json")" 'bk-lavanda.json main.json  {"id":"root"}' "layout: uno solo, y no toca el main de Herdr"
+check_eq "$(log | grep -c 'layout.switch')" "0" "layout: instalar no cambia el layout que se muestra"
+check_eq "$(jq -r '[.. | objects | .content?.mod? // empty | select(startswith("bk-"))] | unique | join(" ")' "$SRC") $(ls "$APP/mods" | grep -cE '^bk-(lado|tareas)$')" "bk-lado bk-tareas 2" "layout: los mods de bk que nombra son los que se instalan"
+echo '{"id":"viejo"}' >"$L"; sha "$L" >"$MARK"; bk backend herdr >/dev/null 2>&1
+check_eq "$(cmp -s "$SRC" "$L" && echo igual) $(cat "$MARK")" "igual $(sha "$SRC")" "layout: una copia que bk instaló y nadie tocó se actualiza con la del repo"
+jq '.retoque = 1' "$SRC" >"$L"; cp "$L" "$TMP/retocado"; out=$(bk backend herdr 2>&1)
+check_eq "$(cmp -s "$TMP/retocado" "$L" && echo igual) $(has "$out" "lo retocaste, no lo piso") $(cat "$MARK")" "igual si $(sha "$SRC")" "layout: una copia retocada no se pisa, y se avisa"
+rm -f "$MARK"; echo '{"id":"de otro"}' >"$L"; bk backend herdr >/dev/null 2>&1
+check_eq "$(cat "$L") $([ -f "$MARK" ] && echo marca || echo sin)" '{"id":"de otro"} sin' "layout: una copia que bk no instaló tampoco se pisa"
+rm -f "$L"; bk backend herdr >/dev/null 2>&1
+check_eq "$(cmp -s "$SRC" "$L" && echo igual)" "igual" "layout: borrarlo y repetir trae el del repo"
 
 echo "1..$N"
 [ "$FAILED" -eq 0 ]

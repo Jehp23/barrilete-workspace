@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Instala en Herdr lo de bk: el mod `bk` de los atajos, las teclas alt+…, los paneles (tareas del kit, lado derecho)
-y el layout `bk` que los muestra (herdr/ del repo).
+y el layout `bk-lavanda` que los muestra (herdr/ del repo).
 
   herdr_install.py <herdr/ del repo> <carpeta de Herdr (~/.config/herdr-app)>
 
@@ -9,71 +9,61 @@ queda como está y se avisa. Antes del primer cambio guarda keys.json.antes-de-b
 actualizar un keys.json editado: sus atajos nuevos habrá que sumarlos a mano. Imprime qué hizo; correrlo de
 nuevo no cambia nada.
 """
-import filecmp, json, os, shutil, sys
+import filecmp, hashlib, json, os, shutil, sys
 
 
 NO_KEY = ("bk-aviso", "bk-seguir")   # mods sin tecla: los abre bk (un aviso de Herdr) o el clic en ese aviso
 
 
-# Los paneles de bk (herdr/mods/<nombre> → mods/bk-<nombre>) y dónde va cada uno en el layout `bk`:
-# (id del bloque, id del nodo que lo contiene, el bloque)
-PANELS = [
-    ("tareas", "sidebar-lists", {"type": "block", "size": {"weight": 1}, "min": 90}),
-    ("lado", "work-body", {"type": "block", "size": {"px": 300}, "min": 220, "max": 520}),
-]
+# Los paneles de bk: herdr/mods/<nombre> → mods/bk-<nombre>. El layout bk-lavanda dice dónde va cada uno.
+PANELS = ["tareas", "lado"]
+LAYOUT = "bk-lavanda"
 
 
 def panels(src, home):
     copied = 0
-    for name, _parent, _block in PANELS:
+    for name in PANELS:
         a, b = os.path.join(src, "mods", name), os.path.join(home, "mods", "bk-" + name)
         os.makedirs(b, exist_ok=True)
         for fn in sorted(os.listdir(a)):
             if not (os.path.isfile(os.path.join(b, fn)) and filecmp.cmp(os.path.join(a, fn), os.path.join(b, fn), shallow=False)):
                 shutil.copyfile(os.path.join(a, fn), os.path.join(b, fn)); copied += 1
-    print(f"paneles bk: {'actualizados' if copied else 'al día'} ({', '.join('bk-' + p[0] for p in PANELS)})")
+    print(f"paneles bk: {'actualizados' if copied else 'al día'} ({', '.join('bk-' + n for n in PANELS)})")
 
 
-def find(node, id_):
-    if isinstance(node, dict):
-        if node.get("id") == id_:
-            return node
-        for child in node.get("children") or []:
-            got = find(child, id_)
-            if got:
-                return got
-    return None
+def digest(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
 
-def layout(home):
-    """El layout `bk`: el `main` de Herdr más los paneles de bk. Si no existe, se arma desde main.json; si existe,
-    solo se le suman los bloques que falten (lo que le hayas retocado queda). No cambia el layout que se muestra:
-    eso es `herdr-app do layout.switch --name bk`."""
-    path = os.path.join(home, "layouts", "bk.json")
-    new = not os.path.exists(path)
+def layout(src, home):
+    """El layout de bk, uno solo: herdr/layouts/bk-lavanda.json del repo → layouts/ de Herdr. Sigue al repo mientras
+    no lo retoques: bk anota qué instaló (bk-lavanda.instalado, su sha256) y solo pisa una copia que sigue igual a
+    esa. Una copia retocada (o una que bk no instaló) queda como está y se avisa. No cambia el layout que se
+    muestra: eso es `herdr-app do layout.switch --name bk-lavanda`."""
+    want, have = os.path.join(src, "layouts", LAYOUT + ".json"), os.path.join(home, "layouts", LAYOUT + ".json")
+    mark = os.path.join(home, LAYOUT + ".instalado")
+    new = digest(want)
     try:
-        doc = json.load(open(os.path.join(home, "layouts", "main.json") if new else path))
-    except FileNotFoundError:
-        print("layout bk: no hay layouts/main.json (abrí Herdr una vez y repetí)"); return
-    except ValueError as e:
-        print(f"layout bk: {'main' if new else 'bk'}.json no es JSON válido, no lo toco ({e})"); return
-    added, lost = [], []
-    for name, parent, block in PANELS:
-        if find(doc, name):
-            continue
-        into = find(doc, parent)
-        if not into or not isinstance(into.get("children"), list):
-            lost.append(f"{name} (no encuentro {parent})"); continue
-        into["children"].append({"id": name, **block, "content": {"mod": "bk-" + name}})
-        added.append(name)
-    if new or added:
-        tmp = path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(doc, f, indent=2, ensure_ascii=False); f.write("\n")
-        os.replace(tmp, path)
-    what = "creado desde main" if new else (f"sumé {', '.join(added)}" if added else "al día")
-    print(f"layout bk: {what}" + (f"; sin lugar para {', '.join(lost)}" if lost else "")
-          + (" (para verlo: herdr-app do layout.switch --name bk)" if new else ""))
+        was = open(mark).read().strip()
+    except OSError:
+        was = ""
+    if not os.path.exists(have):
+        what = f"instalado (herdr-app do layout.switch --name {LAYOUT})"
+    elif digest(have) == new:
+        what = "al día"
+    elif was and digest(have) == was:
+        what = "actualizado"
+    else:
+        print(f"layout {LAYOUT}: lo retocaste, no lo piso (para tomar el del repo, borrá {have} y repetí)"); return
+    if what != "al día":
+        os.makedirs(os.path.dirname(have), exist_ok=True)
+        tmp = have + ".tmp"
+        shutil.copyfile(want, tmp); os.replace(tmp, have)
+    if was != new:
+        with open(mark, "w") as f:
+            f.write(new + "\n")
+    print(f"layout {LAYOUT}: {what}")
 
 
 def main():
@@ -96,13 +86,7 @@ def main():
     print(f"mods bk-*: {'actualizados' if copied else 'al día'} ({len(names)} en {os.path.join(home, 'mods')})")
 
     panels(src, home)
-    layout(home)
-    # El look versionado se instala aparte: no pisa el layout bk personalizado.
-    look = os.path.join(home, "layouts", "bk-lavanda.json")
-    os.makedirs(os.path.dirname(look), exist_ok=True)
-    if not os.path.exists(look):
-        shutil.copyfile(os.path.join(src, "layouts", "bk-lavanda.json"), look)
-        print("layout bk-lavanda: instalado (herdr-app do layout.switch --name bk-lavanda)")
+    layout(src, home)
 
     path = os.path.join(home, "keys.json")
     try:

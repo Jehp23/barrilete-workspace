@@ -100,20 +100,23 @@ export default class Lado extends View {
       .child(v_flex().px(12).pb(11).gap(5).children(body));
   }
 
-  kv(t, key, value, extra = null) {
-    return h_flex().gap(8).items_center()
-      .child(div().w(58).flex_none().text_color(t.dim).child(key))
-      .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(value))
+  // wrap: el valor sigue en otra línea en vez de cortarse (el perfil de roles no entra en una)
+  kv(t, key, value, extra = null, wrap = false) {
+    const text = div().flex_1().min_w(0).text_color(t.foreground).child(value);
+    return h_flex().gap(8).when(!wrap, (el) => el.items_center()).when(wrap, (el) => el.items_start())
+      .child(div().w(70).flex_none().whitespace_nowrap().text_color(t.dim).child(key))
+      .child(wrap ? text : text.truncate())
       .when(Boolean(extra), (el) => el.child(extra));
   }
 
   estado(t, d) {
     const dirty = d.dirty ? div().flex_none().text_color(t.ansi3 ?? t.working).child(`±${d.dirty}`) : null;
-    const rows = [
-      this.kv(t, "Proyecto", d.project || d.path),
+    // Fuera de un proyecto (el centro de tareas, una terminal en ~) no hay rama ni perfil que mostrar
+    const rows = d.project ? [
+      this.kv(t, "Proyecto", d.project),
       this.kv(t, "Rama", d.branch || "—", dirty),
-      ...d.profile.map((p) => this.kv(t, SHORT[p.role] ?? p.role, p.model)),
-    ];
+      this.kv(t, "Perfil", d.profile.map((p) => `${SHORT[p.role] ?? p.role} ${p.model}`).join(" · ") || "—", null, true),
+    ] : [div().id("lado-sin-proyecto").text_color(t.dim).child(`${d.path} · fuera de un proyecto`)];
     const u = this.usage;
     if (u) {
       const here = d.project ? `${human(u.here_tokens)} · $${u.here_cost.toFixed(2)}` : `${human(u.tokens)} tok`;

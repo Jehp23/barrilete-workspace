@@ -103,13 +103,11 @@ tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
   muestra su pestaña de Herdr y sobre una reciente la retoma en un chat más del espacio de su proyecto (`bk chat`
   con `claude --resume`, en la carpeta de la sesión); `x` no cierra pestañas de Herdr, y una sesión cuya terminal
   ya no está pasa a recientes. Falta: `alt+0` (espacio anterior) no tiene equivalente.
-- **El layout `bk`**: `bk backend herdr` también instala dos paneles dibujados por Herdr (no terminales) y un layout
-  que los muestra, copia del `main` de Herdr: en la barra, las tareas activas del kit (`herdr/mods/tareas`, de
-  `bk tasks --json`: por aprobar, te esperan, trabajando; clic va a la pestaña del agente) y, a la derecha, lo que
-  mostraba el riel (`herdr/mods/lado`, de `bk _side`: proyecto, rama, perfil de roles, uso de hoy, agentes del
-  espacio y lo que quedó sin commitear en el proyecto y sus worktrees). Instalar no cambia el layout que ves:
-  `herdr-app do layout.switch --name bk` lo muestra y `--name main` vuelve. Si retocás `layouts/bk.json`, queda:
-  instalar de nuevo solo repone los bloques que falten. Tests: `tests/test_side.sh` y `tests/test_herdr.sh`.
+- **Los paneles y el layout**: `bk backend herdr` también instala dos paneles dibujados por Herdr (no terminales),
+  `herdr/mods/tareas` y `herdr/mods/lado`, y el layout que los muestra, uno solo: `bk-lavanda` (ver *Estética
+  Lavanda* y *Centro de tareas en Herdr*). El lado derecho sale de `bk _side` (proyecto, rama, perfil de roles, uso de
+  hoy y lo que quedó sin commitear en el proyecto y sus worktrees). Instalar no cambia el layout que ves. Tests:
+  `tests/test_side.sh` y `tests/test_herdr.sh`.
 - Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra
   las terminales. Lo que en tmux era el nombre de la ventana y sus `@opciones` son etiquetas de la terminal
   (`bk.kind`, `bk.win`, `bk.project`, `bk.role`, `bk.ref`), y el "pane" es su dirección (`t7`), que el hook de
@@ -165,14 +163,17 @@ eventos, en `~/.local/state/bk/tasks/<proyecto>/<id>/` (`task.json` y `events.js
 Fondos ciruela, acentos violeta pastel, tipografía JetBrains Mono y tarjetas redondeadas:
 proyectos, agentes en vivo y acceso al centro de tareas a la izquierda; terminal en el centro;
 contexto, GitHub y cambios a la derecha. Ámbar indica atención, menta éxito y coral errores.
-El perfil muestra cada rol en su propia fila. El panel nativo de agentes muestra todos los espacios, títulos, estados en vivo y actividad animada.
+El perfil de roles va en un renglón que sigue abajo si no entra; fuera de un proyecto, el panel lo dice. El panel nativo de agentes muestra todos los espacios, títulos, estados en vivo y actividad animada.
 
 GitHub muestra hasta cuatro PRs abiertos con enlaces al navegador, borrador,
 revisión y CI. Requiere `gh` autenticado (`gh auth status`) y un remoto GitHub;
 se actualiza cada minuto y al cambiar de carpeta, sin bloquear el estado local.
 Si no puede consultar GitHub, muestra el error sin ocultar los cambios de Git.
-El layout vive en `herdr/layouts/bk-lavanda.json`; se instala una sola vez para
-conservar ajustes locales. Para volver: `herdr-app do layout.switch --name bk`.
+El layout vive en `herdr/layouts/bk-lavanda.json` y es el único de bk. `bk backend herdr` lo mantiene igual al
+del repo mientras no lo retoques: anota qué instaló (`bk-lavanda.instalado` en la carpeta de Herdr) y solo pisa una
+copia que sigue igual a esa. Si lo retocaste queda como está y avisa; para volver al del repo, borrá
+`~/.config/herdr-app/layouts/bk-lavanda.json` y repetí. Para volver al de Herdr: `herdr-app do layout.switch --name main`.
+El layout `bk` de la primera versión ya no se instala; si te quedó `layouts/bk.json`, podés borrarlo.
 
 ## main protegido (`bk land`)
 Varias sesiones trabajan a la vez sobre este repo. Nadie edita el checkout de `main` ni commitea en `main`: cada sesión
