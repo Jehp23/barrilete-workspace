@@ -54,6 +54,8 @@ uso: bk [comando] [--dry-run]
   chat --nombre X   el chat nuevo se llama X (bk ls, bk say X "…", bk go X); también con --rama
   chat --desde N    seguir en un chat nuevo desde el resumen del workspace N (misma carpeta y cuenta; alt+n también)
   handoff [N]       pedirle al chat del workspace N (o de este) el resumen para seguir; --listos: los que hay
+                    cuando el chat lo guarda, el chat nuevo se abre solo (si lo pidió el aviso de contexto: un
+                    aviso de Herdr con clic; --seguir abre el más nuevo)
   name ["nombre"]   nombrar el chat de este workspace (sin nombre: el de /rename o el título de Claude; - lo borra)
   open [proyecto]   abrir el workspace de otro proyecto en una ventana nueva (sin argumento: los abiertos)
   plan "<idea>"     planner: /plan-feature en la raíz del proyecto
@@ -1052,11 +1054,29 @@ chat_from() {
 #   desde otro lado (otra terminal, otro workspace): le escribe al chat una línea con el comando que imprime el pedido
 #   desde el mismo chat (`! bk handoff`, o el agente): imprime el pedido, que así queda en la conversación
 # bk handoff --pedido [--sid S]: el pedido completo, para el chat de este pane · bk handoff --listos: los listos
+# bk handoff --listo <sesión>: lo corre context_hook.py cuando el agente guardó el resumen. Si lo pidió la persona
+#   (bk handoff), abre solo el chat nuevo (bk chat --desde); si lo pidió el aviso rojo, con Herdr sale un aviso
+#   que lo abre al hacerle clic (bk handoff --seguir). Con tmux fuera de tmux, o el aviso con tmux: nada, queda
+#   listo como siempre (↪ en la tira, alt+n). Una sola vez por pedido.
+# bk handoff --seguir: un chat nuevo desde el resumen listo más nuevo (el clic del aviso)
 cmd_handoff() {
   set +euo pipefail
   local s pane sid st wsid me="${TMUX_PANE:-${HC_TERMINAL_ID:-}}"   # el pane de quien llama, en tmux o en Herdr
   case "${1:-}" in
     --listos|-l) python3 "$WS/lib/handoff.py" list; return ;;
+    --listo)
+      local via where
+      IFS=$'\t' read -r via where < <(python3 "$WS/lib/handoff.py" listo "${2:-}") || return 0
+      case "$via:$BACKEND" in
+        persona:herdr) cmd_chat --desde "$2" ;;
+        persona:tmux)  [ -z "${TMUX:-}" ] || cmd_chat --desde "$2" ;;
+        aviso:herdr)   hd_notice "Resumen listo: $where" "Clic para seguir en un chat nuevo" bk-seguir ;;
+      esac
+      return ;;
+    --seguir)
+      sid=$(python3 "$WS/lib/handoff.py" list | head -1 | cut -f1)
+      [ -n "$sid" ] || die "no hay ningún resumen listo (bk handoff lo pide)"
+      cmd_chat --desde "$sid"; return ;;
     --pedido)
       [ "${2:-}" = --sid ] && sid="${3:-}"
       [ -n "$sid" ] || [ -z "$me" ] || read -r sid st < <(pane_sid "$me"; echo)

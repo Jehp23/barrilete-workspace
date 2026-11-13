@@ -154,6 +154,28 @@ check_eq "$(git -C "$TMP/proj-wt/chat-un-cambio" branch --show-current)" "chat/u
 PATH="$TMP/fake:$PATH" BK_BACKEND=herdr HC_TERMINAL_ID=t1 "$ROOT/bin/bk" handoff --pedido --sid abc123 >/dev/null 2>&1
 check_eq "$(jq -r '.session' "$BK_HANDOFF_DIR/abc123.json" 2>/dev/null)" "proj" "bk handoff --pedido en Herdr: anota de qué chat viene"
 
+# --- el resumen quedó escrito (bk handoff --listo, lo corre el hook): si lo pidió la persona se abre solo ---
+H="$ROOT/lib/handoff.py"; tabs() { st '[.spaces[].tabs[]] | length'; }
+printf '# resumen\n' >"$BK_HANDOFF_DIR/abc123.md"; n0=$(tabs); : >"$HD_FAKE/log"
+bk handoff --listo abc123 >/dev/null 2>&1
+check_eq "$(( $(tabs) - n0 )) $(log | grep -c 'mod.open')" "1 0" "handoff --listo, pedido por la persona: abre solo el chat nuevo, sin aviso"
+last=$(st -r '.terms | to_entries | last | .value.argv | join(" ")')
+check_eq "$(has "$last" "handoff.py' take 'abc123'")" "si" "handoff --listo: el chat nuevo arranca con el resumen de esa sesión"
+n0=$(tabs); bk handoff --listo abc123 >/dev/null 2>&1
+check_eq "$(( $(tabs) - n0 ))" "0" "handoff --listo otra vez: no abre otro chat"
+rm -f "$BK_HANDOFF_DIR"/abc123.*
+# si lo pidió el aviso rojo: un aviso de Herdr, y el clic (bk handoff --seguir) abre el chat
+(cd "$REPO" && HC_TERMINAL_ID=t1 BK_HC="$TMP/fake/hc" PATH="$TMP/fake:$PATH" python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import handoff; handoff.request("rojo1", cwd=sys.argv[2])' "$ROOT/lib" "$REPO") >/dev/null
+printf '# resumen\n' >"$BK_HANDOFF_DIR/rojo1.md"; n0=$(tabs); : >"$HD_FAKE/log"
+bk handoff --listo rojo1 >/dev/null 2>&1
+check_eq "$(( $(tabs) - n0 )) $(log | grep -c 'mod.open {"name": "bk-aviso"}')" "0 1" "handoff --listo, pedido por el aviso rojo: no abre nada, muestra un aviso de Herdr"
+check_eq "$(jq -r '.title + " | " + .mod' "$HOME/.cache/bk/herdr-aviso.json")" "Resumen listo: proj | bk-seguir" "el aviso dice de qué chat es y su clic abre bk-seguir"
+bk handoff --seguir >/dev/null 2>&1
+last=$(st -r '.terms | to_entries | last | .value.argv | join(" ")')
+check_eq "$(( $(tabs) - n0 )) $(has "$last" "take 'rojo1'")" "1 si" "handoff --seguir (el clic): abre el chat nuevo con el resumen listo"
+rm -f "$BK_HANDOFF_DIR"/rojo1.*
+bk handoff --seguir >/dev/null 2>&1; check_eq "$?" "1" "handoff --seguir sin resumenes listos: falla"
+
 # --- Herdr cerrado: lo abre y espera; si no responde, no lanza ni deja una tarea ---
 : >"$HD_FAKE/closed"; rm -f "$TMP/opened"
 out=$(cd "$REPO" && bk run 12 --role implementer 2>&1); rc=$?
@@ -190,7 +212,7 @@ printf '{"global": {"cmd-t": "tab.new", "alt-k": "tab.close", "alt-g": "bk.chang
 cp "$APP/keys.json" "$TMP/keys.antes"; : >"$HD_FAKE/log"
 bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$ROOT/herdr/mods/bk/main.js" "$APP/mods/bk-changes/main.js" && cmp -s "$ROOT/herdr/mods/bk/mod.json" "$APP/mods/bk-agent9/mod.json" && echo igual)" "igual" "atajos: bk backend herdr copia el mod a una carpeta por comando"
-check_eq "$(ls "$APP/mods" | grep -c '^bk-') $(ls "$APP/mods" | grep -c '^bk$')" "19 0" "atajos: una carpeta por cada tecla que abre un mod más los dos paneles, y se va la versión anterior (mods/bk)"
+check_eq "$(ls "$APP/mods" | grep -c '^bk-') $(ls "$APP/mods" | grep -c '^bk$')" "21 0" "atajos: una carpeta por cada tecla que abre un mod más los dos paneles y los dos sin tecla (bk-aviso, bk-seguir), y se va la versión anterior (mods/bk)"
 check_eq "$(jq -r '.global["alt-s"] + " " + .global["alt-shift-3"] + " " + .global["alt-2"]' "$APP/keys.json")" "mod.open:bk-sessions mod.open:bk-agent3 space.select:2" "atajos: suma las teclas alt+… de tmux"
 check_eq "$(jq -r '.global["alt-k"] + " " + .global["cmd-t"] + " " + .terminal["cmd-c"]' "$APP/keys.json")" "tab.close tab.new terminal.copy" "atajos: no pisa una tecla que ya hace otra cosa ni las demás"
 check_eq "$(jq -r '.global["alt-g"] + " " + (.global["alt-0"] // "sin")' "$APP/keys.json")" "mod.open:bk-changes sin" "atajos: actualiza las teclas de la versión anterior de bk y saca la que ya no existe"

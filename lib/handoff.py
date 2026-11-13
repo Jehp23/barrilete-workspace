@@ -10,10 +10,15 @@ Al lado del .md queda <session_id>.json con de dónde viene (workspace, número,
 bk al pedir el resumen, no el agente: así `--desde 5` encuentra el archivo y la cuenta sin depender de lo que el
 agente haya copiado. BK_HANDOFF_DIR cambia la carpeta (los tests).
 
+El .json anota también quién pidió el resumen (`via`): "persona" si fue con bk handoff, "aviso" si fue el aviso
+rojo. Cuando el agente guarda el .md, context_hook.py corre `bk handoff --listo <session_id>`: si lo pidió la
+persona, bk abre solo el chat nuevo; si fue el aviso, con Herdr sale un aviso que lo abre al hacerle clic.
+
   handoff.py pedido [--sid S] [--pane P] [--cwd D]   el pedido al agente, con la plantilla (y deja el .json)
   handoff.py find <ws|sesión|session_id>            "sid<TAB>carpeta<TAB>cuenta<TAB>sesión" del resumen listo
   handoff.py take <session_id>                      imprime el resumen y lo borra (.md y .json)
   handoff.py list                                   los resumenes listos: "sid<TAB>ws<TAB>sesión<TAB>nombre"
+  handoff.py listo <session_id>                     "via<TAB>de dónde" la primera vez que el resumen está escrito
 
 La tira (sidebar.py) y bk s (sessions.py) marcan con ↪ el chat cuya sesión dejó un resumen listo.
 """
@@ -104,12 +109,18 @@ def template(o):
 
 def pedido(o):
     path = md_path(o["sid"]).replace(os.path.expanduser("~"), "~", 1)
+    desde = f"`bk chat --desde {o.get('ws') or o['sid']}`"
+    if o.get("via") == "persona":
+        after = (f"Al guardarlo, bk abre solo el chat nuevo con este resumen: decile a la persona que siga ahí "
+                 f"(si no se abrió: {desde}, o «Seguir desde» en alt+n).")
+    else:
+        after = (f"Después decile a la persona que siga con {desde} (o «Seguir desde» en alt+n, o con un clic en "
+                 f"el aviso de Herdr), que abre el chat nuevo con este resumen.")
     return (f"Dejá el resumen para seguir en un chat nuevo: escribilo en {path} (con Write), con esta plantilla. "
             f"Las seis secciones siempre, en este orden; reemplazá lo que está entre <> y no cambies la línea "
             f"«De dónde». Viñetas cortas, como mucho {MAX_LINES} líneas: es el primer mensaje del chat nuevo, que no "
             f"sabe nada de esta conversación.\n\n{template(o)}\n\n"
-            f"Después decile a la persona que siga con `bk chat --desde {o.get('ws') or o['sid']}` "
-            f"(o «Seguir desde» en alt+n), que abre el chat nuevo con este resumen.")
+            f"{after}")
 
 
 def save_meta(o):
@@ -120,9 +131,13 @@ def save_meta(o):
     os.replace(tmp, meta_path(o["sid"]))
 
 
-def request(sid, pane=None, cwd=None):
-    """El pedido al agente; deja el .json con de dónde viene (si no puede, el pedido igual sale)."""
+def request(sid, pane=None, cwd=None, via="aviso"):
+    """El pedido al agente; deja el .json con de dónde viene y quién lo pidió (si no puede, el pedido igual sale).
+    Un pedido de la persona que todavía no se escribió no lo pisa el aviso rojo: sigue siendo de la persona."""
     o = origin(sid, pane, cwd)
+    old = load_meta(sid) or {}
+    waiting = old.get("via") == "persona" and not old.get("listo") and not os.path.exists(md_path(sid))
+    o["via"] = "persona" if via == "persona" or waiting else "aviso"
     try:
         save_meta(o)
     except OSError:
@@ -177,6 +192,21 @@ def find(q):
     return None
 
 
+def listo(sid):
+    """El agente guardó el resumen: quién lo había pedido ("persona" o "aviso"), una sola vez por pedido (el
+    agente puede guardar el archivo más de una vez). None si no hay resumen, no hay .json o ya se avisó."""
+    m = load_meta(sid)
+    try:
+        if not m or m.get("listo") or os.path.getsize(md_path(sid)) == 0:
+            return None
+        m["listo"] = int(time.time())
+        save_meta(m)
+    except OSError:
+        return None
+    m.setdefault("via", "aviso")
+    return m
+
+
 def take(sid):
     try:
         with open(md_path(sid)) as f:
@@ -198,7 +228,7 @@ def main(argv):
         sid = opts.get("--sid")
         if not sid:
             sys.exit("bk: no sé qué sesión es esta (falta --sid)")
-        print(request(sid, opts.get("--pane"), opts.get("--cwd")))
+        print(request(sid, opts.get("--pane"), opts.get("--cwd"), via="persona"))
     elif cmd == "find" and len(argv) > 1:
         m = find(argv[1])
         if not m:
@@ -209,6 +239,12 @@ def main(argv):
         if text is None:
             sys.exit(1)
         sys.stdout.write(text)
+    elif cmd == "listo" and len(argv) > 1:
+        m = listo(argv[1])
+        if not m:
+            sys.exit(1)
+        where = (f"ws {m['ws']}" if m.get("ws") else m.get("session") or m["sid"][:8]) + (f" «{m['name']}»" if m.get("name") else "")
+        print("\t".join([m["via"], where]))
     elif cmd == "list":
         for _, m in ready():
             print("\t".join([m["sid"], str(m.get("ws") or ""), m.get("session") or "", m.get("name") or ""]))

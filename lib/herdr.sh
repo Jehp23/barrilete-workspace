@@ -43,6 +43,15 @@ hd_install() {
   python3 "$WS/lib/herdr_install.py" "$WS/herdr" "$HD_HOME" || info "(los atajos de bk no quedaron instalados en Herdr)"
 }
 
+# hd_notice <título> <texto> [mod]: un aviso de Herdr; al hacerle clic abre ese mod (bk-seguir). Solo un mod
+# puede avisar: bk deja el aviso en ~/.cache/bk/herdr-aviso.json y abre bk-aviso, que lo muestra y se cierra.
+hd_notice() {
+  local f="$HOME/.cache/bk/herdr-aviso.json"
+  mkdir -p "${f%/*}"
+  jq -cn --arg title "$1" --arg body "$2" --arg mod "${3:-}" '{title: $title, body: $body, mod: $mod}' >"$f.tmp" && mv "$f.tmp" "$f" || return 1
+  hd_app do mod.open --name bk-aviso >/dev/null 2>&1 || info "(Herdr no mostró el aviso: $1)"
+}
+
 # hd_json <arg…>: los argumentos como un array JSON (el argv de una pestaña). Con python y no con jq --args,
 # que se queda con los que empiezan con guion (-c).
 hd_json() { python3 -c 'import json, sys; print(json.dumps(sys.argv[1:], ensure_ascii=False))' "$@"; }

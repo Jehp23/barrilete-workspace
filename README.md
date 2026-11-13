@@ -69,6 +69,12 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   `alt+n`) abre un workspace más en la misma carpeta y con la misma cuenta, con el resumen como primer mensaje (va como
   argumento de `claude`, sin `send-keys`), lo borra y te pregunta si cierra el viejo. `bk handoff --listos`: los que hay. Los tres están también en la paleta (`alt+k`). Mientras espera, la tira
   marca ese workspace con `↪` (en lugar del `▪` de contexto) y `bk s` marca su fila con `↪`, también en recientes.
+  **El chat nuevo se abre solo**: cuando el agente guarda el resumen, el hook (`lib/context_hook.py`, en el Write de
+  ese archivo) corre `bk handoff --listo <sesión>`. Si lo pediste vos con `bk handoff`, bk abre el chat nuevo en el
+  momento (`bk chat --desde`); si lo pidió el aviso rojo, no abre nada solo: con Herdr sale un aviso «Resumen listo»
+  que lo abre al hacerle clic (`bk handoff --seguir`, el resumen listo más nuevo; dura diez minutos), y con tmux queda
+  la marca `↪` como siempre. Una sola vez por pedido, aunque el agente guarde el archivo de nuevo; con tmux, fuera de
+  tmux no abre nada. El `.json` anota quién lo pidió (`via`).
 
 ## Herdr en vez de tmux (`bk backend herdr`)
 `bk backend herdr` hace que los chats y los agentes vivan en la app [Herdr](https://herdr.dev) y no en tmux
@@ -92,7 +98,8 @@ tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
   de Herdr. Una tecla no puede correr un programa ni pasar argumentos: abre un mod con el nombre del comando
   (`mod.open:bk-palette`), que hace lo suyo y se cierra; todos son el mismo archivo. Nada queda abierto (una ventana
   del mod siempre a la escucha tapaba los clics de toda la app). Herdr deja de actualizar un `keys.json` editado.
-  Falta: `alt+0` (espacio anterior) no tiene equivalente, y en `bk s` saltar a una sesión o retomarla usa tmux.
+  Dos mods más, sin tecla: `bk-aviso` (muestra un aviso que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic
+  del aviso «Resumen listo»). Falta: `alt+0` (espacio anterior) no tiene equivalente, y en `bk s` saltar a una sesión o retomarla usa tmux.
 - **El layout `bk`**: `bk backend herdr` también instala dos paneles dibujados por Herdr (no terminales) y un layout
   que los muestra, copia del `main` de Herdr: en la barra, las tareas activas del kit (`herdr/mods/tareas`, de
   `bk tasks --json`: por aprobar, te esperan, trabajando; clic va a la pestaña del agente) y, a la derecha, lo que

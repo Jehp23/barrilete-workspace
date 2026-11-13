@@ -12,6 +12,9 @@ nuevo no cambia nada.
 import filecmp, json, os, shutil, sys
 
 
+NO_KEY = ("bk-aviso", "bk-seguir")   # mods sin tecla: los abre bk (un aviso de Herdr) o el clic en ese aviso
+
+
 # Los paneles de bk (herdr/mods/<nombre> → mods/bk-<nombre>) y dónde va cada uno en el layout `bk`:
 # (id del bloque, id del nodo que lo contiene, el bloque)
 PANELS = [
@@ -80,7 +83,7 @@ def main():
     want = json.load(open(os.path.join(src, "keys.json")))
     # Una carpeta por comando (mods/bk-<comando>), todas con el mismo mod: una tecla abre un mod por su nombre
     # y no puede pasarle argumentos. mods/bk era la versión con una copia siempre abierta: se va.
-    names = sorted({a.split(":", 1)[1] for b in want.values() for a in b.values() if a.startswith("mod.open:bk-")})
+    names = sorted({a.split(":", 1)[1] for b in want.values() for a in b.values() if a.startswith("mod.open:bk-")} | set(NO_KEY))
     mod, copied = os.path.join(src, "mods", "bk"), 0
     for name in names:
         dst = os.path.join(home, "mods", name)

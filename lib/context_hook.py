@@ -11,6 +11,10 @@ Sin repetir: avisa una vez al cruzar 200k, una al cruzar 400k y después cada +1
 sesión en ~/.cache/bk/context_hook/<session_id> (BK_CONTEXT_HOOK_STATE lo cambia, para los tests). Si el
 contexto baja (/compact), vuelve a avisar al cruzar de nuevo.
 
+Además, en PostToolUse: si el agente acaba de guardar (Write) el resumen de su sesión, corre `bk handoff --listo
+<session_id>` suelto, sin esperarlo: bk abre el chat nuevo o avisa (lib/handoff.py). BK_HANDOFF_BK cambia el bk
+que corre (los tests).
+
 Por debajo de 200k, dentro de un subagente (trae agent_id) o ante cualquier error: no imprime nada y sale 0.
 Nunca bloquea. El contexto sale de usage.context_of (el último turno del transcript), sin otro parser.
 """
@@ -46,6 +50,20 @@ def message(tokens, U, sid="", cwd=None):
             "recomendale a la persona seguir con /clear o en un chat nuevo (alt+n).")
 
 
+def handoff_written(ev, sid):
+    """El agente guardó el resumen de esta sesión: que bk siga (abrir el chat nuevo o avisar), sin esperarlo."""
+    if ev.get("hook_event_name") != "PostToolUse" or ev.get("tool_name") != "Write":
+        return
+    path = (ev.get("tool_input") or {}).get("file_path") or ""
+    import handoff
+    import subprocess
+    if not path or os.path.realpath(os.path.expanduser(path)) != os.path.realpath(handoff.md_path(sid)):
+        return
+    bk = os.environ.get("BK_HANDOFF_BK") or os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "bin", "bk")
+    subprocess.Popen([bk, "handoff", "--listo", sid], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+
+
 def main():
     sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
     import usage as U
@@ -56,6 +74,10 @@ def main():
     event, sid, path = ev.get("hook_event_name"), ev.get("session_id"), ev.get("transcript_path")
     if event not in ("UserPromptSubmit", "PostToolUse") or not sid or not path:
         return
+    try:
+        handoff_written(ev, sid)
+    except Exception:   # el aviso de contexto sale igual
+        pass
     tokens = U.context_of(path=path)
     now = bucket(tokens, U)
 

@@ -90,6 +90,41 @@ check_eq "$(cd "$ROOT/lib" && python3 -c 'import sidebar as S, handoff as H; pri
 check_eq "$(cd "$ROOT/lib" && python3 -c 'import sessions as S, handoff as H; print([r["handoff"] for r in S.mark_handoffs([{"sid": "s-marca"}, {"sid": "otra"}, {"sid": None}], H.ready_sids())])')" "[True, False, False]" "bk s marca la fila de esa sesión"
 rm "$TMP/h/s-marca.md"
 check_eq "$(cd "$ROOT/lib" && python3 -c 'import sessions as S, handoff as H; print(S.mark_handoffs([{"sid": "s-marca"}], H.ready_sids())[0]["handoff"])')" "False" "sin el .md (ya lo tomaron), sin marca"
+
+# Quién lo pidió (via): bk handoff es la persona; el aviso rojo, el aviso. `listo` lo dice una sola vez
+via() { jq -r '.via' "$TMP/h/$1.json"; }
+has "$(python3 "$H" pedido --sid s-via --cwd "$REPO")" "bk abre solo el chat nuevo" "pedido por la persona: dice que el chat nuevo se abre solo"
+check_eq "$(via s-via)" "persona" "bk handoff anota que lo pidió la persona"
+case "$ctx" in *"bk abre solo"*) bad "el rojo no promete abrir solo" ;; *) ok "el rojo no promete abrir solo" ;; esac
+rojo() { printf '{"session_id":"%s","transcript_path":"%s","hook_event_name":"UserPromptSubmit","cwd":"%s"}' "$1" "$T" "$REPO" | python3 "$ROOT/lib/context_hook.py" >/dev/null; }
+rojo s-via; check_eq "$(via s-via)" "persona" "el rojo no pisa un pedido de la persona que todavía no se escribió"
+rojo s-via2; check_eq "$(via s-via2)" "aviso" "el rojo anota que lo pidió el aviso"
+python3 "$H" pedido --sid s-via2 --cwd "$REPO" >/dev/null; check_eq "$(via s-via2)" "persona" "bk handoff después del rojo: pasa a ser de la persona"
+python3 "$H" listo s-via >/dev/null; check_eq "$?" "1" "listo sin el .md: no"
+printf 'x\n' >"$TMP/h/s-via.md"
+check_eq "$(python3 "$H" listo s-via)" "persona	s-via" "listo con el .md: quién lo pidió y de dónde"
+python3 "$H" listo s-via >/dev/null; check_eq "$?" "1" "listo otra vez (el agente volvió a guardar): no repite"
+: >"$TMP/h/s-via2.md"; python3 "$H" listo s-via2 >/dev/null; check_eq "$?" "1" "listo con el .md vacío: no"
+printf 'x\n' >"$TMP/h/s-sinjson.md"; python3 "$H" listo s-sinjson >/dev/null; check_eq "$?" "1" "listo sin .json (nadie lo pidió): no"
+rm "$TMP/h/s-sinjson.md" "$TMP/h/s-via2.md"
+
+# El hook: cuando el agente guarda (Write) el resumen de su sesión, corre bk handoff --listo <sesión>
+printf '#!/bin/sh\necho "$*" >> "%s/bk.log"\n' "$TMP" >"$TMP/fake/bk-falso"; chmod +x "$TMP/fake/bk-falso"; : >"$TMP/bk.log"
+post() {   # post <sesión> <herramienta> <archivo>
+  printf '{"session_id":"%s","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"%s","tool_input":{"file_path":"%s"},"cwd":"%s"}' "$1" "$TMP/no-hay.jsonl" "$2" "$3" "$REPO" \
+    | BK_HANDOFF_BK="$TMP/fake/bk-falso" python3 "$ROOT/lib/context_hook.py" >/dev/null
+}
+post s-hook Write "$TMP/h/otra-sesion.md"; post s-hook Write "$REPO/s-hook.md"; post s-hook Read "$TMP/h/s-hook.md"
+sleep 1; check_eq "$(cat "$TMP/bk.log")" "" "el hook no dispara por otro archivo, el resumen de otra sesión ni por leerlo"
+post s-hook Write "$TMP/h/s-hook.md"
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMP/bk.log" ] && break; sleep 0.2; done
+check_eq "$(cat "$TMP/bk.log")" "handoff --listo s-hook" "el hook corre bk handoff --listo cuando el agente guarda el resumen"
+
+# bk handoff --listo con tmux, fuera de tmux: no abre nada (queda listo como siempre)
+python3 "$H" pedido --sid s-fuera --cwd "$REPO" >/dev/null; printf 'x\n' >"$TMP/h/s-fuera.md"
+bk handoff --listo s-fuera >/dev/null 2>&1
+check_eq "$(grep -c 'new-session' "$TMP/tmux.log") $([ -f "$TMP/h/s-fuera.md" ] && echo sigue)" "0 sigue" "bk handoff --listo fuera de tmux: no abre un workspace y el resumen sigue listo"
+rm -f "$TMP/h/s-fuera".* "$TMP/h/s-via".* "$TMP/h/s-via2".*
 check_eq "$(grep -c 'new-session' "$TMP/tmux.log")" "0" "ningún caso intentó abrir un workspace"
 
 echo "1..$N"

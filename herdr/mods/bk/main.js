@@ -6,7 +6,7 @@
 // Un popup es una terminal sobre la ventana que se cierra sola cuando el comando termina (display-popup -E).
 
 import { View, div } from "gpui-kit";
-import { hc, run, props, openOverlay, closeOverlay, focused, terminals, spaces, home, notify, shared, setShared } from "herdr";
+import { hc, run, props, openOverlay, closeOverlay, focused, terminals, spaces, home, notify, shared, setShared, readTextFile } from "herdr";
 
 // comando → lo que corre en el popup y su tamaño (los de tmux.conf)
 const POPUPS = {
@@ -16,7 +16,9 @@ const POPUPS = {
   stats: { cmd: "bk stats", w: 0.92, h: 0.85 },
   new: { cmd: "bk new", w: 0.7, h: 0.6 },
   agents: { cmd: "bk ls; echo; bk peek; printf '\\n  (enter para cerrar) '; read -r _", w: 0.92, h: 0.88 },
+  seguir: { cmd: "bk handoff --seguir", w: 0.6, h: 0.3 },   // el clic del aviso «Resumen listo» (sin tecla)
 };
+const AVISO_MS = 600000;   // el aviso «Resumen listo» espera el clic diez minutos
 const POP = "bk.pop";   // el popup abierto, compartido entre las copias: { name, id, terminal, keep }
 
 const label = (t, k) => t.labels?.[k] ?? "";
@@ -41,6 +43,7 @@ export default class Bk extends View {
     const f = focused();
     if (POPUPS[c]) return this.popup(c, POPUPS[c], f);
     if (c === "term") return this.term(f);
+    if (c === "aviso") return this.aviso();
     if (c === "back") return this.show(f, (t) => label(t, "bk.kind") === "chat", 1, "este espacio no tiene un chat de bk");
     const m = /^agent([1-9])$/.exec(c);
     if (m) return this.show(f, (t) => label(t, "bk.kind") === "agent", Number(m[1]), `no hay agente ${m[1]} en este espacio`);
@@ -73,6 +76,14 @@ export default class Bk extends View {
       "--", "env", "BK_BACKEND=herdr", `BK_FROM_TERM=${f?.terminal ?? ""}`, "sh", "-c", cmd]);
     if (r.code !== 0) throw new Error(r.stderr.trim() || "hc no abrió el popup");
     this.open(name, JSON.parse(r.stdout).address, spec, false);
+  }
+
+  // Un aviso que pide bk (hd_notice en lib/herdr.sh): solo un mod puede avisar, así que bk lo deja en un archivo
+  // y abre este mod. Al hacerle clic abre el mod que diga (bk-seguir).
+  async aviso() {
+    const n = JSON.parse((await readTextFile(`${home()}/.cache/bk/herdr-aviso.json`)) ?? "{}");
+    if (!n.title) return;
+    notify({ title: n.title, body: n.body ?? "", level: "info", timeout: AVISO_MS, ...(n.mod ? { action: { name: "mod.open", args: { name: n.mod } } } : {}) });
   }
 
   // alt+x: la terminal rápida del espacio. Esconderla no la cierra: vuelve con lo que dejaste.
