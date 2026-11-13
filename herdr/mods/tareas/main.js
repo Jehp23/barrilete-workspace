@@ -1,7 +1,9 @@
 // Tareas de Barrilete Kit en Herdr: las tareas activas de los agentes (ADR-005: <issue>-<rol>, pr<n>-<rol>)
 // con su rol, su issue o PR y su estado. Los datos son los del kit, no los de la ventana: `bk tasks --json`
-// (lib/tasks.py) dice qué tareas hay y las etiquetas bk.* de las terminales dicen cuál sigue abierta.
-// Clic en una tarea: va a la pestaña de su agente. Solo lee; lanzar y aprobar siguen siendo de bk.
+// (lib/tasks.py) dice qué tareas hay y las etiquetas bk.* de las terminales dicen cuál sigue abierta; `bk _tasks`
+// (lib/herdr_tasks.py) es eso mismo con el título de cada issue o PR.
+// Clic en una tarea: va a la pestaña de su agente. Un reviewer propuesto (por aprobar) tiene su botón, que
+// corre `bk approve <tarea>`: lanzar sigue siendo de bk, el panel no decide nada.
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -36,7 +38,7 @@ export default class Tareas extends View {
     this.project = localStorage.getItem("project") || "";
     this.filter = "active";
     this.board = Boolean(props()?.board);
-    if (props()?.launcher) return;
+    this.launcher = Boolean(props()?.launcher);
     this.error = null;
     this.loaded = false;
     const reload = async (cx) => {
@@ -62,7 +64,7 @@ export default class Tareas extends View {
 
   async load() {
     try {
-      const r = await exec("bk", ["tasks", "--json", ...(this.board ? ["--all"] : [])], { timeout: 10000 });
+      const r = await exec("bk", ["_tasks", ...(this.board ? ["--all"] : [])], { timeout: 10000 });
       if (r.code !== 0) throw new Error(r.stderr.trim() || `bk tasks salió con ${r.code}`);
       const known = new Set(SECTIONS.map((s) => s.status));
       this.tasks = JSON.parse(r.stdout).filter((t) => known.has(t.status));
@@ -98,7 +100,7 @@ export default class Tareas extends View {
   row(t, task, term, section, now) {
     const color = t[section.color] ?? t.dim;
     const live = Boolean(term);
-    const what = [task.project, age(task.updated, now), live || task.status === "pending" ? null : "sin terminal"].filter(Boolean).join(" · ");
+    const what = [task.title || task.project, age(task.updated, now), live || task.status === "pending" ? null : "sin terminal"].filter(Boolean).join(" · ");
     return h_flex()
       .id(`task-${task.project}-${task.id}`)
       .px(8)
@@ -150,6 +152,49 @@ export default class Tareas extends View {
     } finally { this.opening = false; }
   }
 
+  // El acceso de la barra: abre el centro de tareas y dice, sin entrar, qué te espera. Con los tres grupos a la
+  // vez no entran las palabras largas: se acortan.
+  renderLauncher(t) {
+    const n = (status) => this.tasks.filter((x) => x.status === status).length;
+    const groups = [
+      { id: "pending", n: n("pending"), long: "por aprobar", short: "aprobar", color: t.blocked },
+      { id: "waiting", n: n("waiting"), long: "te esperan", short: "esperan", color: t.blocked },
+      { id: "in_progress", n: n("in_progress"), long: "trabajando", short: "activas", color: t.working },
+    ].filter((g) => g.n > 0);
+    const word = (g) => (groups.length > 2 ? g.short : g.long);
+    const quiet = this.error ? "no pude leer las tareas" : !this.loaded ? "leyendo…" : groups.length ? null : "nada te espera";
+    return h_flex().size_full().px(12).py(8).bg(t.chrome)
+      .child(v_flex().id("open-task-center").flex_1().min_w(0).h_full().px(10).gap(3).justify_center().rounded(8).bg(t.surface)
+        .cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => cx.spawn(async () => this.openBoard()))
+        .child(div().text_size(12).text_color(t.muted).child("▦ Tareas de Barrilete ↗"))
+        .child(h_flex().gap(6).text_size(10.5).min_w(0)
+          .when(Boolean(quiet), (el) => el.child(div().id("launcher-quiet").truncate().text_color(this.error ? t.blocked : t.dim).child(quiet ?? "")))
+          .children(groups.map((g) => div().id(`launcher-${g.id}`).flex_none().text_color(g.color ?? t.dim).child(`${g.n} ${word(g)}`)))));
+  }
+
+  // El reviewer que el kit propuso para un PR: `bk approve` lo lanza, en el repo de la tarea. Un clic por vez.
+  canApprove(task) {
+    return task.status === "pending" && task.role === "reviewer";
+  }
+
+  async approve(task, cx) {
+    this.approving ??= new Set();
+    if (this.approving.has(task.dir)) return;
+    this.approving.add(task.dir);
+    cx.notify();
+    try {
+      const r = await exec("bk", ["approve", task.id], { cwd: task.repo || home(), timeout: 120000 });
+      if (r.code !== 0) throw new Error((r.stderr.trim() || r.stdout.trim()).split("\n").pop() || `bk approve salió con ${r.code}`);
+      notify({ title: `${task.id}`, body: "reviewer lanzado", level: "success" });
+      await this.load();
+    } catch (e) {
+      notify({ title: `No pude lanzar ${task.id}`, body: String(e?.message ?? e), level: "error" });
+    } finally {
+      this.approving.delete(task.dir);
+      cx.notify();
+    }
+  }
+
   chip(t, id, text, selected, action) {
     return div().id(id).px(10).py(7).rounded(8).flex_none().text_size(12).cursor_pointer()
       .bg(selected ? t.selected : t.surface).text_color(selected ? t.accent : t.muted)
@@ -161,15 +206,20 @@ export default class Tareas extends View {
     const color = t[section?.color] ?? t.dim;
     const term = this.terminalOf(task, all);
     const result = task.result;
-    const detail = [task.role, task.worktree, typeof result === "string" ? result : result?.reason].filter(Boolean).join(" · ");
+    const detail = [task.project, task.role, (task.worktree ?? "").replace(home(), "~"), typeof result === "string" ? result : result?.reason].filter(Boolean).join(" · ");
+    const launching = this.approving?.has(task.dir);
     return v_flex().id(`board-${task.dir || task.project + "-" + task.id}`).flex_none().p(14).gap(7).rounded(12)
       .bg(t.surface).border(1).border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click(() => this.open(task, term))
       .child(h_flex().gap(12).items_center()
         .child(div().size(7).rounded(4).flex_none().bg(color))
         .child(div().font_semibold().text_color(t.foreground).child(task.pr ? `PR #${task.pr}` : task.ref || task.id))
-        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(task.project))
-        .child(div().text_size(11).text_color(color).child(section?.label || task.status)))
+        .child(div().flex_1().min_w(0).truncate().text_color(task.title ? t.foreground : t.muted).tooltip(task.title || task.project).child(task.title || task.project))
+        .when(this.canApprove(task), (el) => el.child(div().id(`approve-${task.dir}`).flex_none().px(10).py(5).rounded(8).text_size(12)
+          .bg(t.selected).text_color(t.accent).cursor_pointer().hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => { cx.stop_propagation(); cx.spawn(async (cx) => this.approve(task, cx)); })
+          .child(launching ? "Lanzando…" : "Lanzar reviewer")))
+        .child(div().flex_none().text_size(11).text_color(color).child(section?.label || task.status)))
       .child(div().truncate().text_size(12).text_color(t.muted).tooltip(detail).child(detail || task.id))
       .child(h_flex().gap(12).text_size(11).text_color(t.dim)
         .child(div().flex_1().min_w(0).truncate().child(task.id))
@@ -217,8 +267,7 @@ export default class Tareas extends View {
   render() {
     const t = theme();
     if (this.board) return this.renderBoard(t);
-    if (props()?.launcher) return h_flex().size_full().px(12).py(8).bg(t.chrome)
-      .child(this.chip(t, "open-task-center", "▦ Tareas de Barrilete ↗", false, (_e, cx) => cx.spawn(async () => this.openBoard())).flex_1());
+    if (this.launcher) return this.renderLauncher(t);
     const all = terminals();
     const now = Date.now();
     const rows = [];

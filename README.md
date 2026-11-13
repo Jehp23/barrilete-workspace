@@ -237,7 +237,14 @@ Ambos son enlaces simbólicos: se editan acá y quedan versionados.
 El acceso «Tareas de Barrilete» de la barra abre el espacio **Barrilete · Tareas**,
 con una pestaña nativa del mod `bk-tareas` (`props: {"board": true}`). Si el
 espacio ya existe lo reutiliza. La vista reúne todos los proyectos y el historial
-de `bk tasks --json --all`, con filtros por proyecto y estado, totales y acceso
+de `bk _tasks --all` (lo mismo que `bk tasks --json --all`, con el título de cada issue o PR), con filtros por proyecto y estado, totales y acceso
 al agente disponible. El proyecto elegido se recuerda; por defecto muestra activas.
 El tablero se actualiza al cambiar las tareas y cada 30 segundos, con un botón
-para actualizar a mano. La barra lateral de Lavanda solo conserva el acceso.
+para actualizar a mano. La barra lateral de Lavanda solo conserva el acceso, que
+dice sin entrar qué te espera: cuántas hay por aprobar, cuántas te esperan y
+cuántas están trabajando.
+Cada fila muestra el título de su issue o PR (de la caché de `bk ls`; lo que
+falta se le pide a GitHub, hasta 8 por vez). Un reviewer propuesto tiene el botón
+**Lanzar reviewer**, que corre `bk approve <tarea>` en el repo de la tarea y avisa
+cómo salió. Tests: `tests/test_herdr_tasks.sh` (necesita `node`) y
+`tests/test_tasks_titles.sh`.
