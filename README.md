@@ -93,6 +93,13 @@ tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
   (`mod.open:bk-palette`), que hace lo suyo y se cierra; todos son el mismo archivo. Nada queda abierto (una ventana
   del mod siempre a la escucha tapaba los clics de toda la app). Herdr deja de actualizar un `keys.json` editado.
   Falta: `alt+0` (espacio anterior) no tiene equivalente, y en `bk s` saltar a una sesión o retomarla usa tmux.
+- **El layout `bk`**: `bk backend herdr` también instala dos paneles dibujados por Herdr (no terminales) y un layout
+  que los muestra, copia del `main` de Herdr: en la barra, las tareas activas del kit (`herdr/mods/tareas`, de
+  `bk tasks --json`: por aprobar, te esperan, trabajando; clic va a la pestaña del agente) y, a la derecha, lo que
+  mostraba el riel (`herdr/mods/lado`, de `bk _side`: proyecto, rama, perfil de roles, uso de hoy, agentes del
+  espacio y lo que quedó sin commitear en el proyecto y sus worktrees). Instalar no cambia el layout que ves:
+  `herdr-app do layout.switch --name bk` lo muestra y `--name main` vuelve. Si retocás `layouts/bk.json`, queda:
+  instalar de nuevo solo repone los bloques que falten. Tests: `tests/test_side.sh` y `tests/test_herdr.sh`.
 - Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra
   las terminales. Lo que en tmux era el nombre de la ventana y sus `@opciones` son etiquetas de la terminal
   (`bk.kind`, `bk.win`, `bk.project`, `bk.role`, `bk.ref`), y el "pane" es su dirección (`t7`), que el hook de

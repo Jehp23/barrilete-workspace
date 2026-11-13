@@ -190,7 +190,7 @@ printf '{"global": {"cmd-t": "tab.new", "alt-k": "tab.close", "alt-g": "bk.chang
 cp "$APP/keys.json" "$TMP/keys.antes"; : >"$HD_FAKE/log"
 bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$ROOT/herdr/mods/bk/main.js" "$APP/mods/bk-changes/main.js" && cmp -s "$ROOT/herdr/mods/bk/mod.json" "$APP/mods/bk-agent9/mod.json" && echo igual)" "igual" "atajos: bk backend herdr copia el mod a una carpeta por comando"
-check_eq "$(ls "$APP/mods" | grep -c '^bk-') $(ls "$APP/mods" | grep -c '^bk$')" "17 0" "atajos: una carpeta por cada tecla que abre un mod, y se va la versión anterior (mods/bk)"
+check_eq "$(ls "$APP/mods" | grep -c '^bk-') $(ls "$APP/mods" | grep -c '^bk$')" "19 0" "atajos: una carpeta por cada tecla que abre un mod más los dos paneles, y se va la versión anterior (mods/bk)"
 check_eq "$(jq -r '.global["alt-s"] + " " + .global["alt-shift-3"] + " " + .global["alt-2"]' "$APP/keys.json")" "mod.open:bk-sessions mod.open:bk-agent3 space.select:2" "atajos: suma las teclas alt+… de tmux"
 check_eq "$(jq -r '.global["alt-k"] + " " + .global["cmd-t"] + " " + .terminal["cmd-c"]' "$APP/keys.json")" "tab.close tab.new terminal.copy" "atajos: no pisa una tecla que ya hace otra cosa ni las demás"
 check_eq "$(jq -r '.global["alt-g"] + " " + (.global["alt-0"] // "sin")' "$APP/keys.json")" "mod.open:bk-changes sin" "atajos: actualiza las teclas de la versión anterior de bk y saca la que ya no existe"
@@ -203,6 +203,25 @@ jq 'del(.global["alt-g"])' "$TMP/keys.despues" >"$APP/keys.json"; bk backend her
 check_eq "$(jq -r '.global["alt-g"]' "$APP/keys.json") $(cat "$APP/keys.json.antes-de-bk")" "mod.open:bk-changes otra" "atajos: repone una tecla que falta y no pisa el primer respaldo"
 echo '{roto' >"$APP/keys.json"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cat "$APP/keys.json")" "{roto" "atajos: un keys.json inválido no se toca"
+
+# Los paneles de bk y el layout `bk`: el main de Herdr más un bloque por panel, sin pisar lo retocado
+rm -rf "$APP/mods" "$APP/layouts"; mkdir -p "$APP/layouts"; echo '{}' >"$APP/keys.json"
+MAINL='{"id":"root","type":"row","children":[{"id":"sidebar","type":"column","children":[{"id":"sidebar-lists","type":"column","children":[{"id":"agents","type":"block"}]}]},{"id":"work-body","type":"row","children":[{"id":"main","type":"block"}]}]}'
+echo "$MAINL" >"$APP/layouts/main.json"
+bk backend herdr >/dev/null 2>&1
+check_eq "$(cmp -s "$ROOT/herdr/mods/tareas/main.js" "$APP/mods/bk-tareas/main.js" && cmp -s "$ROOT/herdr/mods/lado/mod.json" "$APP/mods/bk-lado/mod.json" && echo igual)" "igual" "paneles: copia tareas y lado a mods/bk-<nombre>"
+node() { jq -c --arg p "$1" '[.. | objects | select(.id? == $p) | .children[]? | [.id, (.content.mod // "")] | join("=")]' "$APP/layouts/bk.json"; }
+check_eq "$(node sidebar-lists) $(node work-body)" '["agents=","tareas=bk-tareas"] ["main=","lado=bk-lado"]' "layout bk: el main de Herdr con tareas en la barra y lado a la derecha"
+check_eq "$(cat "$APP/layouts/main.json")" "$MAINL" "layout bk: no toca el main de Herdr"
+check_eq "$(log | grep -c 'layout.switch')" "0" "layout bk: instalar no cambia el layout que se muestra"
+jq '(.. | objects | select(.id? == "lado") | .size.px) = 444' "$APP/layouts/bk.json" >"$TMP/bk.retocado"; cp "$TMP/bk.retocado" "$APP/layouts/bk.json"
+bk backend herdr >/dev/null 2>&1
+check_eq "$(cmp -s "$TMP/bk.retocado" "$APP/layouts/bk.json" && echo igual)" "igual" "layout bk: instalar de nuevo no pisa lo que retocaste"
+jq 'del(.. | objects | select(.id? == "work-body") | .children[] | select(.id == "lado"))' "$TMP/bk.retocado" >"$APP/layouts/bk.json"
+bk backend herdr >/dev/null 2>&1
+check_eq "$(node work-body) $(node sidebar-lists | jq length)" '["main=","lado=bk-lado"] 2' "layout bk: repone el bloque que falta y no duplica el otro"
+echo '{roto' >"$APP/layouts/bk.json"; bk backend herdr >/dev/null 2>&1
+check_eq "$(cat "$APP/layouts/bk.json")" "{roto" "layout bk: un bk.json inválido no se toca"
 
 echo "1..$N"
 [ "$FAILED" -eq 0 ]

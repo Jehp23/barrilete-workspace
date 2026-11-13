@@ -1,0 +1,165 @@
+// El lado derecho de bk en Herdr: lo que mostraba el riel de tmux (lib/rail.py), dibujado por Herdr.
+// Estado (proyecto, rama, perfil de roles, uso de hoy), los agentes de este espacio y lo que quedó sin
+// commitear en el proyecto y en sus worktrees. Los datos salen de `bk _side <carpeta>` (lib/herdr_side.py),
+// para la carpeta de la terminal que mirás; los agentes, de Herdr y de las etiquetas bk.* de sus terminales.
+// Solo lee. Clic en un agente: va a su terminal.
+
+import { View, div } from "gpui-kit";
+import { v_flex, h_flex } from "gpui-base";
+import { exec, agents, terminals, focused, run, theme, home } from "herdr";
+
+const EVERY = 4000;        // git es barato: el panel sigue lo que pasa
+const USAGE_EVERY = 60000; // el uso lee los transcripts: más espaciado
+const SHORT = { implementer: "impl", "implementer-light": "light", reviewer: "review", planner: "plan", orchestrator: "orq" };
+const STATUS = { working: "trabajando", blocked: "te espera", done: "terminó", idle: "libre" };
+
+const label = (t, k) => t?.labels?.[k] ?? "";
+
+function human(n) {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return String(Math.round(n ?? 0));
+}
+
+export default class Lado extends View {
+  init(_props, cx) {
+    this.data = null;
+    this.usage = null;
+    this.usageAt = 0;
+    this.error = null;
+    this.busy = false;
+    const tick = async (cx) => {
+      if (this.busy) return;   // una corrida lenta no se pisa con la siguiente
+      this.busy = true;
+      try {
+        await this.load();
+      } finally {
+        this.busy = false;
+      }
+      cx.notify();
+    };
+    cx.spawn(tick);
+    cx.timer.every(EVERY, (cx) => cx.spawn(tick));
+  }
+
+  async load() {
+    const cwd = focused()?.cwd || home();
+    const now = Date.now();
+    const withUsage = now - this.usageAt >= USAGE_EVERY || this.cwd !== cwd;
+    try {
+      const r = await exec("bk", ["_side", cwd, ...(withUsage ? ["--usage"] : [])], { timeout: 25000 });
+      if (r.code !== 0) throw new Error(r.stderr.trim() || `bk _side salió con ${r.code}`);
+      const d = JSON.parse(r.stdout);
+      if (withUsage) {
+        this.usage = d.usage ?? null;
+        this.usageAt = now;
+      }
+      this.data = d;
+      this.cwd = cwd;
+      this.error = null;
+    } catch (e) {
+      this.error = String(e?.message ?? e);
+    }
+  }
+
+  card(t, title, right, body) {
+    return v_flex()
+      .flex_none()
+      .rounded(10)
+      .border(1)
+      .border_color(t.border)
+      .bg(t.background)
+      .child(h_flex().px(12).pt(10).pb(6).gap(8).items_center()
+        .child(div().flex_1().min_w(0).truncate().text_size(11.5).font_medium().text_color(t.muted).child(title))
+        .when(Boolean(right), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(right ?? ""))))
+      .child(v_flex().px(12).pb(11).gap(5).children(body));
+  }
+
+  kv(t, key, value, extra = null) {
+    return h_flex().gap(8).items_center()
+      .child(div().w(58).flex_none().text_color(t.dim).child(key))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(value))
+      .when(Boolean(extra), (el) => el.child(extra));
+  }
+
+  estado(t, d) {
+    const dirty = d.dirty ? div().flex_none().text_color(t.ansi3 ?? t.working).child(`±${d.dirty}`) : null;
+    const rows = [
+      this.kv(t, "Proyecto", d.project || d.path),
+      this.kv(t, "Rama", d.branch || "—", dirty),
+      this.kv(t, "Perfil", d.profile.map((p) => `${SHORT[p.role] ?? p.role} ${p.model}`).join(" · ") || "—"),
+    ];
+    const u = this.usage;
+    if (u) {
+      const here = d.project ? `${human(u.here_tokens)} · $${u.here_cost.toFixed(2)}` : `${human(u.tokens)} tok`;
+      rows.push(this.kv(t, d.project ? "Hoy acá" : "Hoy", here, div().flex_none().text_color(t.dim).child(`total $${u.cost.toFixed(2)}`)));
+    }
+    return this.card(t, "Estado", d.path, rows);
+  }
+
+  agentes(t) {
+    const space = focused()?.space;
+    const terms = new Map(terminals().map((x) => [x.address, x]));
+    const list = agents().filter((a) => a.space === space);
+    const working = list.filter((a) => a.status === "working").length;
+    const right = list.length ? `${list.length}${working ? ` · ${working} activo${working > 1 ? "s" : ""}` : ""}` : "";
+    const rows = list.map((a) => {
+      const term = terms.get(a.address);
+      const role = label(term, "bk.role");
+      const name = label(term, "bk.name") || label(term, "bk.win") || a.tab_name || a.title || a.program?.name || a.address;
+      const what = [SHORT[role] ?? role, label(term, "bk.ref")].filter(Boolean).join(" ");
+      const color = t[a.status] ?? t.dim;
+      return h_flex()
+        .id(`lado-ag-${a.address}`)
+        .mx(-6)
+        .px(6)
+        .h(26)
+        .rounded(6)
+        .gap(8)
+        .items_center()
+        .cursor_pointer()
+        .when(a.focused, (el) => el.bg(t.selected))
+        .hover((s) => s.bg(t.hover))
+        .on_click(() => run("pane.focus", { pane: a.pane }))
+        .child(div().size(7).flex_none().rounded(4).bg(a.status === "idle" ? t.dim + "55" : color))
+        .child(div().flex_none().max_w(140).truncate().text_color(t.foreground).child(name))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(what))
+        .child(div().flex_none().text_size(11).text_color(a.status === "idle" ? t.dim : color).child(STATUS[a.status] ?? a.status));
+    });
+    if (!rows.length) rows.push(div().text_color(t.dim).child("sin agentes en este espacio"));
+    return this.card(t, "Agentes", right, rows);
+  }
+
+  cambios(t, d) {
+    const n = d.changes.reduce((s, c) => s + c.files.length + c.more, 0);
+    const rows = [];
+    for (const c of d.changes) {
+      rows.push(h_flex().gap(6).items_center().pt(rows.length ? 5 : 0)
+        .child(div().flex_none().max_w(150).truncate().font_medium().text_color(t.foreground).child(c.name))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(c.branch)));
+      for (const f of c.files) {
+        const color = f.code === "A" ? (t.ansi2 ?? t.done) : f.code === "D" ? (t.ansi1 ?? t.blocked) : (t.ansi3 ?? t.working);
+        rows.push(h_flex().gap(7).items_center().text_size(12)
+          .child(div().w(10).flex_none().text_color(color).child(f.code.slice(0, 1)))
+          .child(div().flex_1().min_w(0).text_ellipsis_start().text_color(t.muted).child(f.path))
+          .when(Boolean(f.add), (el) => el.child(div().flex_none().text_color(t.ansi2 ?? t.done).child(`+${f.add}`)))
+          .when(Boolean(f.del) && f.del !== "0", (el) => el.child(div().flex_none().text_color(t.ansi1 ?? t.blocked).child(`-${f.del}`))));
+      }
+      if (c.more) rows.push(div().text_size(12).text_color(t.dim).child(`… y ${c.more} más`));
+    }
+    if (!rows.length) rows.push(div().text_color(t.dim).child("nada sin commitear"));
+    return this.card(t, "Cambios", n ? `${n} archivo${n > 1 ? "s" : ""}` : "", rows);
+  }
+
+  render() {
+    const t = theme();
+    const d = this.data;
+    const cards = [];
+    if (this.error) cards.push(this.card(t, "bk", "", [div().text_color(t.blocked).child(`No pude leer el estado: ${this.error}`)]));
+    if (d) cards.push(this.estado(t, d));
+    cards.push(this.agentes(t));
+    if (d) cards.push(this.cambios(t, d));
+    if (!d && !this.error) cards.push(div().px(4).text_color(t.dim).child("Leyendo…"));
+    return v_flex().id("lado").size_full().min_h(0).gap(8).text_size(12.5).overflow_y_scrollbar().children(cards);
+  }
+}

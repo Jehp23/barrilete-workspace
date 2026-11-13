@@ -46,6 +46,8 @@ uso: bk [comando] [--dry-run]
   backend [tmux|herdr]  dónde viven los chats y agentes: el workspace de tmux o la app Herdr (cada proyecto un
                     espacio, cada chat o agente una pestaña; sin riel ni tira: la lista de agentes es la de Herdr)
                     bk backend herdr instala además el mod bk y los atajos alt+… de tmux en Herdr (herdr/)
+                    y el layout bk: las tareas del kit en la barra y, a la derecha, estado, agentes y cambios
+                    (para verlo: herdr-app do layout.switch --name bk; main vuelve al de Herdr)
   rerun [--go] [pr…]  volver a correr los checks de Actions que fallaron (sin --go: solo muestra)
   new | n           popup "Nuevo": chat nuevo en este proyecto u otro workspace (alt+n, o + en la tira)
   chat [--suelto]   un claude nuevo en el proyecto del workspace (o sin proyecto), en el lugar del chat (alt+q vuelve)
@@ -1714,6 +1716,7 @@ case "${1:-}" in
   name)        shift; cmd_name "$@" ;;
   _nth)        tmux_only _nth "los espacios de Herdr"; ws_ids | awk -F'\t' -v n="${2:-1}" '$1 == n {print $2}' ;;   # alt+N: el workspace con ese número
   _ids)        tmux_only _ids "los espacios de Herdr"; ws_ids ;;
+  _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)
   _launcher)   launcher_of ;;   # lo que launch anota como @bk_parent (la tira lo usa; tests)
   changes)     exec python3 "$WS/lib/changes.py" ;;
   palette|k)   exec python3 "$WS/lib/palette.py" ;;
