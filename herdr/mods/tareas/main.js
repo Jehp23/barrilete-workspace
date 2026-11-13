@@ -10,7 +10,7 @@ import { exec, terminals, run, theme, home, watchFolder, notify } from "herdr";
 // Estado de la tarea → sección, en el orden en que se muestran, y el color del tema que le toca
 const SECTIONS = [
   { status: "pending", label: "Por aprobar", color: "blocked" },
-  { status: "waiting", label: "Te esperan", color: "done" },
+  { status: "waiting", label: "Te esperan", color: "blocked" },
   { status: "in_progress", label: "Trabajando", color: "working" },
 ];
 
@@ -88,9 +88,10 @@ export default class Tareas extends View {
     return h_flex()
       .id(`task-${task.project}-${task.id}`)
       .px(8)
-      .h(44)
+      .h(52)
       .flex_none()
-      .rounded(8)
+      .rounded(10)
+      .bg(t.surface)
       .gap(10)
       .items_center()
       .cursor_pointer()
@@ -129,7 +130,7 @@ export default class Tareas extends View {
       .border_color(t.border)
       .text_size(13)
       .child(h_flex().px(16).h(41).pt(14).pb(5).flex_none().items_center()
-        .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Tareas del kit")))
+        .child(div().text_size(11.5).font_medium().text_color(t.accent).child("TAREAS · BARRILETE")))
       .when(Boolean(empty), (el) => el.child(div().px(16).text_size(12).text_color(this.error ? t.blocked : t.dim).child(empty ?? "")))
       .child(v_flex().id("task-list").flex_1().min_h(0).px(8).overflow_y_scrollbar().mode("always").children(rows));
   }

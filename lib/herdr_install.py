@@ -94,6 +94,12 @@ def main():
 
     panels(src, home)
     layout(home)
+    # El look versionado se instala aparte: no pisa el layout bk personalizado.
+    look = os.path.join(home, "layouts", "bk-lavanda.json")
+    os.makedirs(os.path.dirname(look), exist_ok=True)
+    if not os.path.exists(look):
+        shutil.copyfile(os.path.join(src, "layouts", "bk-lavanda.json"), look)
+        print("layout bk-lavanda: instalado (herdr-app do layout.switch --name bk-lavanda)")
 
     path = os.path.join(home, "keys.json")
     try:

@@ -148,6 +148,22 @@ eventos, en `~/.local/state/bk/tasks/<proyecto>/<id>/` (`task.json` y `events.js
 - `bk say` a un agente que trabaja se encola hasta que termine el turno (`--now` para ya).
 - `bk tasks` las lista con su carpeta; `bk tasks prune --yes` borra las terminadas (nada se borra solo).
 
+### Estética Lavanda
+
+`bk backend herdr` instala también `bk-lavanda`. Activarlo:
+`herdr-app do layout.switch --name bk-lavanda`.
+Fondos ciruela, acentos violeta pastel, tipografía Geist y tarjetas redondeadas:
+proyectos y tareas a la izquierda; terminal en el centro; contexto, agentes,
+GitHub y cambios a la derecha. Ámbar indica atención, menta éxito y coral errores.
+El perfil muestra cada rol en su propia fila. Los agentes aparecen una sola vez.
+
+GitHub muestra hasta cuatro PRs abiertos con enlaces al navegador, borrador,
+revisión y CI. Requiere `gh` autenticado (`gh auth status`) y un remoto GitHub;
+se actualiza cada minuto y al cambiar de carpeta, sin bloquear el estado local.
+Si no puede consultar GitHub, muestra el error sin ocultar los cambios de Git.
+El layout vive en `herdr/layouts/bk-lavanda.json`; se instala una sola vez para
+conservar ajustes locales. Para volver: `herdr-app do layout.switch --name bk`.
+
 ## main protegido (`bk land`)
 Varias sesiones trabajan a la vez sobre este repo. Nadie edita el checkout de `main` ni commitea en `main`: cada sesión
 trabaja en su rama y su worktree (`git worktree add -b <rama> ../barrilete-workspace-wt/<rama> main`) y entra con `bk land`.
