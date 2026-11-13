@@ -45,6 +45,7 @@ uso: bk [comando] [--dry-run]
                     Con Herdr (bk backend herdr): el espacio del proyecto, con su chat en una pestaña
   backend [tmux|herdr]  dónde viven los chats y agentes: el workspace de tmux o la app Herdr (cada proyecto un
                     espacio, cada chat o agente una pestaña; sin riel ni tira: la lista de agentes es la de Herdr)
+                    bk backend herdr instala además el mod bk y los atajos alt+… de tmux en Herdr (herdr/)
   rerun [--go] [pr…]  volver a correr los checks de Actions que fallaron (sin --go: solo muestra)
   new | n           popup "Nuevo": chat nuevo en este proyecto u otro workspace (alt+n, o + en la tira)
   chat [--suelto]   un claude nuevo en el proyecto del workspace (o sin proyecto), en el lugar del chat (alt+q vuelve)
@@ -1693,6 +1694,7 @@ case "${1:-}" in
                    [ "$DRY" -eq 1 ] && { info "(dry-run: bk pasaría a $1)"; exit 0; }
                    mkdir -p "$HOME/.config/bk"; echo "$1" >"$HOME/.config/bk/backend"
                    if [ "$1" = herdr ]; then info "bk usa Herdr: bk abre el espacio del proyecto y cada agente es una pestaña (bk backend tmux vuelve)"
+                     hd_install
                    else info "bk usa tmux: el workspace de siempre (bk backend herdr vuelve a Herdr)"; fi ;;
                  *) die "bk backend [tmux|herdr]" ;;
                esac ;;
@@ -1719,7 +1721,7 @@ case "${1:-}" in
   _agent)      tmux_only _agent "bk go <agente>"; ws_agent "${2:-}" "${3:-0}" ;;
   chat)        shift; cmd_chat "$@" ;;
   handoff)     shift; cmd_handoff "$@" ;;
-  new|n)       tmux_only new "bk chat (otro chat) o bk open <proyecto>"; exec python3 "$WS/lib/new.py" ;;
+  new|n)       exec python3 "$WS/lib/new.py" ;;   # con Herdr: en un popup del mod bk (alt+n); sus opciones son bk chat y bk ws
   _footer)     tmux_only _footer "bk tokens"; ws_footer "${2:-}" ;;
   _model)      tmux_only _model "la pestaña del chat"; ws_model "${2:-}" ;;
   _style)      tmux_only _style "los temas de Herdr"; WS_SESSION="${2:?}"; ws_style ;;

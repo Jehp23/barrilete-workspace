@@ -83,6 +83,16 @@ tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
   su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`, `dash`, `new`, `snapshot`, `restore`) avisa y no
   corre: herdr-core ya mantiene vivas las terminales. `bk account use` sigue siendo de tmux; `--account X` anda.
+- **Los mismos atajos que en tmux**: `bk backend herdr` instala en Herdr los mods `bk-*` (`herdr/mods/bk`) y suma a su
+  `keys.json` las teclas de `dotfiles/tmux.conf` (`herdr/keys.json`), sin pisar las que ya hacen otra cosa y con
+  respaldo en `keys.json.antes-de-bk`. `alt+k` paleta, `alt+g` cambios, `alt+s` sesiones, `alt+u` stats, `alt+n`
+  nuevo y `alt+a` agentes (`bk ls` y `bk peek`) abren en un popup que se cierra al salir (la misma tecla también lo
+  cierra); `alt+x` muestra y esconde la terminal rápida del espacio; `alt+1…9` va al espacio N (su posición en la
+  lista), `alt+shift+1…9` a la pestaña del agente N del espacio y `alt+q` vuelve al chat; `alt+,` abre los ajustes
+  de Herdr. Una tecla no puede correr un programa ni pasar argumentos: abre un mod con el nombre del comando
+  (`mod.open:bk-palette`), que hace lo suyo y se cierra; todos son el mismo archivo. Nada queda abierto (una ventana
+  del mod siempre a la escucha tapaba los clics de toda la app). Herdr deja de actualizar un `keys.json` editado.
+  Falta: `alt+0` (espacio anterior) no tiene equivalente, y en `bk s` saltar a una sesión o retomarla usa tmux.
 - Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra
   las terminales. Lo que en tmux era el nombre de la ventana y sus `@opciones` son etiquetas de la terminal
   (`bk.kind`, `bk.win`, `bk.project`, `bk.role`, `bk.ref`), y el "pane" es su dirección (`t7`), que el hook de

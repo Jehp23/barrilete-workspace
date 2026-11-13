@@ -1,0 +1,31 @@
+{
+  "global": {
+    "alt-k": "mod.open:bk-palette",
+    "alt-g": "mod.open:bk-changes",
+    "alt-s": "mod.open:bk-sessions",
+    "alt-u": "mod.open:bk-stats",
+    "alt-n": "mod.open:bk-new",
+    "alt-a": "mod.open:bk-agents",
+    "alt-x": "mod.open:bk-term",
+    "alt-q": "mod.open:bk-back",
+    "alt-,": "app.settings",
+    "alt-1": "space.select:1",
+    "alt-2": "space.select:2",
+    "alt-3": "space.select:3",
+    "alt-4": "space.select:4",
+    "alt-5": "space.select:5",
+    "alt-6": "space.select:6",
+    "alt-7": "space.select:7",
+    "alt-8": "space.select:8",
+    "alt-9": "space.select:9",
+    "alt-shift-1": "mod.open:bk-agent1",
+    "alt-shift-2": "mod.open:bk-agent2",
+    "alt-shift-3": "mod.open:bk-agent3",
+    "alt-shift-4": "mod.open:bk-agent4",
+    "alt-shift-5": "mod.open:bk-agent5",
+    "alt-shift-6": "mod.open:bk-agent6",
+    "alt-shift-7": "mod.open:bk-agent7",
+    "alt-shift-8": "mod.open:bk-agent8",
+    "alt-shift-9": "mod.open:bk-agent9"
+  }
+}

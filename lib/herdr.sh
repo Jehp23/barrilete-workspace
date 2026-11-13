@@ -36,6 +36,13 @@ hd_up() {
   die "Herdr no respondió: abrilo y volvé a correr el comando"
 }
 
+# hd_install: los mods bk-* y las teclas alt+… de tmux en Herdr (herdr/ del repo → ~/.config/herdr-app).
+# No corta bk: si algo falla, avisa.
+HD_HOME="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
+hd_install() {
+  python3 "$WS/lib/herdr_install.py" "$WS/herdr" "$HD_HOME" || info "(los atajos de bk no quedaron instalados en Herdr)"
+}
+
 # hd_json <arg…>: los argumentos como un array JSON (el argv de una pestaña). Con python y no con jq --args,
 # que se queda con los que empiezan con guion (-c).
 hd_json() { python3 -c 'import json, sys; print(json.dumps(sys.argv[1:], ensure_ascii=False))' "$@"; }

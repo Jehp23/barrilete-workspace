@@ -184,5 +184,25 @@ check_eq "$(jq -r .pane "$STATE/s2.json")" "%3" "hook: dentro de tmux manda TMUX
 ev s3 SessionStart | bash "$HOOK"
 check_eq "$(jq -r '.pane // "nada"' "$STATE/s3.json")" "nada" "hook: fuera de tmux y de Herdr no anota pane"
 
+# Los atajos de tmux en Herdr: bk backend herdr instala los mods bk-* y las teclas alt+… sin pisar las que ya hay
+APP="$HOME/.config/herdr-app"; mkdir -p "$APP/mods/bk"; : >"$APP/mods/bk/main.js"
+printf '{"global": {"cmd-t": "tab.new", "alt-k": "tab.close", "alt-g": "bk.changes", "alt-0": "bk.last"}, "terminal": {"cmd-c": "terminal.copy"}}\n' >"$APP/keys.json"
+cp "$APP/keys.json" "$TMP/keys.antes"; : >"$HD_FAKE/log"
+bk backend herdr >/dev/null 2>&1
+check_eq "$(cmp -s "$ROOT/herdr/mods/bk/main.js" "$APP/mods/bk-changes/main.js" && cmp -s "$ROOT/herdr/mods/bk/mod.json" "$APP/mods/bk-agent9/mod.json" && echo igual)" "igual" "atajos: bk backend herdr copia el mod a una carpeta por comando"
+check_eq "$(ls "$APP/mods" | grep -c '^bk-') $(ls "$APP/mods" | grep -c '^bk$')" "17 0" "atajos: una carpeta por cada tecla que abre un mod, y se va la versión anterior (mods/bk)"
+check_eq "$(jq -r '.global["alt-s"] + " " + .global["alt-shift-3"] + " " + .global["alt-2"]' "$APP/keys.json")" "mod.open:bk-sessions mod.open:bk-agent3 space.select:2" "atajos: suma las teclas alt+… de tmux"
+check_eq "$(jq -r '.global["alt-k"] + " " + .global["cmd-t"] + " " + .terminal["cmd-c"]' "$APP/keys.json")" "tab.close tab.new terminal.copy" "atajos: no pisa una tecla que ya hace otra cosa ni las demás"
+check_eq "$(jq -r '.global["alt-g"] + " " + (.global["alt-0"] // "sin")' "$APP/keys.json")" "mod.open:bk-changes sin" "atajos: actualiza las teclas de la versión anterior de bk y saca la que ya no existe"
+check_eq "$(cmp -s "$TMP/keys.antes" "$APP/keys.json.antes-de-bk" && echo igual)" "igual" "atajos: guarda el keys.json de antes"
+check_eq "$(log | grep -c 'mod.open')" "0" "atajos: no deja ningún mod abierto"
+cp "$APP/keys.json" "$TMP/keys.despues"; echo otra >"$APP/keys.json.antes-de-bk"
+bk backend herdr >/dev/null 2>&1
+check_eq "$(cmp -s "$TMP/keys.despues" "$APP/keys.json" && echo igual)" "igual" "atajos: instalar de nuevo no cambia las teclas"
+jq 'del(.global["alt-g"])' "$TMP/keys.despues" >"$APP/keys.json"; bk backend herdr >/dev/null 2>&1
+check_eq "$(jq -r '.global["alt-g"]' "$APP/keys.json") $(cat "$APP/keys.json.antes-de-bk")" "mod.open:bk-changes otra" "atajos: repone una tecla que falta y no pisa el primer respaldo"
+echo '{roto' >"$APP/keys.json"; bk backend herdr >/dev/null 2>&1
+check_eq "$(cat "$APP/keys.json")" "{roto" "atajos: un keys.json inválido no se toca"
+
 echo "1..$N"
 [ "$FAILED" -eq 0 ]
