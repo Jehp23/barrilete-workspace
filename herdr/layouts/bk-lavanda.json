@@ -20,7 +20,7 @@
       "id": "sidebar",
       "type": "column",
       "size": {
-        "px": 236
+        "px": 280
       },
       "min": 44,
       "max": 480,
@@ -46,7 +46,7 @@
               "id": "spaces",
               "type": "block",
               "size": {
-                "weight": 0.8
+                "weight": 0.6
               },
               "min": 90,
               "content": {
@@ -54,10 +54,21 @@
               }
             },
             {
+              "id": "agents",
+              "type": "block",
+              "size": {
+                "weight": 1.4
+              },
+              "min": 180,
+              "content": {
+                "mod": "agents"
+              }
+            },
+            {
               "id": "tareas",
               "type": "block",
               "size": {
-                "weight": 1.2
+                "weight": 1
               },
               "min": 90,
               "content": {
@@ -193,8 +204,8 @@
     }
   ],
   "theme": "graphite",
-  "ui_font": "Geist",
-  "font": "Geist Mono",
+  "ui_font": "JetBrains Mono",
+  "font": "JetBrains Mono",
   "colors": {
     "background": "#201c2b",
     "canvas": "#17131f",

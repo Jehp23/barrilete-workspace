@@ -1,19 +1,17 @@
 // El lado derecho de bk en Herdr: lo que mostraba el riel de tmux (lib/rail.py), dibujado por Herdr.
-// Estado (proyecto, rama, perfil de roles, uso de hoy), los agentes de este espacio y lo que quedó sin
+// Estado (proyecto, rama, perfil de roles, uso de hoy), GitHub y lo que quedó sin
 // commitear en el proyecto y en sus worktrees. Los datos salen de `bk _side <carpeta>` (lib/herdr_side.py),
-// para la carpeta de la terminal que mirás; los agentes, de Herdr y de las etiquetas bk.* de sus terminales.
-// Solo lee. Clic en un agente: va a su terminal.
+// para la carpeta de la terminal que mirás. Los agentes viven en el panel nativo de la barra izquierda.
+// Solo lee.
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, agents, terminals, focused, run, theme, home } from "herdr";
+import { exec, focused, theme, home } from "herdr";
 
 const EVERY = 4000;        // git es barato: el panel sigue lo que pasa
 const USAGE_EVERY = 60000; // el uso lee los transcripts: más espaciado
 const SHORT = { implementer: "impl", "implementer-light": "light", reviewer: "review", planner: "plan", orchestrator: "orq" };
-const STATUS = { working: "trabajando", blocked: "te espera", done: "terminó", idle: "libre" };
 
-const label = (t, k) => t?.labels?.[k] ?? "";
 
 function human(n) {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
@@ -124,39 +122,6 @@ export default class Lado extends View {
     return this.card(t, "Tu espacio", "EN FOCO", rows);
   }
 
-  agentes(t) {
-    const space = focused()?.space;
-    const terms = new Map(terminals().map((x) => [x.address, x]));
-    const list = agents().filter((a) => a.space === space);
-    const working = list.filter((a) => a.status === "working").length;
-    const right = list.length ? `${list.length}${working ? ` · ${working} activo${working > 1 ? "s" : ""}` : ""}` : "";
-    const rows = list.map((a) => {
-      const term = terms.get(a.address);
-      const role = label(term, "bk.role");
-      const name = label(term, "bk.name") || label(term, "bk.win") || a.tab_name || a.title || a.program?.name || a.address;
-      const what = [SHORT[role] ?? role, label(term, "bk.ref")].filter(Boolean).join(" ");
-      const color = t[a.status] ?? t.dim;
-      return h_flex()
-        .id(`lado-ag-${a.address}`)
-        .mx(-6)
-        .px(6)
-        .h(32)
-        .rounded(6)
-        .gap(8)
-        .items_center()
-        .cursor_pointer()
-        .when(a.focused, (el) => el.bg(t.selected))
-        .hover((s) => s.bg(t.hover))
-        .on_click(() => run("pane.focus", { terminal: a.address }))
-        .child(div().size(7).flex_none().rounded(4).bg(a.status === "idle" ? t.dim + "55" : color))
-        .child(div().flex_none().max_w(140).truncate().text_color(t.foreground).child(name))
-        .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(what))
-        .child(div().flex_none().text_size(11).text_color(a.status === "idle" ? t.dim : color).child(STATUS[a.status] ?? a.status));
-    });
-    if (!rows.length) rows.push(div().text_color(t.dim).child("sin agentes en este espacio"));
-    return this.card(t, "Agentes", right, rows);
-  }
-
   cambios(t, d) {
     const n = d.changes.reduce((s, c) => s + c.files.length + c.more, 0);
     const rows = [];
@@ -204,7 +169,6 @@ export default class Lado extends View {
     const cards = [];
     if (this.error) cards.push(this.card(t, "bk", "", [div().text_color(t.blocked).child(`No pude leer el estado: ${this.error}`)]));
     if (d) cards.push(this.estado(t, d));
-    cards.push(this.agentes(t));
     if (d?.project) cards.push(this.githubCard(t));
     if (d) cards.push(this.cambios(t, d));
     if (!d && !this.error) cards.push(div().px(4).text_color(t.dim).child("Leyendo…"));

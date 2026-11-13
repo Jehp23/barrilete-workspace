@@ -152,10 +152,10 @@ eventos, en `~/.local/state/bk/tasks/<proyecto>/<id>/` (`task.json` y `events.js
 
 `bk backend herdr` instala también `bk-lavanda`. Activarlo:
 `herdr-app do layout.switch --name bk-lavanda`.
-Fondos ciruela, acentos violeta pastel, tipografía Geist y tarjetas redondeadas:
-proyectos y tareas a la izquierda; terminal en el centro; contexto, agentes,
-GitHub y cambios a la derecha. Ámbar indica atención, menta éxito y coral errores.
-El perfil muestra cada rol en su propia fila. Los agentes aparecen una sola vez.
+Fondos ciruela, acentos violeta pastel, tipografía JetBrains Mono y tarjetas redondeadas:
+proyectos, agentes en vivo y tareas a la izquierda; terminal en el centro;
+contexto, GitHub y cambios a la derecha. Ámbar indica atención, menta éxito y coral errores.
+El perfil muestra cada rol en su propia fila. El panel nativo de agentes muestra todos los espacios, títulos, estados en vivo y actividad animada.
 
 GitHub muestra hasta cuatro PRs abiertos con enlaces al navegador, borrador,
 revisión y CI. Requiere `gh` autenticado (`gh auth status`) y un remoto GitHub;
