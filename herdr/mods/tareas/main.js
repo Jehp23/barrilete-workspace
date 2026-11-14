@@ -205,26 +205,33 @@ export default class Tareas extends View {
     const section = SECTIONS.find((s) => s.status === task.status);
     const color = t[section?.color] ?? t.dim;
     const term = this.terminalOf(task, all);
-    const result = task.result;
-    const detail = [task.project, task.role, (task.worktree ?? "").replace(home(), "~"), typeof result === "string" ? result : result?.reason].filter(Boolean).join(" · ");
+    const ref = task.pr ? `PR #${task.pr}` : task.ref || task.id;
+    const detail = [task.project, task.role, task.id, task.worktree, task.result?.reason].filter(Boolean).join(" · ");
     const launching = this.approving?.has(task.dir);
-    return v_flex().id(`board-${task.dir || task.project + "-" + task.id}`).flex_none().p(14).gap(7).rounded(12)
-      .bg(t.surface).border(1).border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
-      .on_click(() => this.open(task, term))
-      .child(h_flex().gap(12).items_center()
-        .child(div().size(7).rounded(4).flex_none().bg(color))
-        .child(div().font_semibold().text_color(t.foreground).child(task.pr ? `PR #${task.pr}` : task.ref || task.id))
-        .child(div().flex_1().min_w(0).truncate().text_color(task.title ? t.foreground : t.muted).tooltip(task.title || task.project).child(task.title || task.project))
-        .when(this.canApprove(task), (el) => el.child(div().id(`approve-${task.dir}`).flex_none().px(10).py(5).rounded(8).text_size(12)
+    return h_flex().id(`board-${task.dir || task.project + "-" + task.id}`).flex_none().px(16).py(14).gap(12)
+      .border_b(1).border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+      .on_click(() => this.open(task, term)).tooltip(detail)
+      .child(div().w(3).h(30).rounded(2).flex_none().bg(color))
+      .child(v_flex().flex_1().min_w(0).gap(7)
+        .child(div().truncate().font_medium().text_size(13).text_color(t.foreground).tooltip(task.title || ref).child(task.title || ref))
+        .child(h_flex().gap(8).text_size(10.5).text_color(t.dim)
+          .child(div().flex_none().text_color(t.accent).child(ref))
+          .child(div().flex_1().min_w(0).truncate().child([task.project, task.role].filter(Boolean).join(" · ")))
+          .child(div().flex_none().text_color(term ? t.done : t.dim).child(term ? "● En línea" : "Sin sesión"))
+          .child(div().flex_none().child(age(task.updated, now)))))
+      .child(v_flex().flex_none().items_end().gap(7)
+        .child(div().px(8).py(4).rounded(6).bg(color + "18").text_size(10.5).text_color(color).child(section?.label || task.status))
+        .when(this.canApprove(task), (el) => el.child(div().id(`approve-${task.dir}`).px(8).py(4).rounded(6).text_size(11)
           .bg(t.selected).text_color(t.accent).cursor_pointer().hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => { cx.stop_propagation(); cx.spawn(async (cx) => this.approve(task, cx)); })
-          .child(launching ? "Lanzando…" : "Lanzar reviewer")))
-        .child(div().flex_none().text_size(11).text_color(color).child(section?.label || task.status)))
-      .child(div().truncate().text_size(12).text_color(t.muted).tooltip(detail).child(detail || task.id))
-      .child(h_flex().gap(12).text_size(11).text_color(t.dim)
-        .child(div().flex_1().min_w(0).truncate().child(task.id))
-        .child(div().flex_none().text_color(term ? t.done : t.dim).child(term ? "● Agente disponible" : "Sin agente conectado"))
-        .child(div().flex_none().child(age(task.updated, now))));
+          .child(launching ? "Lanzando…" : "Lanzar reviewer"))));
+  }
+
+  nav(t, id, name, count, selected, action, color = t.dim) {
+    return h_flex().id(id).h(31).px(9).gap(8).flex_none().rounded(7).cursor_pointer()
+      .bg(selected ? t.selected : t.chrome).hover((s) => s.bg(t.hover)).on_click(action)
+      .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(selected ? t.foreground : t.muted).tooltip(name).child(name))
+      .child(div().flex_none().text_size(10).text_color(selected ? t.accent : color).child(String(count)));
   }
 
   renderBoard(t) {
@@ -237,30 +244,37 @@ export default class Tareas extends View {
     const all = terminals();
     const now = Date.now();
     const count = (status) => projectTasks.filter((x) => status === "active" ? active(x) : x.status === status).length;
-    const summary = [{label:"Activas",n:count("active"),color:t.accent},{label:"Necesitan atención",n:count("pending")+count("waiting"),color:t.blocked},{label:"Completadas",n:count("completed"),color:t.done}];
-    const filters = [{status:"active",label:"Activas"},{status:"all",label:"Todas"},...SECTIONS];
-    return v_flex().id("task-center").size_full().min_h(0).p(22).gap(18).bg(t.background).text_size(13)
-      .child(h_flex().items_center().gap(12).flex_none()
-        .child(v_flex().flex_1().min_w(0).gap(5)
-          .child(div().text_size(23).font_semibold().text_color(t.foreground).child("Tareas de Barrilete"))
-          .child(div().text_size(12).text_color(t.muted).child("Todos tus proyectos. Un lugar para seguir el trabajo.")))
-        .child(this.chip(t,"refresh-tasks","Actualizar",false,(_e,cx)=>cx.spawn(async(cx)=>{await this.load();cx.notify();}))))
-      .child(h_flex().gap(12).flex_none().children(summary.map((s)=>v_flex().flex_1().min_w(0).p(14).gap(7).rounded(12).bg(t.surface)
-        .child(div().text_size(24).font_semibold().text_color(s.color).child(String(s.n)))
-        .child(div().text_size(11).text_color(t.muted).child(s.label)))))
+    const summary = [{status:"active",label:"activas",n:count("active"),color:t.accent},{status:"waiting",label:"requieren atención",n:count("pending")+count("waiting"),color:t.blocked},{status:"completed",label:"completadas",n:count("completed"),color:t.done}];
+    const filters = [{status:"active",label:"Activas",color:"accent"},{status:"all",label:"Todas",color:"dim"},...SECTIONS];
+    const filterName = filters.find((s) => s.status === this.filter)?.label || "Activas";
+    const heading = (name) => div().px(9).pt(14).pb(7).text_size(10).font_medium().text_color(t.dim).child(name);
+    return v_flex().id("task-center").size_full().min_h(0).p(20).gap(16).bg(t.background).text_size(12)
+      .child(h_flex().gap(12).flex_none()
+        .child(div().size(36).flex_none().rounded(10).bg(t.selected).text_color(t.accent).flex().items_center().justify_center().text_size(19).child("▦"))
+        .child(v_flex().flex_1().min_w(0).gap(3)
+          .child(div().text_size(21).font_semibold().text_color(t.foreground).child("Tareas"))
+          .child(div().text_size(11).text_color(t.dim).child("Barrilete · Centro de trabajo")))
+        .child(this.chip(t,"refresh-tasks","↻ Actualizar",false,(_e,cx)=>cx.spawn(async(cx)=>{await this.load();cx.notify();}))))
+      .child(h_flex().gap(20).px(2).pb(14).flex_none().border_b(1).border_color(t.border)
+        .children(summary.map((s)=>h_flex().gap(6)
+          .child(div().font_semibold().text_color(s.color).child(String(s.n)))
+          .child(div().text_size(11).text_color(t.muted).child(s.label)))))
       .child(h_flex().flex_1().min_h(0).gap(18).items_stretch()
-        .child(v_flex().id("project-filters").w(176).flex_none().min_h(0).gap(7).overflow_y_scrollbar()
-          .child(div().px(10).py(6).text_size(11).text_color(t.accent).child("PROYECTOS"))
-          .child(this.chip(t,"project-all",`Todos · ${this.tasks.length}`,!this.project,(_e,cx)=>chooseProject("",cx)))
-          .children(projects.map((name)=>this.chip(t,`project-${name}`,`${name} · ${this.tasks.filter((x)=>x.project===name).length}`,this.project===name,(_e,cx)=>chooseProject(name,cx)).truncate().tooltip(name))))
-        .child(v_flex().flex_1().min_w(0).min_h(0).gap(12)
-          .child(h_flex().gap(6).flex_wrap().flex_none().children(filters.map((s)=>this.chip(t,`filter-${s.status}`,s.label,this.filter===s.status,(_e,cx)=>{this.filter=s.status;cx.notify();}))))
-          .child(div().text_size(11).text_color(t.dim).child(`${this.project || "Todos los proyectos"} · ${list.length} tareas`))
+        .child(v_flex().id("project-filters").w(162).p(6).flex_none().min_h(0).gap(3).rounded(10).bg(t.chrome).overflow_y_scrollbar()
+          .child(heading("PROYECTOS"))
+          .child(this.nav(t,"project-all","Todos",this.tasks.length,!this.project,(_e,cx)=>chooseProject("",cx)))
+          .children(projects.map((name)=>this.nav(t,`project-${name}`,name,this.tasks.filter((x)=>x.project===name).length,this.project===name,(_e,cx)=>chooseProject(name,cx))))
+          .child(heading("ESTADO"))
+          .children(filters.map((s)=>this.nav(t,`filter-${s.status}`,s.label,s.status==="all" ? projectTasks.length : count(s.status),this.filter===s.status,(_e,cx)=>{this.filter=s.status;cx.notify();},t[s.color]))))
+        .child(v_flex().flex_1().min_w(0).min_h(0).gap(10)
+          .child(h_flex().gap(8).flex_none().py(4)
+            .child(div().flex_1().min_w(0).truncate().font_medium().text_size(13).text_color(t.foreground).child(this.project || "Todos los proyectos"))
+            .child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${filterName} · ${list.length}`)))
           .when(Boolean(this.error),(el)=>el.child(div().text_color(t.blocked).child(`No pude actualizar: ${this.error}`)))
-          .child(v_flex().id("board-task-list").flex_1().min_h(0).gap(10).overflow_y_scrollbar()
-            .when(!list.length,(el)=>el.child(v_flex().p(24).gap(8).rounded(12).bg(t.surface)
+          .child(v_flex().id("board-task-list").flex_1().min_h(0).rounded(10).border(1).border_color(t.border).bg(t.surface).overflow_y_scrollbar()
+            .when(!list.length,(el)=>el.child(v_flex().p(24).gap(8)
               .child(div().text_color(t.foreground).child(!this.loaded ? "Cargando tareas…" : "No hay tareas con estos filtros"))
-              .child(div().text_size(12).text_color(t.dim).child("Elegí otro proyecto o seleccioná Todas para ver el historial."))))
+              .child(div().text_size(11).text_color(t.dim).child("Probá con otro proyecto o con Todas."))))
             .children(list.map((task)=>this.boardRow(t,task,all,now))))));
   }
 
