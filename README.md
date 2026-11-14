@@ -26,15 +26,12 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
 │  chat · orquestador      │ (bk watch --all) │
 │  (claude)                ├──────────────────┤
 │                          │ radio            │
-├──────────────────────────┴──────────────────┤
-│ agentes · tokens (bk dash: dos tablas)      │
-└─────────────────────────────────────────────┘
+└──────────────────────────┴──────────────────┘
 ```
 
 - **Chat**: un `claude` donde hablás con los agentes (mensajes entre sesiones) y les respondés con `bk say`.
 - **Agentes en vivo**: un panel que se reparte entre los agentes que trabajan (encabezado con rol/modelo/estado
   y lo último que dijeron); los terminados van abajo en una línea. Solo lectura.
-- **Tablas**: agentes ordenados por urgencia y uso del día por modelo (`lib/dash.py`).
 - Las proporciones se reacomodan solas al conectarse o redimensionar (hooks de tmux → `bk _layout`).
 - **Número fijo**: cada workspace toma al crearse el número libre más bajo (`@bk_id`) y lo conserva aunque se
   cierren otros; la tira, el header, `bk ls` y `alt+1…9` usan ese número, cada uno con su color.
@@ -96,7 +93,7 @@ pisan con los del repo (se editan acá).
 - **Una pestaña por agente**: `bk run`, `fix`, `review`, `plan` y `orchestrate` lanzan al agente en una pestaña
   del espacio de su proyecto (`i42`, `pr57`…) sin sacarte de la que estás mirando. Herdr muestra su estado.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
-  su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`, `dash`, `snapshot`, `restore`) avisa y no
+  su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`, `snapshot`, `restore`) avisa y no
   corre: herdr-core ya mantiene vivas las terminales. `bk account use` sigue siendo de tmux; `--account X` anda.
   `bk palette`, `new`, `changes`, `stats` y `s` en una terminal siguen siendo las pantallas de siempre; en Herdr
   sus teclas abren los paneles de abajo.

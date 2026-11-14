@@ -830,8 +830,6 @@ watch() {
 }
 
 # ---------- workspace (bk sin argumentos) ----------
-# Estado en vivo para la franja de abajo: tablas de agentes y uso del día (lib/dash.py)
-dash() { exec python3 "$WS/lib/dash.py"; }
 
 # Layout (sesión tmux "bk"), a lo gentle-shell:
 #   ┌───────────────────────────────┬──────────────────┐
@@ -1800,7 +1798,6 @@ case "${1:-}" in
                    else info "bk usa tmux: el workspace de siempre (bk backend herdr vuelve a Herdr)"; fi ;;
                  *) die "bk backend [tmux|herdr]" ;;
                esac ;;
-  dash)        tmux_only dash "bk ls y bk tokens"; dash ;;
   monitor)     exec python3 "$WS/lib/monitor.py" "$@" ;;
   rail)        tmux_only rail "la lista de agentes de Herdr"; exec python3 "$WS/lib/rail.py" ;;
   sidebar)     tmux_only sidebar "la lista de espacios de Herdr"; exec python3 "$WS/lib/sidebar.py" ;;

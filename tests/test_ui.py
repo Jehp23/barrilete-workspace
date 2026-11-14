@@ -81,7 +81,7 @@ class PaletaUnica(unittest.TestCase):
 
     def test_las_vistas_importan_con_la_paleta(self):
         # cada vista toma sus colores al importarse o en ui(): que al menos importe sin tocar nada
-        for m in ("agents", "agents_view", "changes", "customize", "dash", "new", "palette", "sessions",
+        for m in ("agents", "agents_view", "changes", "customize", "new", "palette", "sessions",
                   "sidebar", "stats", "subwatch"):
             __import__(m)
 
@@ -128,12 +128,11 @@ class EstadosUnicos(unittest.TestCase):
         for st in ("working", "background", "waiting", "done", "idle", "error", "trust", "question", "permission"):
             self.assertEqual(rail.state_row(st), G.state_ansi(st), st)
 
-    def test_agents_view_dash_y_sessions_usan_la_tabla(self):
-        import agents_view as AV, dash as DA, sessions as SE
+    def test_agents_view_y_sessions_usan_la_tabla(self):
+        import agents_view as AV, sessions as SE
         for st in ("working", "waiting", "done", "idle", "trust", "question", "permission"):
             g, txt, col = G.state_ansi(st)
             self.assertEqual(AV.state_style(st), (f"{g} {txt}", col), st)
-            self.assertEqual(DA.state_style(st), (f"{g} {txt}", col), st)
         for k, txt in SE.STATE_TXT.items():
             self.assertEqual(txt, G.STATES[k][1], k)
 
