@@ -375,15 +375,6 @@ def task_note(t):
     return None
 
 
-def proposals(repo=None):
-    """Tareas propuestas que esperan tu aprobación (bk approve), de un repo o de todos."""
-    try:
-        ts = TK.tasks()
-    except Exception:
-        return []
-    return [t for t in ts if t.get("status") == "pending" and (repo is None or t.get("repo") == repo)]
-
-
 def gather(fetch_titles=True, look=True, chats_too=True):
     """Lista de agentes de la sesión `agents`, con lo necesario para nombrarlos."""
     titles, sts, now, tks = load_titles(), states(), time.time(), task_by_window()

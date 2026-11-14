@@ -1,4 +1,5 @@
 __pycache__/
+.DS_Store
 # los genera herdr-app check en la carpeta del mod que revisa
 herdr/**/gpui-kit.d.ts
 herdr/**/jsconfig.json
