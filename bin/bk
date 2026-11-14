@@ -124,9 +124,6 @@ uso: bk [comando] [--dry-run]
   lessons           lecciones por revisar (status: proposed) en el vault
   learn effect      ¿las reglas aceptadas bajan los hallazgos que dicen evitar? antes/después por ronda de
                     review (agents/efecto.md); las que no bajan, para reescribir o retirar
-  campus            abrir el campus virtual de la facultad
-  entregas [n]      entregas sin terminar de Notion (vencidas en rojo, hoy en amarillo); con n, la abre
-  focus [min] [qué] pomodoro (25 min por defecto; stop | status)
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
   theme [day|night|auto]  tema de Ghostty: violeta pastel / violeta oscuro / según macOS
   font [sf|jetbrains|menlo]  tipografía de Ghostty: SF Mono / JetBrains Mono (la que trae) / Menlo
@@ -990,20 +987,6 @@ ws_agent() {
   tmux display-message "agente $n en el lugar del chat · alt+q vuelve al orquestador"
 }
 
-# bk focus [min] [qué]: pomodoro. Sin argumentos: 25 min. "stop" lo corta.
-cmd_focus() {
-  local f="$HOME/.cache/bk/focus"
-  mkdir -p "$(dirname "$f")"
-  case "${1:-25}" in
-    stop|off) rm -f "$f"; info "pomodoro cortado" ;;
-    status)   if [ -s "$f" ]; then read -r end label <"$f"; echo "$label: quedan $(( (end - $(date +%s)) / 60 )) min"; else echo "sin pomodoro"; fi ;;
-    *[!0-9]*) die "bk focus [minutos] [qué estudiás] | stop | status" ;;
-    *) local m="$1"; shift || true
-       echo "$(( $(date +%s) + m * 60 )) ${*:-Estudio}" >"$f"
-       info "🍅 $m min${*:+ de $*}" ;;
-  esac
-}
-
 # bk chat [sesión]: un claude nuevo en la carpeta del proyecto del workspace. Vive en la sesión
 # "agents" (aparece en la tira) y se trae al lugar del chat; alt+q vuelve al orquestador.
 # bk name "<nombre>": cómo se llama el chat de este workspace (bk ls, la tira, bk say/go <nombre>).
@@ -1799,17 +1782,6 @@ case "${1:-}" in
   ""|ws)       shift || true; workspace "${1:-}" ;;
   open)        shift; cmd_open "${1:-}" ;;
   rerun)       shift; cmd_rerun "$@" ;;
-  focus)       shift; cmd_focus "$@" ;;
-  campus)      exec open "https://ingenieria.campusvirtual.ucasal.edu.ar/login/index.php?loginredirect=1" ;;
-  entregas)    shift
-               if [[ "${1:-}" =~ ^[0-9]+$ ]]; then   # bk entregas N: abrir la N-ésima en Notion
-                 url=$(python3 "$WS/lib/notion_due.py" --overdue | sed -n "${1}p" | cut -f6)
-                 [ -n "$url" ] || die "no hay entrega $1 (bk entregas)"; exec open "$url"
-               fi
-               python3 "$WS/lib/notion_due.py" --overdue | awk -F'\t' -v t="$(date +%Y-%m-%d)" '{
-                 c = ($1 < t) ? "\033[31m" : ($1 == t ? "\033[33m" : "")
-                 printf "%s%2d  %s  %-5s %-40s %s\033[0m\n", c, NR, $1, $2, $5, ($4 != "" ? "· " $4 : "") }'
-               info "bk entregas <n> la abre en Notion" ;;
   backend)     shift
                case "${1:-}" in
                  "") echo "$BACKEND" ;;
