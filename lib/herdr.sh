@@ -292,7 +292,6 @@ hd_stop() {
   for f in "$STATE_DIR"/*.json; do
     [ -f "$f" ] && [ "$(jq -r '.pane // ""' "$f" 2>/dev/null)" = "$t" ] && rm -f "$f"
   done
-  sketchybar --trigger agent_update >/dev/null 2>&1 || true
   info "cerrada $win (el worktree, si había, queda: cleanup.sh lo limpia cuando el issue cierre)"
 }
 

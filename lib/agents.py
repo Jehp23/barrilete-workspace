@@ -6,7 +6,6 @@
   agents.py auto                 el único agente que te espera (para `bk say "mensaje"` sin nombre)
   agents.py pick                 selector en la terminal; imprime la ventana elegida
   agents.py waiting [--json]     los que te esperan, con su pregunta
-  agents.py json                 {pane: ventana, título, pregunta, subagentes} para Sketchybar (sin consultar GitHub)
   agents.py subs <palabra>       el transcript del subagente vivo cuya descripción coincide (para bk sub)
 
 Los chats de los workspaces (bk-kit-2…) también se nombran: por su nombre (bk name / bk chat --nombre),
@@ -48,7 +47,7 @@ def sh(*args, timeout=5):
 # ---------- tmux o Herdr ----------
 # Con Herdr (bk backend herdr, lib/herdr.sh) no hay ventanas de tmux: cada agente y cada chat es una terminal de
 # herdr-core con etiquetas bk.* y su "pane" es la dirección de la terminal (t7), la misma que anota el hook.
-# hc por su ruta si no está en el PATH: Sketchybar corre los plugins con un PATH corto.
+# hc por su ruta si no está en el PATH: el hook de estado (hooks/agent_state.sh) corre con un PATH corto.
 HC = os.environ.get("BK_HC") or shutil.which("hc") or os.path.expanduser("~/.local/bin/hc")
 _HC_CWD = {}   # dirección -> carpeta, de la última consulta
 
@@ -575,16 +574,6 @@ def main():
             for d, _ in (found and [(d, j) for d, j in a["subs"] if (d, j) in found]) or a["subs"]:
                 sys.stderr.write(f"  └ {short(d, 70)}   (de {a.get('short') or a['win']})\n")
         sys.exit(3 if found else 4)
-
-    if cmd == "json":   # para Sketchybar: {pane: {...}} sin consultar GitHub (solo la cache)
-        print(json.dumps({a["pane"]: {"win": a.get("short") if a["kind"] == "chat" else a["win"], "kind": a["kind"],
-                                      "label": label(a, 60), "asks": a["asks"], "why": a["why"],
-                                      "question": short(a["question"], 70),
-                                      "subs": [short(d, 60) for d, _ in a["subs"]],
-                                      "task": a.get("task", ""), "note": a.get("note", ""), "queued": a.get("queued", 0)}
-                          for a in gather(fetch_titles=False)},
-                         ensure_ascii=False))
-        return
 
     if cmd == "warm":   # llenar la cache de títulos (lo corre bk después de lanzar un agente)
         gather(fetch_titles=True, look=False)

@@ -1,7 +1,7 @@
 # barrilete-workspace
 
 Workspace personal de agentes sobre [Barrilete Kit](https://github.com/lautioliver/barrilete-kit), manejado desde la terminal.
-Los agentes corren en la sesión tmux `agents`; Sketchybar muestra su estado (rol, modelo, issue) y lo que te espera (`bk checkpoints`).
+Los agentes corren en la sesión tmux `agents`; `bk ls`, la tira y `bk monitor` muestran su estado (rol, modelo, issue) y `bk checkpoints`, lo que te espera.
 
 ```
 bk                 (workspace)      bk s             (sesiones)
@@ -10,7 +10,7 @@ bk ls              bk go <ventana>  bk stop <ventana>  bk clean [--yes]
 bk peek [ventana]  bk say <ventana> "…"   bk watch [ventana|--all]
 bk monitor         bk checkpoints   bk tasks         bk done <resultado>   bk approve <tarea>
 bk account         bk account use <cuenta> [--relaunch]   bk run … --account <cuenta>
-bk roles           bk mode [work|chill]   bk song [estación]   bk theme [day|night|auto]
+bk roles           bk mode <rol>    bk song [estación]   bk theme [day|night|auto]
 ```
 
 ## Workspace (`bk`)
@@ -294,14 +294,20 @@ las mismas (`/resume` y `alt+s` ven todas).
   para contestar); después agentes y chats en tablas, las tareas, los desvíos en vivo agrupados (los graves suenan) y el
   costo de hoy. La memoria libre va en el encabezado.
 - `bk checkpoints` (`--json`): planes por aprobar, reviewers propuestos, PRs para revisar o mergear y lecciones, cada uno
-  con su comando. Es la misma lista que *Te esperan* y el popup de la barra; ya no está en el riel.
+  con su comando. Es la misma lista que *Te esperan*; ya no está en el riel.
+- Los PRs salen de una caché (`~/.cache/bk/checkpoints_prs.json`) que `bk _prs` baja de GitHub: tus PRs abiertos con
+  CI en verde y una review sin bloqueantes ni commits posteriores, y las reviews que te pidieron. `bk checkpoints` y
+  `bk monitor` lo lanzan en segundo plano cuando la caché tiene más de 2 minutos, así que con el monitor cerrado se
+  actualiza recién al correr `bk checkpoints`. Sin red, la caché queda como estaba. Test: `tests/test_prs.sh`, con un
+  `gh` falso.
 
 ## Retroalimentación (`bk learn`)
 `lib/learn.py` lee los transcripts y registra desvíos en el vault de Obsidian (`~/Documents/Obsidian Vault/agents`):
 barandas, verificaciones fallidas, contratos de subagentes (patrones automáticos) y tus correcciones, rechazos
 e interrupciones (para leer en el resumen del día). Un patrón repetido ≥3 veces en 14 días propone una lección;
 las que marcás `accepted` con su regla pasan a `agents/INDEX.md`, que Claude Code importa desde `~/.claude/CLAUDE.md`.
-`bk lessons` lista las que esperan revisión; la barra las muestra como checkpoint (󰌵).
+`bk lessons` lista las que esperan revisión; también salen en `bk checkpoints` y en *Te esperan* de `bk monitor`.
+`bk learn` se corre a mano: lo corría cada ~2 minutos la barra de Sketchybar, que ya no está.
 `bk learn effect` mide si cada regla aceptada baja los hallazgos de review que dice evitar: hallazgos de su clase por
 ronda (y qué parte del total son) en los PRs abiertos antes y después de aceptarla. Escribe `agents/efecto.md`; las
 que dan *no baja* son para reescribir o retirar. Usa `accepted:` y `mide:` del frontmatter de la lección.
@@ -310,9 +316,21 @@ que dan *no baja* son para reescribir o retirar. Usa `accepted:` y `mide:` del f
 - `dotfiles/tmux.conf` → `~/.config/tmux/tmux.conf`
 - `dotfiles/ghostty/bk-day`: tema violeta pastel (modo day). `bk theme` apunta la línea `theme` de la config de Ghostty
   a ese archivo (day), a `Shades Of Purple` (night) o a los dos según macOS (auto), y recarga Ghostty con SIGUSR2.
-- `dotfiles/sketchybar/` → `~/.config/sketchybar` (centro de control: agentes, lo que te espera, tokens, GitHub, modos work/chill)
 
-Ambos son enlaces simbólicos: se editan acá y quedan versionados.
+`~/.config/tmux/tmux.conf` es un enlace simbólico a este repo: se edita acá y queda versionado.
+
+## Hook de estado (`hooks/agent_state.sh`)
+Un hook de Claude Code anota el estado de cada sesión (trabajando, te espera, terminó, en segundo plano), su rol, modelo,
+issue y pane en `~/.cache/sketchybar/agents/<sesión>.json`; de ahí leen `bk ls`, la tira, el riel, `bk monitor`, `bk s` y
+los paneles de Herdr. También escribe el `bk say` encolado cuando el agente termina el turno. La carpeta conserva el
+nombre de cuando el estado era de la barra de Sketchybar, que ya no está: las sesiones vivas escriben ahí.
+
+Va registrado en `~/.claude/settings.json` en `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+`PostToolUseFailure`, `PermissionRequest`, `Notification`, `SubagentStart`, `SubagentStop`, `Stop`, `StopFailure` y
+`SessionEnd`: `{"type": "command", "command": "~/barrilete-workspace/hooks/agent_state.sh", "timeout": 5}`.
+Una instalación de antes lo registra como `~/.config/sketchybar/plugins/agent_hook.sh` (con `~/.config/sketchybar`
+enlazado a `dotfiles/sketchybar`); por eso queda el enlace versionado `dotfiles/sketchybar/plugins/agent_hook.sh`, que
+apunta al hook. Al cambiar esa ruta en `settings.json` se pueden borrar el enlace y `~/.config/sketchybar`.
 
 ### Tareas en Herdr
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bk sobre Herdr (bk backend herdr, lib/herdr.sh): cada proyecto es un espacio y cada chat o agente una pestaña.
 # bk ve un herdr-app y un hc falsos (tests/herdr_fake.py) que guardan espacios, pestañas y terminales en un
-# archivo y anotan lo que les piden; también un tmux, un gh, un open y un sketchybar falsos. Nada toca el Herdr
+# archivo y anotan lo que les piden; también un tmux, un gh y un open falsos. Nada toca el Herdr
 # real ni tu config: HOME es un directorio temporal.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(dirname "$HERE")"
@@ -15,7 +15,7 @@ for b in app hc; do
   n=$([ $b = app ] && echo herdr-app || echo hc)
   printf '#!/bin/sh\nexec python3 "%s/herdr_fake.py" %s "$@"\n' "$HERE" "$b" >"$TMP/fake/$n"
 done
-for b in tmux gh open sketchybar; do printf '#!/bin/sh\necho "%s $*" >> "%s/otros.log"\nexit 1\n' "$b" "$TMP" >"$TMP/fake/$b"; done
+for b in tmux gh open; do printf '#!/bin/sh\necho "%s $*" >> "%s/otros.log"\nexit 1\n' "$b" "$TMP" >"$TMP/fake/$b"; done
 chmod +x "$TMP/fake"/*; : >"$TMP/otros.log"
 N=0; FAILED=0
 check_eq() { N=$((N+1)); if [ "$1" = "$2" ]; then echo "ok $N - $3"; else echo "not ok $N - $3 (got '$1', want '$2')"; FAILED=$((FAILED+1)); fi; }
@@ -201,7 +201,7 @@ check_eq "$(grep -c '^open' "$TMP/otros.log")" "0" "ni abrió la app real (open)
 
 # --- el hook de estado anota la terminal de Herdr como pane ---
 HOOK="$TMP/agent_hook.sh"
-sed "s#^export PATH=.*#export PATH=\"$TMP/fake:\$PATH\"#" "$ROOT/dotfiles/sketchybar/plugins/agent_hook.sh" >"$HOOK"
+sed "s#^export PATH=.*#export PATH=\"$TMP/fake:\$PATH\"#" "$ROOT/hooks/agent_state.sh" >"$HOOK"
 ev() { printf '{"session_id":"%s","hook_event_name":"%s","cwd":"%s"}' "$1" "$2" "$REPO"; }
 echo '{"pane": "t9", "state": "waiting"}' >"$STATE/bk-i99.json"
 ev s1 SessionStart | HC_TERMINAL_ID=t9 bash "$HOOK"
@@ -211,6 +211,12 @@ ev s2 SessionStart | TMUX_PANE=%3 HC_TERMINAL_ID=t9 bash "$HOOK"
 check_eq "$(jq -r .pane "$STATE/s2.json")" "%3" "hook: dentro de tmux manda TMUX_PANE"
 ev s3 SessionStart | bash "$HOOK"
 check_eq "$(jq -r '.pane // "nada"' "$STATE/s3.json")" "nada" "hook: fuera de tmux y de Herdr no anota pane"
+# ~/.claude/settings.json llega al hook por la ruta de cuando era un plugin de Sketchybar (~/.config/sketchybar apunta
+# a dotfiles/sketchybar): mientras esa ruta esté registrada, el enlace tiene que seguir ahí y correr tal cual
+VIEJA="$ROOT/dotfiles/sketchybar/plugins/agent_hook.sh"
+check_eq "$(readlink "$VIEJA")" "../../../hooks/agent_state.sh" "hook: la ruta vieja es un enlace al hook de estado"
+ev s4 SessionStart | HC_TERMINAL_ID=t4 "$VIEJA"
+check_eq "$(jq -r '.state + " " + .pane' "$STATE/s4.json" 2>/dev/null)" "idle t4" "hook: por la ruta vieja corre y anota el estado"
 
 # Los atajos de tmux en Herdr: bk backend herdr instala los mods bk-* y las teclas alt+… sin pisar las que ya hay
 APP="$HOME/.config/herdr-app"; mkdir -p "$APP/mods/bk"; : >"$APP/mods/bk/main.js"

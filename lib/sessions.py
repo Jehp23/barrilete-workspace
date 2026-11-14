@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """bk s: selector de sesiones de Claude Code, estilo Orca.
 
-Arriba, las sesiones abiertas (con estado de la barra): Enter salta a su pane de tmux.
+Arriba, las sesiones abiertas (con su estado): Enter salta a su pane de tmux.
 Abajo, las recientes de todas las carpetas (~/.claude/projects): Enter la retoma con
 `claude --resume` en una ventana nueva de la sesión tmux "agents", en su carpeta.
 
@@ -147,7 +147,7 @@ def load(prune=True):
             continue
         # Corría en un pane de tmux que ya no existe: la ventana se cerró sin que Claude mandara
         # Stop/SessionEnd y el estado quedó congelado ("trabajando" para siempre). Está muerta:
-        # va a recientes (enter la retoma) y se borra el estado para que la barra no la cuente.
+        # va a recientes (enter la retoma) y se borra el estado para que nadie la cuente.
         # Solo si tmux (o Herdr, si el pane es una terminal suya) respondió: una lista vacía no prueba nada.
         if gone(s.get("pane"), panes, hpanes):
             if prune:

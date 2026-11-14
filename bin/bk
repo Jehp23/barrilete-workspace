@@ -1,7 +1,7 @@
 #!/bin/bash
 # bk — workspace de agentes Barrilete desde la terminal.
 # Cada agente corre en una ventana de la sesión tmux "agents", con BARRILETE_ROLE/MODEL/ISSUE
-# en el entorno (la barra de Sketchybar lo etiqueta con eso).
+# en el entorno (el hook de estado, hooks/agent_state.sh, lo anota con eso).
 set -euo pipefail
 
 WS="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
@@ -103,14 +103,15 @@ uso: bk [comando] [--dry-run]
   stop <agente>     cerrar la ventana del agente (el worktree queda; su tarea queda cancelada)
                     Con Herdr, un número de una o dos cifras es el de la ventana: bk stop 7 cierra el agente de
                     la ventana 7 (el del issue 7 es bk stop i7)
-  clean [--yes]     limpiar restos: claude, codex o scripts de bk sin padre (PPID 1) y estado de la barra de
+  clean [--yes]     limpiar restos: claude, codex o scripts de bk sin padre (PPID 1) y estado de agentes de
                     panes cerrados. No toca nada vivo ni tmux; sin --yes solo muestra
   done <resultado>  (lo corre el agente) cerrar su tarea: pr <n> | blockers | dropped "…" | escalate "…"
   tasks [--all]     las tareas de los agentes con su estado, su resultado y su carpeta
   tasks prune [--days N] [--yes]  borrar tareas terminadas (nunca las activas; sin --yes solo muestra)
   approve <tarea>   lanzar una tarea propuesta (el reviewer de un PR, pr<n>-reviewer)
   checkpoints [--json]  lo que te espera: planes por aprobar, reviewers propuestos, PRs para revisar o
-                    mergear y lecciones propuestas (lo mismo que "Te esperan" en bk monitor y la barra)
+                    mergear y lecciones propuestas (lo mismo que "Te esperan" en bk monitor). Los PRs salen
+                    de una caché que se baja de GitHub en segundo plano cuando tiene más de 2 min
   roles             qué provider/modelo corre cada rol en este proyecto
   land [--wait]     (desde el worktree de tu rama) entrar a main: espera a las ramas que empezaron antes y
                     tocan tus archivos, rebasa, corre lib/checks.sh y hace el fast-forward. main no se commitea
@@ -123,10 +124,9 @@ uso: bk [comando] [--dry-run]
   lessons           lecciones por revisar (status: proposed) en el vault
   learn effect      ¿las reglas aceptadas bajan los hallazgos que dicen evitar? antes/después por ronda de
                     review (agents/efecto.md); las que no bajan, para reescribir o retirar
-  mode [work|chill|uni]  modo de la barra (sin argumento: el actual). uni: clase, entregas, pomodoro
-  campus            abrir el campus virtual de la facultad (también es un botón de la barra en modo uni)
+  campus            abrir el campus virtual de la facultad
   entregas [n]      entregas sin terminar de Notion (vencidas en rojo, hoy en amarillo); con n, la abre
-  focus [min] [qué] pomodoro en la barra (25 min por defecto; stop | status)
+  focus [min] [qué] pomodoro (25 min por defecto; stop | status)
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
   theme [day|night|auto]  tema de Ghostty: violeta pastel / violeta oscuro / según macOS
   font [sf|jetbrains|menlo]  tipografía de Ghostty: SF Mono / JetBrains Mono (la que trae) / Menlo
@@ -545,12 +545,12 @@ launch() {
   [ -z "$parent" ] || tmux set-option -w -t "$SESSION:$win" @bk_parent "$parent"
   fi
   pre_register "$win" "$pane" "$dir" "$role" "$model" "$ref"
-  # El título del issue/PR para bk ls, la tira y Sketchybar (una consulta a GitHub, en segundo plano)
+  # El título del issue/PR para bk ls y la tira (una consulta a GitHub, en segundo plano)
   (python3 "$WS/lib/agents.py" warm >/dev/null 2>&1 &)
   info "lanzado → bk go $win"
 }
 
-# Registra al agente en la barra apenas se lanza. Claude Code no corre hooks hasta que aceptás
+# Registra el estado del agente apenas se lanza. Claude Code no corre hooks hasta que aceptás
 # el diálogo de confianza de la carpeta (cada worktree es nueva), así que sin esto el agente
 # sería invisible justo cuando te necesita. El hook real (SessionStart) borra este registro.
 pre_register() {
@@ -560,7 +560,6 @@ pre_register() {
     {state: "waiting", tool: "confianza", cwd: $cwd, role: $role, model: $model, pane: $pane,
      subagents: 0, ts: (now | floor)} + (if $ref != "" then {ref: $ref} else {} end)' \
     > "$STATE_DIR/bk-$win.json"
-  sketchybar --trigger agent_update >/dev/null 2>&1 || true
 }
 
 # task_guard <dir> <tarea>: si ya hay una tarea activa con ese id (ADR-005 D2), la muestra y sale sin lanzar
@@ -991,7 +990,7 @@ ws_agent() {
   tmux display-message "agente $n en el lugar del chat · alt+q vuelve al orquestador"
 }
 
-# bk focus [min] [qué]: pomodoro en la barra (modo uni). Sin argumentos: 25 min. "stop" lo corta.
+# bk focus [min] [qué]: pomodoro. Sin argumentos: 25 min. "stop" lo corta.
 cmd_focus() {
   local f="$HOME/.cache/bk/focus"
   mkdir -p "$(dirname "$f")"
@@ -1001,10 +1000,8 @@ cmd_focus() {
     *[!0-9]*) die "bk focus [minutos] [qué estudiás] | stop | status" ;;
     *) local m="$1"; shift || true
        echo "$(( $(date +%s) + m * 60 )) ${*:-Estudio}" >"$f"
-       [ "$("$HOME/.config/sketchybar/mode.sh" status)" = uni ] || info "(se ve en la barra en modo uni: bk mode uni)"
        info "🍅 $m min${*:+ de $*}" ;;
   esac
-  sketchybar --trigger forced >/dev/null 2>&1; sketchybar --update >/dev/null 2>&1 || true
 }
 
 # bk chat [sesión]: un claude nuevo en la carpeta del proyecto del workspace. Vive en la sesión
@@ -1408,11 +1405,10 @@ stop() {
   local td; td=$(python3 "$TASKS" find --window "$win" 2>/dev/null || true)
   [ -n "$td" ] && python3 "$TASKS" cancel "$td" >/dev/null
   tmux kill-window -t "$SESSION:$win"
-  # Matar el pane no siempre dispara SessionEnd: limpiar el estado de la barra a mano
+  # Matar el pane no siempre dispara SessionEnd: limpiar el estado del agente a mano
   for p in $panes; do
     { grep -l "\"pane\": *\"$p\"" "$STATE_DIR"/*.json 2>/dev/null || true; } | xargs rm -f
   done
-  sketchybar --trigger agent_update >/dev/null 2>&1 || true
   info "cerrada $win (el worktree, si había, queda: cleanup.sh lo limpia cuando el issue cierre)"
 }
 
@@ -1492,6 +1488,51 @@ lessons() {
   done
   [ "$n" -eq 0 ] && echo "no hay lecciones por revisar" \
     || printf '\n%s por revisar en %s/agents/lessons (status: accepted + regla → INDEX.md; retired → descartar)\n' "$n" "$vault"
+}
+
+# bk _prs: baja de GitHub tus PRs listos para mergear y las reviews que te pidieron, para bk checkpoints y
+# bk monitor. lib/checkpoints.py lo lanza en segundo plano cuando la caché tiene más de 2 min (antes la bajaba el
+# plugin de Sketchybar). Port de bk-shell. Escribe ~/.cache/bk/checkpoints_prs.json, o BK_PRS_CACHE, la misma
+# variable que lee checkpoints.py. Sin gh, sin red o con una respuesta rota, la caché queda como estaba.
+cmd_prs() {
+  set +euo pipefail
+  command -v gh >/dev/null || return 0
+  local CACHE="${BK_PRS_CACHE:-$HOME/.cache/bk/checkpoints_prs.json}" lock age
+  lock="$CACHE.lock"; mkdir -p "$(dirname "$CACHE")"
+  # Un solo fetch a la vez. Un candado de más de 10 min es de una corrida que murió sin soltarlo: se pisa
+  # (si no, los PRs no se actualizarían nunca más)
+  if ! mkdir "$lock" 2>/dev/null; then
+    age=$(( $(date +%s) - $(stat -f %m "$lock" 2>/dev/null || date +%s) ))
+    [ "$age" -gt 600 ] || return 0
+    rmdir "$lock" 2>/dev/null; mkdir "$lock" 2>/dev/null || return 0
+  fi
+  # kind=merge: tuyos listos para mergear · kind=review: te pidieron review (también es un nudo humano)
+  gh api graphql -f query='
+    { mine: search(query: "is:pr is:open author:@me archived:false draft:false", type: ISSUE, first: 30) {
+        nodes { ... on PullRequest {
+          number title url reviewDecision updatedAt
+          repository { nameWithOwner }
+          reviews(last: 1) { totalCount nodes { body submittedAt } }
+          commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+        } } }
+      asked: search(query: "is:pr is:open review-requested:@me archived:false", type: ISSUE, first: 20) {
+        nodes { ... on PullRequest { number title url updatedAt repository { nameWithOwner } } } } }' 2>/dev/null \
+  | jq '[(.data.mine.nodes[]
+          # /review-pr publica siempre como comentario, aunque tenga bloqueantes: hay que leer la última
+          # review. Listo = CI verde, última review sin sección "Bloqueante/Blocking" y sin commits
+          # posteriores a esa review (si hubo arreglos, el kit pide revisar de nuevo).
+          | .reviews.nodes[0] as $r
+          | .commits.nodes[0].commit as $c
+          | select(.reviews.totalCount > 0
+                   and .reviewDecision != "CHANGES_REQUESTED"
+                   and ($c.statusCheckRollup.state // "SUCCESS") == "SUCCESS"
+                   # La sección existe siempre: bloquea solo si no dice "Ninguno/None"
+                   and (($r.body // "") | test("(^|\\n)#+\\s*(Bloqueantes?|Blocking|Blockers?)\\b[^\\n]*\\n\\s*(?!(Ningun[oa]|None|No hay|Sin bloqueantes)\\b)\\S"; "i") | not)
+                   and (($c.committedDate // "") <= ($r.submittedAt // "")))
+          | {kind: "merge", repo: .repository.nameWithOwner, number, title, url, updated: .updatedAt}),
+         (.data.asked.nodes[] | {kind: "review", repo: .repository.nameWithOwner, number, title, url, updated: .updatedAt})]' \
+    > "$CACHE.tmp" 2>/dev/null && [ -s "$CACHE.tmp" ] && mv "$CACHE.tmp" "$CACHE"
+  rm -f "$CACHE.tmp"; rmdir "$lock" 2>/dev/null
 }
 
 # ---------- tema de Ghostty ----------
@@ -1732,21 +1773,18 @@ case "${1:-}" in
   clean)       shift; exec python3 "$WS/lib/clean.py" "$@" ;;
   done)        shift; rc=0; python3 "$TASKS" done "$@" || rc=$?
                [ "$rc" -ne 0 ] || done_release
-               sketchybar --trigger agent_update >/dev/null 2>&1 || true; exit $rc ;;
+               exit $rc ;;
   tasks)       shift; case "${1:-}" in prune) shift; exec python3 "$TASKS" prune "$@" ;;
                                      *) exec python3 "$TASKS" list "$@" ;; esac ;;
   approve)     shift; cmd_approve "${1:-}" ;;
   checkpoints|ckpt) shift; exec python3 "$WS/lib/checkpoints.py" "$@" ;;
-  _ended)      python3 "$TASKS" ended "${2:?}" || true; sketchybar --trigger agent_update >/dev/null 2>&1 || true ;;
+  _ended)      python3 "$TASKS" ended "${2:?}" || true ;;
+  _prs)        cmd_prs ;;
   _drain)      task_drain "${2:?}" "${3:?}" ;;
   roles)       roles ;;
   account|accounts) shift; cmd_account "$@" ;;
-  mode)        shift
-               # bk mode work|chill|uni|toggle|apply|status: el modo de Sketchybar; bk mode <rol>: cómo se lanza ese rol
-               case "${1:-status}" in
-                 work|chill|uni|toggle|apply|status) exec "$HOME/.config/sketchybar/mode.sh" "${1:-status}" ;;
-                 *) role_mode "$1" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; echo ;;
-               esac ;;
+  mode)        shift; [ -n "${1:-}" ] || die "bk mode <rol>"
+               role_mode "$1" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; echo ;;
   tokens)      exec python3 "$WS/lib/usage.py" ;;
   land)        shift; exec python3 "$WS/lib/land.py" land "$@" ;;
   claims)      shift; exec python3 "$WS/lib/land.py" claims "$@" ;;

@@ -4,7 +4,7 @@
 Restos:
   - procesos sin dueño: claude, codex o un lib/*.py de bk cuyo padre ya no existe (PPID 1). Quedan así
     cuando se cerró la terminal o el pane sin que el proceso se enterara, y siguen ocupando memoria.
-  - estado de la barra (BK_STATE_DIR/*.json) de panes de tmux que ya no existen, y *.json.tmp viejos.
+  - estado de agentes (BK_STATE_DIR/*.json) de panes de tmux que ya no existen, y *.json.tmp viejos.
 
 Nunca toca: tmux (el server se ve en ps como "tmux new-session …"), lo que tiene padre vivo (los chats de
 otras terminales, los agentes), ghapp.py keep (se va solo) ni bk song (mpv). Sin --yes solo muestra.
@@ -167,11 +167,11 @@ def main(argv):
         for pid, rss, kind, cmd in procs_:
             print(f"  {pid:>6}  {rss / 1024:>5.0f} MB  {kind:<14} {short(cmd)}")
     if state:
-        print(f"estado de la barra viejo ({len(state)}):")
+        print(f"estado de agentes viejo ({len(state)}):")
         for f, why in state:
             print(f"  {os.path.basename(f)}  ({why})")
     if panes is None:
-        print("(sin tmux: el estado de la barra de panes cerrados no se revisó)")
+        print("(sin tmux: el estado de agentes de panes cerrados no se revisó)")
     if not yes:
         print("Para limpiarlos: bk clean --yes")
         return 0
@@ -181,11 +181,6 @@ def main(argv):
         try:
             os.remove(f)
         except FileNotFoundError:
-            pass
-    if state:
-        try:
-            subprocess.run(["sketchybar", "--trigger", "agent_update"], capture_output=True)
-        except OSError:
             pass
     done = len(procs_) - len(left)
     print(f"listo: {done} proceso(s) cerrados, {len(state)} archivo(s) de estado borrados")

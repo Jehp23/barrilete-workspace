@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# bk clean: cierra claude/codex/scripts de bk cuyo padre ya no existe y borra el estado de la barra de panes
+# bk clean: cierra claude/codex/scripts de bk cuyo padre ya no existe y borra el estado de agentes de panes
 # cerrados; nunca toca lo que tiene padre vivo ni nada que se llame tmux.
 # Aislado: un ps falso que solo muestra los procesos de esta prueba (los del sistema no se pueden matar), un
-# tmux falso con los panes vivos, y HOME (y con él el estado de la barra) en un tmp.
+# tmux falso con los panes vivos, y HOME (y con él el estado de agentes) en un tmp.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(dirname "$HERE")"
 TMP=$(cd "$(mktemp -d)" && pwd -P)
@@ -16,7 +16,6 @@ mkdir -p "$HOME" "$BK_STATE_DIR" "$TMP/fake" "$TMP/bin" "$TMP/srv"
 REAL_PS=$(command -v ps)
 printf '#!/bin/sh\n%s "$@" | grep -F "%s/"\nexit 0\n' "$REAL_PS" "$TMP" >"$TMP/fake/ps"
 printf '#!/bin/sh\n[ -f "$PANES" ] || exit 1\ncat "$PANES"\n' >"$TMP/fake/tmux"
-printf '#!/bin/sh\nexit 0\n' >"$TMP/fake/sketchybar"
 chmod +x "$TMP/fake/"*
 export PATH="$TMP/fake:$PATH"
 # Procesos con el nombre que bk mira: sleep con otro argv[0] (copiar el binario no sirve: macOS lo mata)

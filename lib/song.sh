@@ -31,7 +31,6 @@ LIB="$(dirname "$(readlink -f "$0")")"
 
 die()  { printf 'bk song: %s\n' "$*" >&2; exit 1; }
 info() { printf '\033[2m%s\033[0m\n' "$*"; }
-bar()  { [ -n "${BK_SONG_CACHE:-}" ] || sketchybar --trigger song_update >/dev/null 2>&1 || true; }
 
 # clave|género|nombre|url  (streams verificados con mpv; el primero de cada género es el default del género)
 BUILTIN='techno|techno|Sunshine Live · Techno|http://stream.sunshine-live.de/techno/mp3-192/stream.sunshine-live.de/
@@ -130,7 +129,7 @@ play() {
   local i limit=40; [[ "$3" == *youtu* || "$3" == *soundcloud* ]] && limit=150
   for i in $(seq 1 "$limit"); do
     if running && [ -n "$(prop audio-codec-name)" ]; then
-      printf '♫ %s\n' "$2"; bar
+      printf '♫ %s\n' "$2"
       return 0
     fi
     if [ "$i" -gt 5 ] && ! pgrep -f -- "--input-ipc-server=$SOCK" >/dev/null; then break; fi
@@ -205,7 +204,7 @@ cmd_step() {
 }
 
 # ---------- historial ----------
-# Anota el tema si cambió (lo llaman bar-status y now, que la tira y la barra ya consultan seguido)
+# Anota el tema si cambió (lo llaman bar-status y now, que el riel y bk song ui ya consultan seguido)
 note_title() {
   local station="$1" title="$2" last=""
   [ -n "$title" ] || return 0
@@ -244,7 +243,7 @@ cmd_hist() {
   tail -n "$n" "$HIST" | awk -F'\t' '{ printf "\033[2m%s\033[0m  %s  \033[2m· %s\033[0m\n", $1, $3, $2 }'
 }
 
-# Para Sketchybar y la tira: "estado<TAB>estación<TAB>tema" (estado: playing | paused | off)
+# Para el riel y bk song ui: "estado<TAB>estación<TAB>tema" (estado: playing | paused | off)
 cmd_bar_status() {
   if ! running; then
     # mpv murió solo (se cortó el stream): no dejar un socket viejo
@@ -322,8 +321,8 @@ cmd_rm() {
 case "${1:-}" in
   "")              play_key techno ;;
   stop)            running || [ -f "$NOW" ] || { echo "no estaba sonando nada"; exit 0; }
-                   kill_player; bar; echo "■ música cortada" ;;
-  pause)           need_running; ipc '{"command":["cycle","pause"]}' >/dev/null; bar
+                   kill_player; echo "■ música cortada" ;;
+  pause)           need_running; ipc '{"command":["cycle","pause"]}' >/dev/null
                    if [ "$(prop pause)" = true ]; then echo "⏸ en pausa"; else echo "▶ sonando"; fi ;;
   bar-status)      cmd_bar_status ;;
   next)            cmd_step 1 ;;

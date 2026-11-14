@@ -133,7 +133,7 @@ class Mpv:
 
 
 def song(*args):
-    """Reusa bk song para lo que cambia de estación o pausa (así también se entera la barra)."""
+    """Reusa bk song para lo que cambia de estación o pausa."""
     subprocess.run([SONG, *args], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 

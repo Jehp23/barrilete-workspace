@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Checkpoints: lo que un agente no puede hacer por vos y te está esperando. Una sola fuente para el monitor
-(Te esperan), la barra y `bk checkpoints`.
+(Te esperan) y `bk checkpoints`.
 
   plan       un planner mostró su borrador (planner.py --draft) y espera tu "sí"
   merge      un PR tuyo listo: CI en verde, con review sin bloqueantes y sin commits después de la review
@@ -13,7 +13,7 @@
 Un PR sin movimiento hace más de 14 días (BK_CHECKPOINTS_STALE_DAYS) va marcado "stale" y al final: el monitor los
 junta en una línea, igual que las lecciones.
 
-Los PRs salen de la caché que escribe el plugin de Sketchybar checkpoints.sh (GitHub, cada ~2 min); el resto es local.
+Los PRs salen de la caché que escribe `bk _prs` (GitHub, en segundo plano, cuando tiene más de 2 min); el resto es local.
 Sin --project, de todos los proyectos. Nunca falla por una fuente rota: la saltea.
 """
 import glob
@@ -28,9 +28,8 @@ sys.path.insert(0, HERE)
 import agents as AG   # noqa: E402
 import tasks as TK    # noqa: E402
 
-# La escribe el plugin de Sketchybar checkpoints.sh (consulta GitHub cada ~2 min y de paso corre bk learn):
-# acá solo se lee.
-PRS = os.environ.get("BK_PRS_CACHE") or os.path.expanduser("~/.cache/sketchybar/checkpoints_prs.json")
+# La escribe `bk _prs` (cmd_prs en bin/bk, que usa la misma variable): acá solo se lee.
+PRS = os.environ.get("BK_PRS_CACHE") or os.path.expanduser("~/.cache/bk/checkpoints_prs.json")
 PRS_TTL = 120
 STALE_DAYS = int(os.environ.get("BK_CHECKPOINTS_STALE_DAYS") or 14)   # un PR sin movimiento hace más: "viejo"
 LESSONS = os.path.join(os.path.expanduser(os.environ.get("BARRILETE_VAULT", "~/Documents/Obsidian Vault")),
@@ -50,7 +49,7 @@ _asked = [0.0]   # cuándo se pidió la última actualización de PRs (en este p
 
 
 def refresh_prs():
-    """Si la caché de PRs es vieja, le pide a la barra que la actualice (en segundo plano: no espera a GitHub)."""
+    """Si la caché de PRs es vieja, la pide de nuevo con `bk _prs` (en segundo plano: no espera a GitHub)."""
     try:
         age = time.time() - os.path.getmtime(PRS)
     except OSError:
@@ -58,8 +57,8 @@ def refresh_prs():
     # una vez cada PRS_TTL como mucho: sin red la caché no se renueva y el monitor llama cada 2 s
     if age > PRS_TTL and time.time() - _asked[0] > PRS_TTL and not os.environ.get("BK_CHECKPOINTS_OFFLINE"):
         _asked[0] = time.time()
-        try:   # el plugin de la barra es quien la escribe: se lo dispara como si fuera su reloj
-            subprocess.Popen(["sketchybar", "--trigger", "agent_update"],
+        try:
+            subprocess.Popen([os.path.join(os.path.dirname(HERE), "bin", "bk"), "_prs"], stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         except OSError:
             pass

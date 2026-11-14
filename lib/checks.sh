@@ -3,7 +3,7 @@
 set -u
 cd "$(dirname "$0")/.."
 rc=0
-for f in bin/bk lib/*.sh githooks/*; do [ -f "$f" ] && { bash -n "$f" || rc=1; }; done
+for f in bin/bk lib/*.sh hooks/*.sh githooks/*; do [ -f "$f" ] && { bash -n "$f" || rc=1; }; done
 # Los tests corren con el backend de tmux aunque tu bk use Herdr (~/.config/bk/backend): los que prueban
 # Herdr lo piden ellos, con un herdr-app y un hc falsos
 export BK_BACKEND=tmux; unset HC_TERMINAL_ID

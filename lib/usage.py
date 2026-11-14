@@ -275,7 +275,7 @@ def main():
     today = now.strftime("%Y-%m-%d")
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
-    # Un solo escaneo a la vez (la barra y bk tokens pueden coincidir)
+    # Un solo escaneo a la vez (el riel, bk monitor y bk tokens pueden coincidir)
     lock = os.path.join(CACHE_DIR, "usage.lock")
     for _ in range(100):
         try:
