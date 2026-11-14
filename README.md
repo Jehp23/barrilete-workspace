@@ -93,7 +93,7 @@ pisan con los del repo (se editan acá).
 - **Una pestaña por agente**: `bk run`, `fix`, `review`, `plan` y `orchestrate` lanzan al agente en una pestaña
   del espacio de su proyecto (`i42`, `pr57`…) sin sacarte de la que estás mirando. Herdr muestra su estado.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
-  su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`, `snapshot`, `restore`) avisa y no
+  su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`) avisa y no
   corre: herdr-core ya mantiene vivas las terminales. `bk account use` sigue siendo de tmux; `--account X` anda.
   `bk palette`, `new`, `changes`, `stats` y `s` en una terminal siguen siendo las pantallas de siempre; en Herdr
   sus teclas abren los paneles de abajo.
@@ -288,7 +288,6 @@ las mismas (`/resume` y `alt+s` ven todas).
   abierto sigue con la anterior hasta relanzarlo.
 - `bk account login <cuenta>` rehace el login de una cuenta; `bk account login default` el de la de siempre (`~/.claude`),
   aunque esta sesión use otra. Si dos cuentas muestran el mismo email en `bk account`, en la práctica son una sola.
-- `bk restore` retoma cada chat y agente con su cuenta (si la cuenta ya no existe, con la default y avisa).
 
 ## Lo que te espera (`bk monitor` · `bk checkpoints`)
 - `bk monitor`: pantalla para el otro monitor. Arriba *Te esperan* (preguntas, permisos y checkpoints, con el comando

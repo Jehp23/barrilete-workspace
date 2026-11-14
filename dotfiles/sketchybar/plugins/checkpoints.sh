@@ -62,8 +62,6 @@ fetch_prs() {
   rm -f "$CACHE.tmp"
   # Mismo ritmo (~2 min): registrar desvíos y proponer lecciones (incremental, ~50 ms)
   [ -x "$LEARN" ] && python3 "$LEARN" --quiet >/dev/null 2>&1
-  # Foto de workspaces y agentes para bk restore (sola se limita a una cada ~5 min si nada cambió)
-  python3 "$HOME/barrilete-workspace/lib/snapshot.py" save --auto >/dev/null 2>&1
   rmdir "$lock" 2>/dev/null
   sketchybar --trigger agent_update >/dev/null 2>&1
 }

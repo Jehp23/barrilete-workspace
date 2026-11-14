@@ -111,8 +111,6 @@ uso: bk [comando] [--dry-run]
   approve <tarea>   lanzar una tarea propuesta (el reviewer de un PR, pr<n>-reviewer)
   checkpoints [--json]  lo que te espera: planes por aprobar, reviewers propuestos, PRs para revisar o
                     mergear y lecciones propuestas (lo mismo que "Te esperan" en bk monitor y la barra)
-  snapshot          foto de tus workspaces y agentes (sola cada ~5 min); bk restore --list las muestra
-  restore [N]       vuelve a la foto N (1 = la última): recrea lo que falte y retoma cada chat y agente
   roles             qué provider/modelo corre cada rol en este proyecto
   land [--wait]     (desde el worktree de tu rama) entrar a main: espera a las ramas que empezaron antes y
                     tocan tus archivos, rebasa, corre lib/checks.sh y hace el fast-forward. main no se commitea
@@ -543,8 +541,6 @@ launch() {
   fi
   # La ventana queda abierta si el agente termina, para leer lo último
   tmux set-option -w -t "$SESSION:$win" remain-on-exit on >/dev/null
-  # bk restore la lee para retomar al agente con la misma cuenta
-  [ -z "$cta" ] || tmux set-option -w -t "$SESSION:$win" @bk_account "$cta"
   # La tira lo cuelga de la ventana que lo lanzó
   [ -z "$parent" ] || tmux set-option -w -t "$SESSION:$win" @bk_parent "$parent"
   fi
@@ -853,7 +849,7 @@ project_top() {  # raíz del proyecto: el repo, o el repo principal si es un wor
   echo "$top"
 }
 project_of() { basename "$(project_top "$1")" | tr '.:' '__'; }
-WS_SESSION="${BK_WS_SESSION:-}"
+WS_SESSION=""
 
 workspace() {
   if [ "$BACKEND" = herdr ]; then hd_workspace "$@"; return; fi
@@ -881,8 +877,7 @@ workspace() {
     [ -z "$cx" ] || { BK_FROM="$WS_SESSION" account_use "$cx" >/dev/null; }
     tmux set-environment -t "$WS_SESSION" BK_PROJECT "$top"
     [ -z "${BK_WS_NAME:-}" ] || tmux set-option -t "$WS_SESSION" @bk_name "$BK_WS_NAME"
-    # Número fijo: el que pide bk restore (BK_WS_ID) si está libre; si no, el libre más bajo (ws_ids)
-    [ -z "${BK_WS_ID:-}" ] || tmux set-option -t "=$WS_SESSION:" @bk_id "$BK_WS_ID"
+    # Número fijo: el libre más bajo (ws_ids)
     BK_IDS_NOSTYLE=1 ws_ids >/dev/null
     rail=$(tmux split-window -d -P -F '#{pane_id}' -h -l "${RAIL_PCT}%" -t "$chat" -c "$dir" -e "BK_PROJECT=$top" "bk rail")
     # Tira izquierda: sesiones activas (workspaces y agentes), a lo Gentle Shell 4
@@ -1247,7 +1242,6 @@ cmd_chat() {
     for kv in "${CTA[@]+"${CTA[@]}"}"; do [ "$kv" = -e ] || tmux set-environment -u -t "$SESSION" "${kv%%=*}" 2>/dev/null || true; done
   fi
   tmux set-option -w -t "$SESSION:$name" remain-on-exit on >/dev/null
-  [ ${#CTA[@]} -eq 0 ] || tmux set-option -w -t "$SESSION:$name" @bk_account "$(account_of claude)"
   case "$s" in bk*) ws_agent "$s" "$pane" ;; *) info "chat nuevo: $name (bk go $name)" ;; esac
 }
 
@@ -1764,15 +1758,7 @@ case "${1:-}" in
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
   font)        shift; font "${1:-status}" ;;
-  ""|ws)       shift || true
-               # tmux se cayó (o es el primer bk del día): si no hay ningún workspace y hay una foto de las
-               # últimas 12 h, volver a poner todo antes de abrir el pedido (restore saltea lo que ya está)
-               if [ "$BACKEND" = tmux ] && [ -z "${BK_RESTORING:-}" ] && ! tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -q '^bk' \
-                  && [ -n "$(find "$HOME/.cache/bk/snapshots" -name '*.json' -mmin -720 2>/dev/null | head -1)" ]; then
-                 info "tmux no tiene workspaces: restauro la última foto (bk restore --list para ver otras)"
-                 python3 "$WS/lib/snapshot.py" restore || true
-               fi
-               workspace "${1:-}" ;;
+  ""|ws)       shift || true; workspace "${1:-}" ;;
   open)        shift; cmd_open "${1:-}" ;;
   rerun)       shift; cmd_rerun "$@" ;;
   focus)       shift; cmd_focus "$@" ;;
@@ -1803,11 +1789,6 @@ case "${1:-}" in
   sidebar)     tmux_only sidebar "la lista de espacios de Herdr"; exec python3 "$WS/lib/sidebar.py" ;;
   term|t)      shift; ws_term "${1:-$PWD}" ;;
   sub)         shift; exec python3 "$WS/lib/subwatch.py" "$@" ;;
-  snapshot)    tmux_only snapshot "no hace falta, herdr-core mantiene vivas las terminales"
-               shift; exec python3 "$WS/lib/snapshot.py" save "$@" ;;
-  restore)     tmux_only restore "no hace falta, herdr-core mantiene vivas las terminales"
-               shift; case "${1:-}" in --list|-l|list) exec python3 "$WS/lib/snapshot.py" list ;;
-                        *) exec python3 "$WS/lib/snapshot.py" restore "$@" ;; esac ;;
   _botenv)     shift; env=(); bot_env "${1:?}" >/dev/null 2>&1; for kv in "${env[@]+"${env[@]}"}"; do [ "$kv" = -e ] || printf '%s\n' "$kv"; done ;;
   sound)       shift; cmd_sound "${1:-status}" ;;
   name)        shift; cmd_name "$@" ;;

@@ -181,7 +181,7 @@ def workspaces():
 
 
 def claude_in(pane):
-    """¿Corre un claude dentro de este pane? Con `claude …; exec $SHELL` (como lo lanzan bk ws y bk restore)
+    """¿Corre un claude dentro de este pane? Con `claude …; exec $SHELL` (como lo lanza bk ws)
     tmux muestra zsh como comando aunque claude esté vivo adentro."""
     pid = sh("tmux", "display-message", "-p", "-t", pane, "#{pane_pid}").strip()
     if not pid:

@@ -28,8 +28,8 @@ sys.path.insert(0, HERE)
 import agents as AG   # noqa: E402
 import tasks as TK    # noqa: E402
 
-# La escribe el plugin de Sketchybar checkpoints.sh (consulta GitHub cada ~2 min y de paso corre bk learn y la foto
-# de bk restore): acá solo se lee.
+# La escribe el plugin de Sketchybar checkpoints.sh (consulta GitHub cada ~2 min y de paso corre bk learn):
+# acá solo se lee.
 PRS = os.environ.get("BK_PRS_CACHE") or os.path.expanduser("~/.cache/sketchybar/checkpoints_prs.json")
 PRS_TTL = 120
 STALE_DAYS = int(os.environ.get("BK_CHECKPOINTS_STALE_DAYS") or 14)   # un PR sin movimiento hace más: "viejo"

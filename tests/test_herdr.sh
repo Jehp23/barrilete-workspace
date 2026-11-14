@@ -192,7 +192,7 @@ out=$(cd "$REPO" && BK_HERDR_OPEN="rm -f $HD_FAKE/closed" bk run 12 --role imple
 check_eq "$rc $(st -r '[.spaces[0].tabs[].name] | index("i12") != null')" "0 true" "Herdr cerrado: si abre a tiempo, lanza"
 
 # --- lo que es del workspace de tmux no corre con Herdr ---
-for c in rail sidebar restore snapshot; do
+for c in rail sidebar; do
   out=$(bk "$c" 2>&1); rc=$?
   check_eq "$rc $(has "$out" "es del workspace de tmux")" "1 si" "bk $c con Herdr: avisa y no abre nada de tmux"
 done
