@@ -1736,6 +1736,7 @@ case "${1:-}" in
   name)        shift; cmd_name "$@" ;;
   _nth)        tmux_only _nth "los espacios de Herdr"; ws_ids | awk -F'\t' -v n="${2:-1}" '$1 == n {print $2}' ;;   # alt+N: el workspace con ese número
   _ids)        tmux_only _ids "los espacios de Herdr"; ws_ids ;;
+  _subagents)  shift; exec python3 "$WS/lib/herdr_subagents.py" "$@" ;;
   _tasks)      shift; exec python3 "$WS/lib/herdr_tasks.py" "$@" ;;   # bk tasks --json con el título de cada issue o PR (herdr/mods/tareas)
   _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)
   _launcher)   launcher_of ;;   # lo que launch anota como @bk_parent (la tira lo usa; tests)

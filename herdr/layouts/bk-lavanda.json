@@ -61,7 +61,7 @@
               },
               "min": 180,
               "content": {
-                "mod": "agents"
+                "mod": "bk-agentes"
               }
             },
             {

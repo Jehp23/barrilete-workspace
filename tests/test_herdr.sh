@@ -217,7 +217,7 @@ printf '{"global": {"cmd-t": "tab.new", "alt-k": "tab.close", "alt-g": "bk.chang
 cp "$APP/keys.json" "$TMP/keys.antes"; : >"$HD_FAKE/log"
 bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$ROOT/herdr/mods/bk/main.js" "$APP/mods/bk-changes/main.js" && cmp -s "$ROOT/herdr/mods/bk/mod.json" "$APP/mods/bk-agent9/mod.json" && echo igual)" "igual" "atajos: bk backend herdr copia el mod a una carpeta por comando"
-check_eq "$(ls "$APP/mods" | grep -c '^bk-') $(ls "$APP/mods" | grep -c '^bk$')" "21 0" "atajos: una carpeta por cada tecla que abre un mod más los dos paneles y los dos sin tecla (bk-aviso, bk-seguir), y se va la versión anterior (mods/bk)"
+check_eq "$(ls "$APP/mods" | grep -c '^bk-') $(ls "$APP/mods" | grep -c '^bk$')" "22 0" "atajos: una carpeta por cada tecla que abre un mod más los tres paneles y los dos sin tecla (bk-aviso, bk-seguir), y se va la versión anterior (mods/bk)"
 check_eq "$(jq -r '.global["alt-s"] + " " + .global["alt-shift-3"] + " " + .global["alt-2"]' "$APP/keys.json")" "mod.open:bk-sessions mod.open:bk-agent3 space.select:2" "atajos: suma las teclas alt+… de tmux"
 check_eq "$(jq -r '.global["alt-k"] + " " + .global["cmd-t"] + " " + .terminal["cmd-c"]' "$APP/keys.json")" "tab.close tab.new terminal.copy" "atajos: no pisa una tecla que ya hace otra cosa ni las demás"
 check_eq "$(jq -r '.global["alt-g"] + " " + (.global["alt-0"] // "sin")' "$APP/keys.json")" "mod.open:bk-changes sin" "atajos: actualiza las teclas de la versión anterior de bk y saca la que ya no existe"
@@ -237,11 +237,11 @@ echo '{"id":"root"}' >"$APP/layouts/main.json"; : >"$HD_FAKE/log"
 L="$APP/layouts/bk-lavanda.json"; SRC="$ROOT/herdr/layouts/bk-lavanda.json"; MARK="$APP/bk-lavanda.instalado"
 sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
 bk backend herdr >/dev/null 2>&1
-check_eq "$(cmp -s "$ROOT/herdr/mods/tareas/main.js" "$APP/mods/bk-tareas/main.js" && cmp -s "$ROOT/herdr/mods/lado/mod.json" "$APP/mods/bk-lado/mod.json" && echo igual)" "igual" "paneles: copia tareas y lado a mods/bk-<nombre>"
+check_eq "$(cmp -s "$ROOT/herdr/mods/tareas/main.js" "$APP/mods/bk-tareas/main.js" && cmp -s "$ROOT/herdr/mods/lado/mod.json" "$APP/mods/bk-lado/mod.json" && cmp -s "$ROOT/herdr/mods/agentes/main.js" "$APP/mods/bk-agentes/main.js" && echo igual)" "igual" "paneles: copia agentes, tareas y lado a mods/bk-<nombre>"
 check_eq "$(cmp -s "$SRC" "$L" && echo igual) $(cat "$MARK")" "igual $(sha "$SRC")" "layout: instala bk-lavanda y anota qué instaló"
 check_eq "$(ls "$APP/layouts" | tr '\n' ' ') $(cat "$APP/layouts/main.json")" 'bk-lavanda.json main.json  {"id":"root"}' "layout: uno solo, y no toca el main de Herdr"
 check_eq "$(log | grep -c 'layout.switch')" "0" "layout: instalar no cambia el layout que se muestra"
-check_eq "$(jq -r '[.. | objects | .content?.mod? // empty | select(startswith("bk-"))] | unique | join(" ")' "$SRC") $(ls "$APP/mods" | grep -cE '^bk-(lado|tareas)$')" "bk-lado bk-tareas 2" "layout: los mods de bk que nombra son los que se instalan"
+check_eq "$(jq -r '[.. | objects | .content?.mod? // empty | select(startswith("bk-"))] | unique | join(" ")' "$SRC") $(ls "$APP/mods" | grep -cE '^bk-(agentes|lado|tareas)$')" "bk-agentes bk-lado bk-tareas 3" "layout: los mods de bk que nombra son los que se instalan"
 echo '{"id":"viejo"}' >"$L"; sha "$L" >"$MARK"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$SRC" "$L" && echo igual) $(cat "$MARK")" "igual $(sha "$SRC")" "layout: una copia que bk instaló y nadie tocó se actualiza con la del repo"
 jq '.retoque = 1' "$SRC" >"$L"; cp "$L" "$TMP/retocado"; out=$(bk backend herdr 2>&1)

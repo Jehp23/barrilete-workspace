@@ -249,3 +249,13 @@ falta se le pide a GitHub, hasta 8 por vez). Un reviewer propuesto tiene el bot�
 **Lanzar reviewer**, que corre `bk approve <tarea>` en el repo de la tarea y avisa
 cómo salió. Tests: `tests/test_herdr_tasks.sh` (necesita `node`) y
 `tests/test_tasks_titles.sh`.
+
+### Subagentes de Claude en Herdr
+
+El panel `bk-agentes`, clon del panel nativo, conserva estados, agrupación, pines
+y subagentes de herdr-core. También muestra debajo de cada sesión sus subagentes
+internos de Claude (`Agent`), con descripción, tipo y número estable como bk-shell.
+`bk _subagents` relaciona los hooks de sesión con los metadatos de Claude: excluye
+los terminados y los que llevan más de diez minutos sin escribir, igual que bk-shell.
+Se actualiza cada tres segundos; el clic abre `bk sub` para seguir el transcript
+en una pestaña de solo lectura. No envía instrucciones al subagente.
