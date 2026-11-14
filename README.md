@@ -99,7 +99,7 @@ tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
   (`mod.open:bk-palette`), que hace lo suyo y se cierra; todos son el mismo archivo. Nada queda abierto (una ventana
   del mod siempre a la escucha tapaba los clics de toda la app). Herdr deja de actualizar un `keys.json` editado.
   Dos mods más, sin tecla: `bk-aviso` (muestra un aviso que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic
-  del aviso «Resumen listo»). En `bk s` (`alt+s`), Enter sobre una sesión abierta
+  del aviso «Resumen listo»). En `bk s` (`alt+s`) cada sesión abierta muestra el id de su terminal (`t2d`, el que usan `bk say`, `bk peek` y `hc`) y esc cierra sin la espera de un segundo de curses (`ESCDELAY` 25 ms). Enter sobre una sesión abierta
   muestra su pestaña de Herdr y sobre una reciente la retoma en un chat más del espacio de su proyecto (`bk chat`
   con `claude --resume`, en la carpeta de la sesión); `x` no cierra pestañas de Herdr, y una sesión cuya terminal
   ya no está pasa a recientes. Falta: `alt+0` (espacio anterior) no tiene equivalente.

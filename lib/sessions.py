@@ -33,6 +33,9 @@ STATE = os.path.expanduser("~/.cache/sketchybar/agents")
 CACHE = os.path.expanduser("~/.cache/barrilete/sessions.json")
 SESSION = os.environ.get("BK_SESSION", "agents")
 RECENT = 80
+# curses espera un segundo después de un esc por si viene una secuencia (flechas): con esc para cerrar, se
+# sentía como si el selector tardara en irse. 25 ms alcanza para las flechas; si la persona definió ESCDELAY, queda.
+os.environ.setdefault("ESCDELAY", "25")
 SKIP_DIRS = re.compile(r"-private-tmp-|scratch-workspaces|scratchpad")
 
 
@@ -65,7 +68,9 @@ def herdr_panes():
     for t in ls.get("terminals") or []:
         addr = t.get("address")
         if addr and t.get("state") == "live":
-            out[addr] = {"session": "herdr", "target": addr, "window": t.get("where") or addr, "dead": False,
+            # el id de la terminal (t2d) delante de "espacio / pestaña": es el que usan bk say, bk peek y hc
+            out[addr] = {"session": "herdr", "target": addr, "window": f"{addr} {t['where']}" if t.get("where") else addr,
+                         "dead": False,
                          "wsid": "", "herdr": True}
     return out
 
@@ -388,6 +393,7 @@ def ui(scr):
         scr.addnstr(0, 0, " sesiones de Claude ", W - 1, MAUVE | curses.A_BOLD)
         if query or typing:
             scr.addnstr(0, 21, f"/ {query}" + ("▏" if typing else ""), W - 22, YELLOW)
+        wcol = min(max([10] + [len(r.get("window") or "afuera") for r in opened]), max(10, W // 3))   # el id de Herdr no entra en 10
         for row, i in enumerate(range(top, min(len(items), top + body)), 1):
             kind, it = items[i]
             if kind == "h":
@@ -398,7 +404,7 @@ def ui(scr):
                 mark = "↪" if it.get("handoff") else "●"
                 where = it.get("window") or "afuera"
                 st = STATE_TXT.get(it["state"], it["state"] or "")
-                head = f" {mark} {where:<10} {it['proj'][:18]:<18} "
+                head = f" {mark} {where:<{wcol}} {it['proj'][:18]:<18} "
                 tail = f" {st:<10} {ago(it['mtime']):>12} "
                 mid = f"{(it.get('role') or '')[:11]:<11} {it['title']}"
                 scr.addnstr(row, 0, " " * (W - 1), W - 1, attr)
