@@ -12,6 +12,7 @@ Estado: ~/.cache/barrilete/usage-<fecha>.json
 import glob
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -106,6 +107,23 @@ def context_of(sid=None, path=None):
         tokens = _last_turn(path, 0)
     _ctx_cache[path] = (size, tokens)
     return tokens
+
+
+def context_of_cwd(cwd):
+    """El contexto de la sesión de Claude Code más reciente de esa carpeta: {"tokens", "level"} o None.
+    Claude guarda los transcripts en PROJECTS/<ruta con "-" en todo lo que no es letra o número>; una carpeta
+    sin sesiones (o un worktree, que tiene su propia ruta) da None."""
+    if not cwd:
+        return None
+    d = os.path.join(PROJECTS, re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(cwd)))
+    try:
+        files = [(os.path.getmtime(f), f) for f in glob.glob(os.path.join(d, "*.jsonl"))]
+    except OSError:
+        return None
+    if not files:
+        return None
+    tokens = context_of(path=max(files)[1])
+    return {"tokens": tokens, "level": ctx_level(tokens)} if tokens else None
 
 
 def _last_turn(path, start):

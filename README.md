@@ -105,7 +105,7 @@ tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
   ya no está pasa a recientes. Falta: `alt+0` (espacio anterior) no tiene equivalente.
 - **Los paneles y el layout**: `bk backend herdr` también instala dos paneles dibujados por Herdr (no terminales),
   `herdr/mods/tareas` y `herdr/mods/lado`, y el layout que los muestra, uno solo: `bk-lavanda` (ver *Estética
-  Lavanda* y *Centro de tareas en Herdr*). El lado derecho sale de `bk _side` (proyecto, rama, perfil de roles, uso de
+  Lavanda* y *Centro de tareas en Herdr*). El lado derecho sale de `bk _side` (proyecto, rama, perfil de roles, contexto de la sesión de Claude de la carpeta, uso de
   hoy y lo que quedó sin commitear en el proyecto y sus worktrees). Instalar no cambia el layout que ves. Tests:
   `tests/test_side.sh` y `tests/test_herdr.sh`.
 - Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra

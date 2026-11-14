@@ -117,6 +117,16 @@ export default class Lado extends View {
       this.kv(t, "Rama", d.branch || "—", dirty),
       this.kv(t, "Perfil", d.profile.map((p) => `${SHORT[p.role] ?? p.role} ${p.model}`).join(" · ") || "—", null, true),
     ] : [div().id("lado-sin-proyecto").text_color(t.dim).child(`${d.path} · fuera de un proyecto`)];
+    // El contexto de la sesión de Claude de esta carpeta: ámbar desde 200k, rojo desde 400k (los umbrales de lib/usage.py)
+    const c = d.context;
+    if (c) {
+      const color = c.level === "high" ? (t.ansi1 ?? t.blocked) : c.level === "warn" ? (t.ansi3 ?? t.working) : t.foreground;
+      const hint = c.level === "high" ? "sesión muy larga: conviene cortarla" : c.level === "warn" ? "sesión larga" : "";
+      rows.push(h_flex().id("lado-contexto").gap(8).items_center().tooltip(`${c.tokens.toLocaleString("en-US")} tokens de contexto`)
+        .child(div().w(70).flex_none().whitespace_nowrap().text_color(t.dim).child("Contexto"))
+        .child(div().flex_1().min_w(0).truncate().text_color(color).child(`${Math.round(c.tokens / 1000)}k`))
+        .when(Boolean(hint), (el) => el.child(div().flex_none().text_size(11).text_color(color).child(hint))));
+    }
     const u = this.usage;
     if (u) {
       const here = d.project ? `${human(u.here_tokens)} · $${u.here_cost.toFixed(2)}` : `${human(u.tokens)} tok`;

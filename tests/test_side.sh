@@ -31,5 +31,20 @@ check_eq "$(side "$TMP/suelta" | jq -c '[.project, .branch, (.changes | length)]
 check_eq "$(side "$TMP/no-existe" | jq -c '[.project, (.changes | length)]')" '["",0]' "una carpeta que no existe no rompe"
 check_eq "$(side "$REPO" | jq -c '.profile | map(.role) | index("implementer") != null')" "true" "perfil: los roles de bk roles"
 
+# contexto: el de la sesión de Claude más reciente de esa carpeta (transcript en ~/.claude/projects/<ruta con - por todo lo que no es letra o número>)
+sesion() { # <carpeta> <archivo> <tokens de entrada> <segundos de antigüedad>
+  local d="$HOME/.claude/projects/$(printf %s "$1" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$d"
+  printf '{"type":"assistant","message":{"model":"x","usage":{"input_tokens":%s,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}}}\n' "$3" >"$d/$2.jsonl"
+  touch -t "$(date -v-"$4"S +%Y%m%d%H%M.%S)" "$d/$2.jsonl"
+}
+check_eq "$(side "$REPO" | jq -c '.context')" "null" "contexto: sin sesión de Claude en la carpeta es null"
+sesion "$REPO" vieja 450000 600; sesion "$REPO" nueva 250000 5
+check_eq "$(side "$REPO" | jq -c '.context')" '{"tokens":250000,"level":"warn"}' "contexto: toma la sesión más reciente de la carpeta y dice el nivel (ámbar desde 200k)"
+sesion "$REPO" nueva 450000 5
+check_eq "$(side "$REPO" | jq -c '.context.level')" '"high"' "contexto: rojo desde 400k"
+sesion "$REPO" nueva 90000 5
+check_eq "$(side "$REPO" | jq -c '.context')" '{"tokens":90000,"level":""}' "contexto: por debajo de 200k sin nivel"
+check_eq "$(side "$WT" | jq -c '.context')" "null" "contexto: un worktree no hereda la sesión del repo principal"
+
 echo "1..$N"
 [ "$FAILED" -eq 0 ]
