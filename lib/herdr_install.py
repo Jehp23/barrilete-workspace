@@ -16,7 +16,7 @@ NO_KEY = ("bk-aviso", "bk-seguir")   # mods sin tecla: los abre bk (un aviso de 
 
 
 # Los paneles de bk: herdr/mods/<nombre> → mods/bk-<nombre>. El layout bk-lavanda dice dónde va cada uno.
-PANELS = ["tareas", "lado", "agentes"]
+PANELS = ["tareas", "lado", "agentes", "marca"]
 LAYOUT = "bk-lavanda"
 
 

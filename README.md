@@ -259,3 +259,7 @@ internos de Claude (`Agent`), con descripción, tipo y número estable como bk-s
 los terminados y los que llevan más de diez minutos sin escribir, igual que bk-shell.
 Se actualiza cada tres segundos; el clic abre `bk sub` para seguir el transcript
 en una pestaña de solo lectura. No envía instrucciones al subagente.
+
+La cabecera de Lavanda muestra **BK** y el icono original de Barrilete Kit
+(`herdr/mods/marca/bk.svg`, variante para 32 px). El mod propio `bk-marca`
+conserva los controles de búsqueda y de la barra lateral sin editar Herdr.
