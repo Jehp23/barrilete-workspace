@@ -206,16 +206,20 @@ export class Panel extends View {
     this.input.focus();
   }
 
+  // Enter: lo que haga la vista (abrir una pregunta, cambiar de nivel) se redibuja siempre. Si el buscador estaba
+  // vacío, set_value("") no avisa nada y una pregunta nueva quedaba sin verse (pasó con «Nueva tarea…»)
   submit(cx, e) {
     if (this.ask) {
       const a = this.ask, text = (a.value ?? "").trim();
       if (!text && !a.optional) return;
       this.ask = null;
       this.input.set_value("");
-      return a.run(text, cx);
+      a.run(text, cx);
+    } else {
+      const row = this.current();
+      if (row) this.enter(row, cx, e);
     }
-    const row = this.current();
-    if (row) this.enter(row, cx, e);
+    if (!this.closed) cx.notify();
   }
 
   // Corre algo corto mostrando "…" y deja el error a la vista si falla

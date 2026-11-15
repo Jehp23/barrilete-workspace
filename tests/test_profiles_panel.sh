@@ -27,7 +27,7 @@ cp "$ROOT/herdr/mods/hub/kit.js" "$ROOT/herdr/mods/hub/profiles.js" "$HERE/herdr
 sed -i.bak 's#from "gpui-kit"#from "./stub.js"#; s#from "gpui-base"#from "./stub.js"#; s#from "herdr"#from "./stub.js"#' "$SIM/kit.js" "$SIM/profiles.js"
 cat >"$SIM/run.mjs" <<'EOF'
 import P from "./profiles.js";
-import { CX, mkCX } from "./stub.js";
+import { CX, mkCX, renders } from "./stub.js";
 const out = [];
 const ev = (f) => { const c = mkCX(); try { f(c); } catch (e) { out.push("ERROR " + e.message); } c.alive = false; };
 const settle = async () => { for (let i = 0; i < 50 && CX.p; i++) { const p = CX.p; await p; if (CX.p === p) break; } };
@@ -36,7 +36,8 @@ const p = new P(); p.init({}, CX); await settle();
 const heads = () => p.rows().filter((r) => r.head).map((r) => r.head).join(",");
 const step = process.argv[2];
 if (step === "tarea") {
-  pick((r) => r.newTask); ev((c) => p.submit(c));
+  pick((r) => r.newTask); const before = renders.n; ev((c) => p.submit(c));
+  out.push("redibuja " + (renders.n > before ? "sí" : "no") + " " + (p.ask?.label ?? "-"));
   ev(() => p.input.set_value("traducir")); ev((c) => p.submit(c));
   ev(() => p.input.set_value("traducir textos al inglés")); ev((c) => p.submit(c));
   out.push("cabeceras " + heads());
@@ -44,7 +45,8 @@ if (step === "tarea") {
   out.push("nivel " + (p.task ? "modelos" : "inicio"));
 } else if (step === "otro") {
   pick((r) => r.t?.name === "imagenes"); ev((c) => p.submit(c));
-  pick((r) => r.other); ev((c) => p.submit(c));
+  pick((r) => r.other); const before = renders.n; ev((c) => p.submit(c));
+  out.push("redibuja " + (renders.n > before ? "sí" : "no") + " " + (p.ask ? "pregunta" : "-"));
   ev(() => p.input.set_value("claude/claude-opus-5-5")); ev((c) => p.submit(c)); await settle();
 } else if (step === "perfil") {
   pick((r) => r.p?.name === "normal"); ev((c) => p.key({ key: "right", modifiers: {} }, p.current(), c));
@@ -57,12 +59,14 @@ EOF
 sim() { (cd "$SIM" && node run.mjs "$1" 2>&1); }
 
 o=$(sim tarea)
+check_eq "$(grep '^redibuja' <<<"$o")" "redibuja sí tarea" "enter en «Nueva tarea…» con el buscador vacío abre la pregunta y redibuja (antes no se veía)"
 check_eq "$(grep -c '^ERROR' <<<"$o")" "0" "nueva tarea: ningún paso usa un contexto viejo"
 check_eq "$("$ROOT/bin/bk" ask --json | jq -c '.tasks[] | select(.name == "traducir") | [.spec, .desc]')" '["claude/haiku","traducir textos al inglés"]' "nueva tarea: nombre, descripción y modelo quedan guardados"
 check_eq "$(grep '^nivel' <<<"$o")" "nivel inicio" "nueva tarea: al guardar vuelve al inicio"
 check_eq "$(grep '^cabeceras' <<<"$o")" "cabeceras claude,otro" "tareas: solo los proveedores con sesión (claude sí, codex no, gemini sin clave)"
 
 o=$(sim otro)
+check_eq "$(grep '^redibuja' <<<"$o")" "redibuja sí pregunta" "enter en «Otro…» abre la pregunta y redibuja"
 check_eq "$(grep -c '^ERROR' <<<"$o") $("$ROOT/bin/bk" ask --json | jq -r '.tasks[] | select(.name == "imagenes") | .spec')" "0 claude/claude-opus-5-5" "«Otro…»: escribir provider/modelo y guardar"
 
 touch "$HOME/gemini-key"
