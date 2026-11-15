@@ -251,5 +251,11 @@ check_eq "$(cat "$L") $([ -f "$MARK" ] && echo marca || echo sin)" '{"id":"de ot
 rm -f "$L"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$SRC" "$L" && echo igual)" "igual" "layout: borrarlo y repetir trae el del repo"
 
+# --- bk s (lib/sessions.py): el id de la terminal en cada fila y el cierre sin demora ---
+check_eq "$(cd "$ROOT/lib" && python3 -c 'import sessions as S; print(S.where({"herdr": True, "window": "t2d barrilete-kit / pr285"}))')" "t2d barrilete-kit / pr285" "bk s: una sesión de Herdr se muestra con el id de su terminal"
+check_eq "$(cd "$ROOT/lib" && python3 -c 'import sessions as S, json; S.sh = lambda *a: json.dumps({"terminals": [{"address": "t2d", "state": "live", "where": "kit / pr285"}, {"address": "t9", "state": "live"}]}); print(sorted(v["window"] for v in S.herdr_panes().values()))')" "['t2d kit / pr285', 't9']" "bk s: herdr_panes pone el id delante del espacio y la pestaña"
+check_eq "$(cd "$ROOT/lib" && env -u ESCDELAY python3 -c 'import os, sessions; print(os.environ.get("ESCDELAY"))')" "25" "bk s: esc cierra sin la espera de un segundo de curses (ESCDELAY)"
+check_eq "$(cd "$ROOT/lib" && ESCDELAY=300 python3 -c 'import os, sessions; print(os.environ.get("ESCDELAY"))')" "300" "bk s: respeta un ESCDELAY que la persona ya definió"
+
 echo "1..$N"
 [ "$FAILED" -eq 0 ]

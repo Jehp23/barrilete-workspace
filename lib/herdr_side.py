@@ -9,6 +9,8 @@
   profile         [{role, model, mode}] de `bk roles` en el proyecto
   changes         [{name, branch, path, files: [{code, path, add, del}], more}] por cada worktree del proyecto con
                   algo sin commitear (hasta MAX_FILES archivos; `more` dice cuántos quedaron afuera)
+  context         {tokens, level} de la sesión de Claude más reciente de esa carpeta (level: "", "warn" desde
+                  200k, "high" desde 400k), o null si no tiene ninguna
   usage           solo con --usage (lee los transcripts, tarda más): tokens y costo de hoy, acá y en total
 
 Fuera de un repo de git: project y branch vacíos, sin changes. Nunca escribe nada.
@@ -78,13 +80,20 @@ def usage(name):
             "here_tokens": sum(v["tokens"] for v in mine), "here_cost": sum(v["cost"] for v in mine)}
 
 
+def context(cwd):
+    sys.path.insert(0, HERE)
+    import usage as U
+    return U.context_of_cwd(cwd)
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     cwd = os.path.abspath(os.path.expanduser(args[0] if args else "."))
     home = os.path.expanduser("~")
     top = project_top(cwd) if os.path.isdir(cwd) else ""
     out = {"project": os.path.basename(top) if top else "", "path": (top or cwd).replace(home, "~", 1),
-           "branch": "", "dirty": 0, "profile": profile(top), "changes": []}
+           "branch": "", "dirty": 0, "profile": profile(top), "changes": [],
+           "context": context(cwd)}
     if top:
         out["branch"] = sh("git", "-C", cwd, "branch", "--show-current").strip()
         out["dirty"] = len([l for l in sh("git", "-C", cwd, "status", "--porcelain").splitlines() if l.strip()])
