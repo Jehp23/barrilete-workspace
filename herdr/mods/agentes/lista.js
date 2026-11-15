@@ -54,9 +54,12 @@ export class Lista {
     return st;
   }
 
-  // Herdr en el orden de la lista: space.next/prev y los agentes "por espacio" siguen lo que se ve
+  // Herdr en el orden de la lista: space.next/prev y los agentes "por espacio" siguen lo que se ve. Solo los
+  // espacios de esta máquina (van primero): las pantallas conectadas comparten el orden y cada una tiene su
+  // lista, así que si todas lo impusieran entero se pisarían sin fin.
   order(st, sp) {
-    const have = sp.map((s) => s.id), want = E.target(st, sp);
+    const mine = new Set(sp.filter((s) => !s.machine).map((s) => s.id));
+    const have = sp.map((s) => s.id).filter((id) => mine.has(id)), want = E.target(st, sp).filter((id) => mine.has(id));
     const plan = E.moves(have, want);
     if (!plan.length || checking()) { this.ordering = null; return; }
     const key = JSON.stringify([have, want]);

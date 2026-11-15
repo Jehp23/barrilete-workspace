@@ -307,6 +307,15 @@ Date.now = now;
 const pedidos = ran.filter((r) => r[0] === 'space.move').length;
 assert.ok(pedidos >= 1 && pedidos <= 3, `pidió ${pedidos} veces el mismo orden`);
 ok('orden que Herdr no toma: se pide unas pocas veces y se deja, sin bucle');
+
+// Las pantallas conectadas comparten el orden de los espacios y cada una tiene su lista: si las dos lo impusieran
+// entero se pisarían sin fin. Cada pantalla ordena solo los espacios de su máquina.
+live = [sp('s1', 'abra'), sp('s2', 'bk'), sp('pc/a', 'x', { machine: 'pc' }), sp('pc/b', 'y', { machine: 'pc' })];
+store[E.KEY] = E.move(E.move(E.sync(E.clean(null), live), 'e:bk', { antes: 'e:abra' }), 'e:y@pc', { antes: 'e:x@pc' });
+ran = [];
+new L.Lista().section(t);
+assert.deepEqual(ran.filter((r) => r[0] === 'space.move').map((r) => r[1]), [{ id: 's2', index: 1 }], 'los de otra máquina no se tocan');
+ok('orden: solo se mueven en Herdr los espacios de esta máquina');
 JS
 
 # bk _logo: la imagen va a mods/bk-agentes/logos/<hash>.<ext> de la carpeta de Herdr y dice la ruta relativa
