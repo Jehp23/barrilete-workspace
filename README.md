@@ -234,7 +234,9 @@ en zsh, que expande el `=`).
   Gemini es solo para tareas: no puede ocupar un rol (no tiene las barandas de Claude Code).
 - `bk models [provider]`: los modelos para elegir. Codex sale de su CLI (`codex debug models`, guardado un día);
   Claude Code y Gemini no listan los suyos, así que salen de `models.yml` más `~/.config/bk/models.yml`.
-  El panel «Perfiles de modelos y tareas» de `alt+k` los muestra agrupados por proveedor.
+  El panel «Perfiles de modelos y tareas» de `alt+k` los muestra agrupados por proveedor, y solo los proveedores con
+  sesión iniciada (`bk models --providers`): claude y codex según sus cuentas (`bk account`), gemini si tiene clave
+  (variable de entorno, `~/.gemini/oauth_creds.json` o el llavero; solo se mira que exista).
 - `--dry-run` en cualquier comando de agentes, y en `bk ws` y `bk chat` (también `--rama`, `--suelto` y `--desde`), muestra qué haría sin lanzar ni abrir nada.
 - Provider `codex`: preparado pero sin probar. Las barandas y los eventos de las tareas le llegan por el `.codex/hooks.json`
   del proyecto (los trae el kit), pero no está verificado que Codex los dispare igual que Claude Code.

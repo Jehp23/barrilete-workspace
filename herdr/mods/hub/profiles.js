@@ -22,6 +22,7 @@ export default class Profiles extends Panel {
     this.data = { profiles: [], roles: [], providers: [] };
     this.tasks = { tasks: [], providers: [] };
     this.models = [];
+    this.provs = null;     // [{provider, logged, accounts}] de bk models --providers; null: no se pudo saber
     this.editing = null;   // el perfil que se edita (nivel roles)
     this.role = null;      // el rol al que se le elige modelo
     this.task = null;      // la tarea a la que se le elige modelo: { name, desc, spec }
@@ -29,14 +30,29 @@ export default class Profiles extends Panel {
   }
 
   async load() {
-    const [p, t, m] = await Promise.all([
+    const [p, t, m, s] = await Promise.all([
       bk(["profile", "--json"], { json: true, timeout: 8000 }),
       bk(["ask", "--json"], { json: true, timeout: 8000 }),
       bk(["models", "--json"], { json: true, timeout: 30000 }).catch(() => []),
+      bk(["models", "--providers", "--json"], { json: true, timeout: 60000 }).catch(() => null),
     ]);
     this.data = p;
     this.tasks = t;
     this.models = m;
+    this.provs = s;
+  }
+
+  // Los proveedores que se ofrecen: los permitidos (roles: claude y codex; tareas: también gemini) con sesión iniciada.
+  // Si no se pudo saber quién tiene sesión, todos los permitidos
+  offered() {
+    const allowed = this.task ? this.tasks.providers : this.data.providers;
+    if (!this.provs) return allowed.map((p) => ({ provider: p, accounts: [] }));
+    return this.provs.filter((s) => s.logged && allowed.includes(s.provider));
+  }
+
+  logged(spec) {
+    const p = (spec ?? "").split("/")[0];
+    return !this.provs || this.provs.some((s) => s.provider === p && s.logged);
   }
 
   prof() { return this.data.profiles.find((p) => p.name === this.editing) ?? null; }
@@ -54,14 +70,14 @@ export default class Profiles extends Panel {
     const found = (items, text) => rank(items, q, text).map(({ item, hits }) => ({ ...item, hits }));
     if (this.picking()) {
       const cur = this.task ? this.task.spec : this.prof()?.roles?.[this.role];
-      const allowed = this.task ? this.tasks.providers : this.data.providers;
       const out = [];
-      for (const prov of allowed) {
+      for (const { provider: prov, accounts } of this.offered()) {
         const items = this.models.filter((m) => m.provider === prov)
           .map((m) => ({ key: `${prov}/${m.model}`, spec: `${prov}/${m.model}`, desc: m.desc, cur: `${prov}/${m.model}` === cur }));
         const got = found(items, (r) => [r.spec, r.desc]);
-        if (got.length) out.push({ head: prov }, ...got);
+        if (got.length) out.push({ head: prov, note: accounts.join(" · ") }, ...got);
       }
+      if (!out.length) out.push({ head: "sin cuentas", note: "ningún proveedor permitido tiene sesión: bk account para iniciarla" });
       out.push({ head: "otro" }, { key: OTHER, spec: "Otro… (escribir provider/modelo)", other: true, hits: [] });
       return out;
     }
@@ -102,7 +118,8 @@ export default class Profiles extends Panel {
         .child(div().w(210).flex_none().truncate().text_size(12).text_color(r.t.installed ? t.foreground : t.blocked).child(r.t.spec))
         .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(sure ? "" : r.t.desc))
         .when(sure, (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).child("ctrl+x de nuevo para borrar")))
-        .when(!sure && !r.t.installed, (el) => el.child(pill(t, "falta la CLI", t.blocked)));
+        .when(!sure && !r.t.installed, (el) => el.child(pill(t, "falta la CLI", t.blocked)))
+        .when(!sure && r.t.installed && !this.logged(r.t.spec), (el) => el.child(pill(t, "sin sesión", t.blocked)));
     }
     const act = r.p.name === this.data.active;
     return row()
@@ -175,20 +192,20 @@ export default class Profiles extends Panel {
   // Nueva tarea: el nombre, para qué sirve (lo lee el orquestador) y después el modelo
   newTask(cx) {
     this.askFor({ label: "tarea", title: "Nueva tarea", help: "Un nombre corto: imagenes, investigar, traducir… (minúsculas, números y guiones).",
-      verb: "seguir", run: (name) => {
+      verb: "seguir", run: (name, cx) => {
         name = name.toLowerCase().replace(/\s+/g, "-");
         this.askFor({ label: name, title: `¿Para qué sirve ${name}?`, help: "El orquestador lo lee para saber cuándo usarla. Ej.: buscar información en la web y responder con las fuentes.",
-          verb: "elegir el modelo", run: (desc) => this.go(cx, { task: { name, desc, spec: null } }) });
+          verb: "elegir el modelo", run: (desc, cx) => this.go(cx, { task: { name, desc, spec: null } }) });
       } });
   }
 
   enter(r, cx) {
     if (this.picking()) {
       if (!r.other) return this.setSpec(cx, r.spec);
-      const allowed = (this.task ? this.tasks.providers : this.data.providers).join(", ");
+      const allowed = this.offered().map((s) => s.provider).join(", ") || "ninguno con sesión";
       return this.askFor({ label: this.task?.name ?? this.role, title: "Otro modelo",
         help: `<provider>/<modelo>, por ejemplo codex/gpt-6.1-sol o gemini/gemini-3.5-flash. Providers: ${allowed}`,
-        verb: "guardar", run: (text) => this.setSpec(cx, text) });
+        verb: "guardar", run: (text, cx) => this.setSpec(cx, text) });
     }
     if (this.editing) return this.go(cx, { editing: this.editing, role: r.role });
     if (r.newTask) return this.newTask(cx);
@@ -223,13 +240,13 @@ export default class Profiles extends Panel {
       const from = row?.p?.name ?? this.data.active ?? "normal";
       const typed = this.query.trim().toLowerCase().replace(/\s+/g, "-");
       this.askFor({ label: "nuevo", title: `Perfil nuevo, copia de ${from}`, help: "Minúsculas, números y guiones. Después elegí el modelo de cada rol.",
-        value: typed, verb: "crear", run: (name) => this.change(cx, "creando…", ["profile", "new", name, from], (_r, cx) => this.go(cx, { editing: name })) });
+        value: typed, verb: "crear", run: (name, cx) => this.change(cx, "creando…", ["profile", "new", name, from], (_r, cx) => this.go(cx, { editing: name })) });
       return true;
     }
     if (ctrl && k === "e" && row?.t) {
       const t = row.t;
       this.askFor({ label: t.name, title: `¿Para qué sirve ${t.name}?`, help: "El orquestador lo lee para saber cuándo usarla.", value: t.desc,
-        verb: "guardar", run: (desc) => this.change(cx, "guardando…", ["ask", "set", t.name, t.spec, desc]) });
+        verb: "guardar", run: (desc, cx) => this.change(cx, "guardando…", ["ask", "set", t.name, t.spec, desc]) });
       return true;
     }
     if (ctrl && k === "x" && row?.t) {

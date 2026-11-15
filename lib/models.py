@@ -2,10 +2,16 @@
 """bk models: los modelos que se pueden elegir, por proveedor (claude, codex, gemini).
 
   bk models [<provider>] [--json] [--fresh]
+  bk models --providers [--json]     qué proveedores tienen sesión iniciada y con qué cuentas (el panel de alt+k
+                                     ofrece solo esos)
 
   codex   de la CLI (`codex debug models`, los visibles), guardados un día en ~/.cache/bk/models-codex.json;
           sin la CLI o si falla, los de models.yml
   claude, gemini   sus CLIs no listan modelos: salen de models.yml del repo más ~/.config/bk/models.yml
+
+Sesión: claude y codex por sus cuentas (lib/accounts.py: `claude auth status`, `codex login status`, también las
+cuentas extra de bk account); gemini por GEMINI_API_KEY / GOOGLE_API_KEY, ~/.gemini/oauth_creds.json o la clave
+que la CLI guarda en el llavero (gemini-cli-api-key, gemini-cli-oauth: solo se mira que exista, no se lee).
 """
 import json, os, re, shutil, subprocess, sys, time
 
@@ -77,7 +83,57 @@ def catalog(fresh=False):
     return sorted(out, key=lambda m: PROVIDERS.index(m["provider"]))   # estable: dentro de cada provider, el orden de la fuente
 
 
+def gemini_session():
+    """(sesión, cómo): la CLI de gemini tiene con qué autenticarse."""
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        return True, "clave de API (variable de entorno)"
+    if os.path.isfile(os.path.join(os.path.expanduser("~"), ".gemini", "oauth_creds.json")):
+        return True, "cuenta de Google"
+    if shutil.which("security"):
+        for svc, how in (("gemini-cli-api-key", "clave de API (llavero)"), ("gemini-cli-oauth", "cuenta de Google (llavero)")):
+            try:
+                r = subprocess.run(["security", "find-generic-password", "-s", svc], capture_output=True, timeout=5,
+                                   stdin=subprocess.DEVNULL)
+                if r.returncode == 0:
+                    return True, how
+            except (OSError, subprocess.SubprocessError):
+                pass
+    return False, ""
+
+
+def providers():
+    """[{provider, installed, logged, accounts}]: accounts son los nombres de las cuentas con sesión."""
+    accs = []
+    try:
+        r = subprocess.run([sys.executable, os.path.join(HERE, "accounts.py"), "list", "--json"], capture_output=True,
+                           text=True, timeout=60, stdin=subprocess.DEVNULL)
+        accs = json.loads(r.stdout or "[]")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    out = []
+    for p in PROVIDERS:
+        installed = bool(shutil.which(p))
+        if p == "gemini":
+            ok, how = gemini_session() if installed else (False, "")
+            names = [how] if ok else []
+        else:
+            names = [a.get("name") + (f" ({a['who']})" if a.get("who") and "@" in a.get("who", "") else "")
+                     for a in accs if a.get("provider") == p and a.get("logged_in")]
+        out.append({"provider": p, "installed": installed, "logged": installed and bool(names), "accounts": names})
+    return out
+
+
 def main(argv):
+    if "--providers" in argv:
+        ps = providers()
+        if "--json" in argv:
+            json.dump(ps, sys.stdout, ensure_ascii=False)
+            print()
+            return
+        for p in ps:
+            state = ", ".join(p["accounts"]) if p["logged"] else ("sin sesión" if p["installed"] else "la CLI no está instalada")
+            print(f"{'●' if p['logged'] else '○'} {p['provider']:<7} {state}")
+        return
     fresh = "--fresh" in argv
     args = [a for a in argv if not a.startswith("--")]
     ms = catalog(fresh)
