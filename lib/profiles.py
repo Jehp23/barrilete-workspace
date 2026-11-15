@@ -163,6 +163,18 @@ def summary(roles):
     return " · ".join(f"{SHORT.get(r, r)} {short(roles[r])}" for r in ROLES if r in roles)
 
 
+def models(roles):
+    """«opus · sonnet · haiku»: los modelos que usa, sin repetir, en el orden de los roles (para la paleta)."""
+    out = []
+    for r in ROLES:
+        if r in roles:
+            p, _, m = roles[r].partition("/")
+            v = m if p == "claude" else roles[r]
+            if v not in out:
+                out.append(v)
+    return " · ".join(out)
+
+
 def data():
     profs = parse(source())
     act = active()
@@ -173,7 +185,7 @@ def data():
     return {"active": act if act in profs else None, "missing": act if act and act not in profs else None,
             "file": source(), "custom": source() == user_file(), "roles": ROLES, "providers": PROVIDERS,
             "suggest": suggest,
-            "profiles": [{"name": n, "roles": r, "summary": summary(r)} for n, r in profs.items()]}
+            "profiles": [{"name": n, "roles": r, "summary": summary(r), "models": models(r)} for n, r in profs.items()]}
 
 
 def show():

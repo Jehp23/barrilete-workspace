@@ -89,9 +89,10 @@ export default class Palette extends Panel {
   // Un renglón por perfil de modelos (bk profile): escribir «barato» y enter lo cambia. El activo, marcado.
   profileEntries() {
     const { active, profiles = [] } = this.profiles ?? {};
-    return profiles.map(({ name, summary }) => ({
+    // A la derecha solo los modelos, sin repetir: el detalle por rol está en el panel de edición
+    return profiles.map(({ name, summary, models }) => ({
       id: `profile:${name}`, group: "Perfil", title: name === active ? `Perfil ${name} · activo` : `Usar el perfil ${name}`,
-      hint: summary, key: null, words: `perfil modelos ${name}`,
+      hint: models ?? summary, key: null, words: `perfil modelos ${name} ${summary}`,
       go: (p) => {
         p.close();
         if (name === active) return goto("bk-profiles");
@@ -120,7 +121,7 @@ export default class Palette extends Panel {
   draw(t, r, on) {
     return h_flex().flex_1().min_w(0).gap(10).items_center()
       .child(div().flex_1().min_w(0).child(lit(t, r.e.title, r.hits, on ? t.foreground : t.muted)))
-      .when(Boolean(r.e.hint), (el) => el.child(div().flex_none().text_size(11.5).text_color(t.dim).child(r.e.hint)))
+      .when(Boolean(r.e.hint), (el) => el.child(div().flex_none().max_w(240).truncate().text_size(11.5).text_color(t.dim).child(r.e.hint)))
       .when(Boolean(r.e.key), (el) => el.child(chips(t, r.e.key ?? "", on)));
   }
 

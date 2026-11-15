@@ -83,6 +83,8 @@ check_eq "$([ -e "$CONF/profile" ] && echo hay || echo no) $(spec implementer)" 
 # Los datos de alt+k y del panel derecho
 "$B" profile a-fondo >/dev/null
 check_eq "$("$B" _hub palette | jq -c '[.profile.active, (.profile.profiles | map(.name) | index("viaje") != null)]')" '["a-fondo",true]' "_hub palette trae los perfiles y el activo"
+check_eq "$("$B" _hub palette | jq -r '.profile.profiles[] | select(.name == "normal") | .models')" "opus · sonnet · haiku" "_hub palette: los modelos de cada perfil, sin repetir (lo corto de alt+k)"
+check_eq "$("$B" _hub palette | jq -r '.profile.profiles[] | select(.name == "viaje") | .models')" "opus · codex/gpt-5-codex · sonnet" "_hub palette: con el provider si no es claude"
 check_eq "$("$B" _side "$TMP" | jq -c '[.profile_name, (.profile[] | select(.role == "implementer") | .model)]')" '["a-fondo","opus"]' "_side: el perfil activo y los modelos que da"
 "$B" profile viaje >/dev/null
 check_eq "$("$B" _side "$TMP" | jq -r '.profile[] | select(.role == "implementer") | .model')" "codex/gpt-5-codex" "_side: el provider se ve si no es claude"

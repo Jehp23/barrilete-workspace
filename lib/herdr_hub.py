@@ -73,7 +73,7 @@ principal si la carpeta es un worktree. Agentes, chats y espacios salen siempre 
                            que deja lib/usage.py (~/.cache/barrilete/usage-<fecha>.json) y se renuevan en segundo
                            plano si tiene más de 60 s; null si todavía no hay. song: {playing, station, title} o
                            null si no suena nada
-  palette                  {items: [{group, label, cmd, arg, kind}], profile: {active, profiles: [{name, summary}]}}
+  palette                  {items: [{group, label, cmd, arg, kind}], profile: {active, profiles: [{name, summary, models}]}}
                            las ENTRIES de lib/palette.py y los perfiles de modelos (lib/profiles.py)
 
   herdr_hub.py _do [--cwd DIR] [--title T] -- <args de bk…>      (bk _do …)
@@ -706,7 +706,7 @@ def palette(args):
     d = PR.data()
     return {"items": [{"group": g, "label": label, "cmd": cmd, "arg": arg, "kind": kind}
                       for g, label, cmd, arg, kind in PAL.ENTRIES],
-            "profile": {"active": d["active"], "profiles": [{"name": p["name"], "summary": p["summary"]} for p in d["profiles"]]}}
+            "profile": {"active": d["active"], "profiles": [{"name": p["name"], "summary": p["summary"], "models": p["models"]} for p in d["profiles"]]}}
 
 
 # ---------- música ----------
