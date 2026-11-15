@@ -48,10 +48,15 @@ def panels(src, home):
     print(f"paneles bk: {'actualizados' if copied else 'al día'} ({', '.join('bk-' + n for n in names)})")
 
 
+# Temas que bk instaló con otro nombre: si la copia sigue igual a lo que bk instaló, se va (el nuevo la reemplaza)
+RENAMED_THEMES = {"bk-noche.json": "bk-neon.json"}
+
+
 def themes(src, home):
     """Los temas de bk (herdr/themes/*.json) → themes/ de Herdr, para elegirlos en alt+, o en los ajustes. Siguen
     al repo mientras no los retoques: bk anota el sha256 de lo que instaló (bk-temas.json) y solo pisa una copia
-    que sigue igual a esa; un tema tuyo con el mismo nombre queda como está."""
+    que sigue igual a esa; un tema tuyo con el mismo nombre queda como está. Uno que cambió de nombre
+    (RENAMED_THEMES) se borra con la misma regla: solo si sigue igual a lo que bk instaló."""
     a = os.path.join(src, "themes")
     if not os.path.isdir(a):
         return
@@ -70,9 +75,17 @@ def themes(src, home):
         if not os.path.exists(have) or digest(have) != new:
             shutil.copyfile(want, have + ".tmp"); os.replace(have + ".tmp", have); done += 1
         now[fn] = new
+    gone = []
+    for old in RENAMED_THEMES:
+        have = os.path.join(home, "themes", old)
+        if old in now and os.path.exists(have) and digest(have) == now[old]:
+            os.remove(have); gone.append(old)
+        if old in now and not os.path.exists(have):
+            del now[old]
     if now != was:
         put(mark, json.dumps(now, indent=1, sort_keys=True) + "\n")
-    print(f"temas bk: {'actualizados' if done else 'al día'}" + (f" (no piso los tuyos: {', '.join(kept)})" if kept else ""))
+    print(f"temas bk: {'actualizados' if done or gone else 'al día'}" + (f" (no piso los tuyos: {', '.join(kept)})" if kept else "")
+          + (f" (se fue {', '.join(g[:-5] + ' → ' + RENAMED_THEMES[g][:-5] for g in gone)})" if gone else ""))
 
 
 def put(path, text):

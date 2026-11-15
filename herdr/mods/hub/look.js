@@ -23,12 +23,13 @@ function find(node, id) {
   return null;
 }
 
-// settings.json con otra fuente y todo lo demás igual. Tira si el archivo no es un objeto JSON.
-export function withFont(raw, font) {
+// settings.json con una clave cambiada y todo lo demás igual. Tira si el archivo no es un objeto JSON.
+export function withSetting(raw, key, value) {
   const s = raw ? JSON.parse(raw) : {};
   if (!s || typeof s !== "object" || Array.isArray(s)) throw new Error("settings.json no es un objeto");
-  return JSON.stringify({ ...s, font }, null, 2) + "\n";
+  return JSON.stringify({ ...s, [key]: value }, null, 2) + "\n";
 }
+export const withFont = (raw, font) => withSetting(raw, "font", font);
 
 export default class Look extends Panel {
   setup() {
@@ -74,7 +75,7 @@ export default class Look extends Panel {
       list.push({
         key: `theme:${x.name}`, group: "Tema", kind: "theme", title: x.name.replace(/-/g, " "), x, on: x.name === n.theme,
         tag: Boolean(x.light) === n.dark ? (x.light ? "claro" : "oscuro") : "", words: `theme colores ${x.light ? "claro light" : "oscuro dark"}`,
-        verb: "probar este tema", go: () => this.pick(x, n),
+        verb: "probar este tema", go: (cx) => this.pick(x, n, cx),
       });
     }
     const toggle = (id, what, words) => {
@@ -136,30 +137,40 @@ export default class Look extends Panel {
 
   enter(row, cx) { row.go(cx); }
 
-  // app.theme cambia la mitad (clara u oscura) del tema; lo que se ve depende de la apariencia y del layout
-  pick(x, n) {
-    run("app.theme", { name: x.name });
-    this.said = Boolean(x.light) === n.dark ? `${x.name} es ${x.light ? "claro" : "oscuro"}: se ve con la apariencia ${x.light ? "clara" : "oscura"}`
-      : n.own >= MANY ? `tema ${x.name}, pero ${n.name} pinta sus colores encima`
-      : `tema: ${x.name}`;
+  // app.theme cambia la mitad (clara u oscura) del tema; lo que se ve depende de la apariencia y del layout. Un
+  // tema de la otra claridad (bk-dia con la apariencia oscura) pasa además la apariencia a la suya: si no, no se
+  // vería. settings.json guarda esa apariencia (`appearance`); volver a un tema oscuro la vuelve a oscura.
+  pick(x, n, cx) {
+    const flip = Boolean(x.light) === n.dark;
+    this.work(cx, flip ? "cambiando la apariencia…" : "aplicando…", async () => {
+      if (flip) await this.save("appearance", x.light ? "light" : "dark");
+      run("app.theme", { name: x.name });
+      this.said = n.own >= MANY ? `tema ${x.name}, pero ${n.name} pinta sus colores encima`
+        : flip ? `tema: ${x.name} (apariencia ${x.light ? "clara" : "oscura"})` : `tema: ${x.name}`;
+    });
   }
 
-  // Leer, cambiar solo `font` y escribir si nadie lo tocó mientras tanto (si lo tocaron, se lee de nuevo)
+  // Leer settings.json, cambiar solo esa clave y escribir si nadie lo tocó mientras tanto (si lo tocaron, se lee
+  // de nuevo)
+  async save(key, value) {
+    const path = `${appHome()}/settings.json`;
+    for (let attempt = 0; ; attempt++) {
+      const raw = await readTextFile(path);
+      let next;
+      try { next = withSetting(raw, key, value); } catch (e) { throw new Error(`no toqué settings.json: ${e?.message ?? e}`); }
+      try {
+        if (next !== raw) await writeTextFile(path, next, raw);
+        this.person = JSON.parse(next);
+        return;
+      } catch (e) {
+        if (attempt >= 2) throw e;
+      }
+    }
+  }
+
   font(name, cx) {
     this.work(cx, "guardando…", async () => {
-      const path = `${appHome()}/settings.json`;
-      for (let attempt = 0; ; attempt++) {
-        const raw = await readTextFile(path);
-        let next;
-        try { next = withFont(raw, name); } catch (e) { throw new Error(`no toqué settings.json: ${e?.message ?? e}`); }
-        try {
-          if (next !== raw) await writeTextFile(path, next, raw);
-          this.person = JSON.parse(next);
-          break;
-        } catch (e) {
-          if (attempt >= 2) throw e;
-        }
-      }
+      await this.save("font", name);
       const n = this.now();
       this.said = n.fixed && n.fixed !== name ? `${n.name} fija ${n.fixed}: ${name} se ve en los otros layouts` : `fuente de la terminal: ${name}`;
     });

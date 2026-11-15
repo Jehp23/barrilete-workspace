@@ -828,6 +828,8 @@ def status(args):
         out["dirty"] = len(st)
     th.join()
     out["account"] = acct[0] if acct else None
+    import accounts as ACC
+    out["email"] = ACC.email(out["account"])
     try:
         with open(os.path.expanduser("~/.cache/sketchybar/mode"), encoding="utf-8") as f:
             out["mode"] = f.read().strip() or None

@@ -11,6 +11,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, focused, terminals, theme, home, shared } from "herdr";
 import { ICONS, PROSE, al, card, pill } from "./kit.js";
+const ICONS_LADO = "mods/bk-lado/";   // los iconos propios del panel (cuenta.svg), al lado de su main.js
 
 const EVERY = 4000;        // git es barato: el panel sigue lo que pasa
 const SLOW = 60000;        // el uso lee los transcripts y gh sale a la red: una vez por minuto
@@ -61,7 +62,9 @@ export default class Lado extends View {
     const withUsage = now - this.usageAt >= SLOW || this.cwd !== cwd;
     const before = this.raw + (this.error ?? "");
     try {
-      const r = await exec(bin(), ["_side", cwd, ...(withUsage ? ["--usage"] : [])], { timeout: 25000 });
+      const term = focused()?.terminal;
+      const acct = (term ? terminals().find((x) => x.address === term)?.labels?.["bk.account"] : "") || "";
+      const r = await exec(bin(), ["_side", cwd, ...(withUsage ? ["--usage"] : []), ...(acct ? ["--account", acct] : [])], { timeout: 25000 });
       if (r.code !== 0) throw new Error(r.stderr.trim() || `bk _side salió con ${r.code}`);
       const d = JSON.parse(r.stdout);
       if (withUsage) {
@@ -130,7 +133,10 @@ export default class Lado extends View {
       this.kv(t, "Rama", h_flex().flex_1().min_w(0).gap(5).items_center()
         .child(svg(ICONS + "git-branch.svg").size(12).flex_none().text_color(t.accent))
         .child(div().min_w(0).truncate().text_color(t.foreground).child(d.branch || "—")), dirty),
-      this.kv(t, "Cuenta", div().flex_1().min_w(0).truncate().text_color(account ? t.working : t.muted).child(account || "la de siempre")),
+      this.kv(t, "Cuenta", h_flex().id("lado-cuenta").flex_1().min_w(0).gap(6).items_center().tooltip(d.email ? `${account || "la de siempre"} · ${d.email}` : "sin sesión iniciada")
+        .child(svg(ICONS_LADO + "cuenta.svg").size(12).flex_none().text_color(account ? t.working : t.accent))
+        .when(Boolean(account), (x) => x.child(div().flex_none().font_medium().text_color(t.working).child(account)))
+        .child(div().flex_1().min_w(0).truncate().text_color(d.email ? t.foreground : t.muted).child(d.email || (account ? "" : "la de siempre")))),
     ];
     // El contexto de la sesión de Claude de esta carpeta: una barra que se llena, ámbar desde 200k, rojo desde 400k.
     const c = d.context;

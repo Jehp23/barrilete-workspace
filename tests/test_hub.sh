@@ -131,6 +131,27 @@ echo uni >"$HOME/.cache/sketchybar/mode"
 check_eq "$(hub status "$TMP/suelta" | jq -c '[.project, .branch, .dirty, .account, .mode]')" '["suelta","",0,null,"uni"]' "status fuera de un repo: la carpeta, sin rama ni cuenta; el modo de la barra"
 out=$(hub status "$TMP/no-existe"); check_eq "$? $(jq -c '[.project, .branch, .working]' <<<"$out")" '0 ["","",3]' "status de una carpeta que ya no existe: no rompe la barra"
 check_eq "$(hub status "$TMP/suelta" --terminal t1 | jq -r .account) $(hub status "$REPO" --terminal t3 | jq -r .account) $(BK_ACCOUNT_CLAUDE=otra hub status "$TMP/suelta" | jq -r .account)" "trabajo null otra" "status: la cuenta de esa terminal (--terminal) o la del entorno"
+# El mail de la cuenta: del .claude.json de la de siempre (HOME) o de la carpeta de bk account; sin preguntarle a Claude
+ACC="$XDG_STATE_HOME/bk/accounts"; mkdir -p "$ACC/trabajo" "$ACC/cdx"
+echo claude >"$ACC/trabajo/proveedor"; echo codex >"$ACC/cdx/proveedor"
+echo '{"oauthAccount": {"emailAddress": "trabajo@ejemplo.com"}}' >"$ACC/trabajo/.claude.json"
+echo '{"oauthAccount": {"emailAddress": "yo@ejemplo.com"}, "projects": {}}' >"$HOME/.claude.json"
+echo '{"oauthAccount": {"emailAddress": "no-va@ejemplo.com"}}' >"$ACC/cdx/.claude.json"
+check_eq "$(hub status "$REPO" | jq -r .email) $(hub status "$TMP/suelta" | jq -r .email) $(BK_ACCOUNT_CLAUDE=cdx hub status "$TMP/suelta" | jq -r .email) $(BK_ACCOUNT_CLAUDE=nadie hub status "$TMP/suelta" | jq -r .email)" \
+  "trabajo@ejemplo.com yo@ejemplo.com null null" "status: el mail de la cuenta (la nombrada, la de siempre); una de Codex o que no existe, null"
+side() { python3 "$ROOT/lib/herdr_side.py" "$@" | jq -r .email; }
+check_eq "$(side "$TMP/suelta" --account trabajo) $(side "$TMP/suelta") $(side "$TMP/suelta" --account default) $(side "$TMP/suelta" --account cdx)" \
+  "trabajo@ejemplo.com yo@ejemplo.com yo@ejemplo.com null" "bk _side --account: el mail de la cuenta de la terminal; sin ella o default, la de siempre"
+echo '{"oauthAccount": ' >"$HOME/.claude.json"; a=$(side "$TMP/suelta")
+echo '{"oauthAccount": {"emailAddress": "sin-arroba"}}' >"$HOME/.claude.json"; b=$(side "$TMP/suelta")
+echo '{"oauthAccount": "x"}' >"$HOME/.claude.json"; c=$(side "$TMP/suelta")
+echo '[1]' >"$HOME/.claude.json"; d=$(side "$TMP/suelta")
+rm -f "$HOME/.claude.json"; e=$(side "$TMP/suelta")
+check_eq "$a $b $c $d $e" "null null null null null" "el mail: un .claude.json roto, sin arroba, con otra forma o que no está, null sin romper"
+m=$(python3 "$ROOT/lib/accounts.py" email trabajo); r1=$?; python3 "$ROOT/lib/accounts.py" email >/dev/null 2>&1; r2=$?
+check_eq "$m $r1 $r2" \
+  "trabajo@ejemplo.com 0 1" "accounts.py email: el mail, o sale con 1 si no hay"
+rm -rf "$ACC/trabajo" "$ACC/cdx"
 U="$HOME/.cache/barrilete/usage-$TODAY.json"
 echo '{"offsets": {}, "msgs": {"x1": ["claude-sonnet-5", "proj", 1000000, 100000, 0, 0, 5000000]}}' >"$U"
 check_eq "$(hub status "$REPO" | jq -c '[.tokens_today, (.cost_today * 100 | round)]')" '[1100000,400]' "status: tokens y costo de hoy del estado que deja usage.py"

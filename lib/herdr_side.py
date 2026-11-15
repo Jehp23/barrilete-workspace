@@ -2,7 +2,7 @@
 """Los datos del panel derecho de bk en Herdr (herdr/mods/lado), en un JSON: lo que mostraba el riel de tmux
 (lib/rail.py: Status y Changes), sin dibujar nada.
 
-  herdr_side.py <carpeta> [--usage]     (bk _side <carpeta> [--usage])
+  herdr_side.py <carpeta> [--usage] [--account <nombre>]     (bk _side <carpeta> …)
 
   project, path   el proyecto de esa carpeta: su repo principal aunque la carpeta sea un worktree
   branch, dirty   la rama de la carpeta y cuántos archivos tiene sin commitear
@@ -12,6 +12,8 @@
   context         {tokens, level} de la sesión de Claude más reciente de esa carpeta (level: "", "warn" desde
                   200k, "high" desde 400k), o null si no tiene ninguna
   usage           solo con --usage (lee los transcripts, tarda más): tokens y costo de hoy, acá y en total
+  email           el mail de la cuenta de Claude de esa terminal (--account, la etiqueta bk.account; sin ella, la
+                  de siempre), o null si no tiene sesión iniciada
 
 Fuera de un repo de git: project y branch vacíos, sin changes. Nunca escribe nada.
 """
@@ -87,7 +89,12 @@ def context(cwd):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv = sys.argv[1:]
+    acct = argv[argv.index("--account") + 1] if "--account" in argv[:-1] else ""
+    if "--account" in argv:
+        i = argv.index("--account")
+        del argv[i:i + 2]
+    args = [a for a in argv if not a.startswith("--")]
     cwd = os.path.abspath(os.path.expanduser(args[0] if args else "."))
     home = os.path.expanduser("~")
     top = project_top(cwd) if os.path.isdir(cwd) else ""
@@ -100,6 +107,9 @@ def main():
         out["changes"] = [c for c in map(changes_of, worktrees(top)) if c]
     if "--usage" in sys.argv:
         out["usage"] = usage(out["project"])
+    sys.path.insert(0, HERE)
+    import accounts as ACC
+    out["email"] = ACC.email(acct)
     json.dump(out, sys.stdout, ensure_ascii=False)
     print()
 

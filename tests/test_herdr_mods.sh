@@ -150,6 +150,43 @@ for (const v of views) {
 }
 assert.deepEqual([hcs, overlays], [[], []]);
 ok(`las ${views.length} vistas del hub (comandos, cambios, sesiones…) no son popups de terminal de este mod`);
+
+// Aspecto (herdr/mods/hub/look.js): un tema de la otra claridad cambia también la apariencia de settings.json
+const lookSrc = fs.readFileSync(`${root}/herdr/mods/hub/look.js`, 'utf8')
+  .replace(/^import .*;$/gm, '').replace('export default class Look', 'class Look').replace(/^export /gm, '');
+let files = {}, cmds = [], cur = { dark: true, theme_dark: 'bk-neon', theme_light: 'bk-dia' };
+const Panel = class { work(cx, label, fn) { this.busy = label; this.pending = fn(cx).catch((e) => { this.error = String(e?.message ?? e); }); } };
+const Look = new Function('div', 'h_flex', 'run', 'themes', 'fonts', 'settings', 'layout', 'layouts', 'shared', 'appHome', 'readTextFile',
+  'writeTextFile', 'Panel', 'rank', 'lit', 'pill', lookSrc + '\nreturn { Look, withSetting, withFont };')(
+  () => ({}), () => ({}), (name, args) => cmds.push([name, args]),
+  () => [{ name: 'bk-neon', light: false }, { name: 'bk-pastel', light: false }, { name: 'bk-dia', light: true }], () => [],
+  () => cur, () => ({}), () => [], () => 'bk-lavanda', () => '/app',
+  async (p) => files[p] ?? null, async (p, text, expected) => { if ((files[p] ?? null) !== expected) throw Error('cambió'); files[p] = text; },
+  Panel, () => 0, () => '', () => ({}));
+const look = new Look.Look();
+const settingsOf = () => JSON.parse(files['/app/settings.json']);
+const go = async (name) => { cmds = []; look.said = null; look.pick({ name, light: name === 'bk-dia' }, look.now(), { notify() {} }); await look.pending; };
+files['/app/settings.json'] = JSON.stringify({ zoom: 1, appearance: 'dark', font: 'SF Mono' }, null, 2) + '\n';
+await go('bk-dia');
+assert.deepEqual([settingsOf().appearance, settingsOf().zoom, settingsOf().font, cmds], ['light', 1, 'SF Mono', [['app.theme', { name: 'bk-dia' }]]]);
+assert.match(look.said, /bk-dia.*clara/);
+ok('Aspecto: elegir bk-dia con la apariencia oscura la pasa a clara (y no toca lo demás de settings.json)');
+cur = { dark: false, theme_dark: 'bk-neon', theme_light: 'bk-dia' };
+await go('bk-pastel');
+assert.deepEqual([settingsOf().appearance, cmds], ['dark', [['app.theme', { name: 'bk-pastel' }]]]);
+ok('Aspecto: volver a uno oscuro la pasa a oscura');
+cur = { dark: true, theme_dark: 'bk-pastel', theme_light: 'bk-dia' };
+const before = files['/app/settings.json'];
+await go('bk-neon');
+assert.deepEqual([files['/app/settings.json'], cmds, look.said], [before, [['app.theme', { name: 'bk-neon' }]], 'tema: bk-neon']);
+ok('Aspecto: un tema de la misma claridad no toca settings.json');
+files['/app/settings.json'] = '[1]'; look.error = null;
+await go('bk-dia');
+assert.deepEqual([files['/app/settings.json'], cmds], ['[1]', []]);
+assert.match(look.error, /no toqué settings.json/);
+ok('Aspecto: con un settings.json que no es un objeto no lo pisa ni cambia el tema, y lo dice');
+assert.equal(Look.withFont('{"a":1}', 'Menlo'), '{\n  "a": 1,\n  "font": "Menlo"\n}\n');
+ok('Aspecto: la fuente sigue guardándose igual');
 console.log(`1..${n}`);
 JS
 # La lista de agentes (herdr/mods/agentes): la antigüedad de la fila no va en una caja de ancho fijo. En 28 px
@@ -158,5 +195,12 @@ row=$(grep -c 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js")
 fit=$(grep 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js" | grep -c 'div()\.flex_none()\.min_w(28)\.whitespace_nowrap()\.text_right()[^()]*(timeColor)\.child(ago(now - when))')
 [ "$row $fit" = "1 1" ] || { echo "not ok - agentes: la antigüedad de la fila va en una caja de ancho fijo o se puede partir ($row $fit)"; exit 1; }
 echo "ok - agentes: la antigüedad de la fila no se parte (ancho mínimo, sin salto de renglón)"
+# La cuenta en la barra y en el panel lado: el mail que dan bk _hub status y bk _side (--account de la terminal)
+B="$ROOT/herdr/mods/barra/main.js"; LD="$ROOT/herdr/mods/lado/main.js"
+c1=$(grep -c 'when(Boolean(d?.account || d?.email)' "$B"); c2=$(grep -c 'child(d.email)' "$B"); c3=$(grep -c 'svg("mods/bk-barra/cuenta.svg")' "$B")
+c4=$(grep -c '...(acct ? \["--account", acct\] : \[\])' "$LD"); c5=$(grep -c 'child(d.email || ' "$LD")
+c6=$(ls "$ROOT/herdr/mods/barra/cuenta.svg" "$ROOT/herdr/mods/lado/cuenta.svg" 2>/dev/null | wc -l | tr -d ' ')
+[ "$c1$c2$c3$c4$c5$c6" = "111112" ] || { echo "not ok - la cuenta: la barra o el panel lado no muestran el mail ($c1$c2$c3$c4$c5$c6)"; exit 1; }
+echo "ok - la cuenta: la barra muestra el mail aunque sea la de siempre, y el panel lado pide el de la cuenta de su terminal"
 [ "$(grep -c 'mod.open --name bk-aviso' "$TMP/app.log")" = 3 ] || { echo "not ok - hd_notice no abrió bk-aviso por cada aviso"; exit 1; }
 echo "ok - hd_notice abre bk-aviso una vez por aviso"

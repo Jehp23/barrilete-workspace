@@ -7,7 +7,7 @@
     14
   ],
   "preview": "layouts/bk-lavanda.svg",
-  "theme": "bk-noche",
+  "theme": { "light": "bk-dia", "dark": "bk-neon" },
   "ui_font": "SF Mono",
   "background": "canvas",
   "terminal_padding": [

@@ -11,6 +11,7 @@ La cuenta "default" es la de siempre (~/.claude, ~/.codex) y no tiene carpeta.
   accounts.py new <claude|codex> <nombre>  crear la carpeta (el login lo hace bk)
   accounts.py provider <nombre>          claude | codex (default: vacío)
   accounts.py env <nombre>               VAR=valor para lanzar con esa cuenta (repara los symlinks)
+  accounts.py email [nombre]             el mail de esa cuenta de Claude (sin nombre: la de siempre)
 """
 import json
 import os
@@ -52,6 +53,25 @@ def provider(name):
             return f.read().strip()
     except OSError:
         return ""
+
+
+def email(name):
+    """El mail de la cuenta de Claude Code con ese nombre (default o vacío: la de siempre), leído de su
+    .claude.json (oauthAccount.emailAddress) sin preguntarle al CLI. None si no tiene sesión iniciada, si no
+    existe o si es de Codex. Barato: la barra de Herdr lo pide cada 10 s."""
+    if name in (None, "", "default"):
+        f = os.environ.get("BK_CLAUDE_JSON") or os.path.join(HOME, ".claude.json")
+    elif provider(name) == "claude":
+        f = os.path.join(path(name), ".claude.json")
+    else:
+        return None
+    try:
+        with open(f, encoding="utf-8") as fh:
+            acct = json.load(fh).get("oauthAccount") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    e = acct.get("emailAddress") if isinstance(acct, dict) else None
+    return e.strip() if isinstance(e, str) and "@" in e else None
 
 
 def names():
@@ -158,6 +178,11 @@ def main(argv):
         new(argv[1], argv[2])
     elif cmd == "provider" and len(argv) == 2:
         print(provider(argv[1]))
+    elif cmd == "email" and len(argv) <= 2:
+        e = email(argv[1] if len(argv) == 2 else "")
+        if not e:
+            sys.exit(1)
+        print(e)
     elif cmd == "env" and len(argv) == 2:
         env(argv[1])
     else:

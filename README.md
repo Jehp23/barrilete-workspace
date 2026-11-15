@@ -169,9 +169,14 @@ pisan con los del repo (se editan acá).
   importar de otra carpeta, así que cada uno lleva su copia y un test falla si dejan de ser iguales. El lado
   derecho sale de `bk _side` (proyecto, rama, perfil de roles, contexto de la sesión de Claude de la carpeta, uso
   de hoy y lo que quedó sin commitear en el proyecto y sus worktrees). Instalar no cambia el layout que ves.
-- **Temas**: `herdr/themes/*.json` (`bk-noche`, `catppuccin-mocha`, `rose-pine`, `tokyo-night`) van a `themes/` de
-  Herdr y se eligen en `alt+,`. Siguen al repo mientras no los retoques: bk anota qué instaló (`bk-temas.json`) y
-  solo pisa una copia que sigue igual a esa; un tema tuyo con el mismo nombre queda como está y se avisa.
+- **Temas**: `herdr/themes/*.json` van a `themes/` de Herdr y se eligen en `alt+,` o en los ajustes de Herdr. Los
+  de bk: `bk-neon` (violeta oscuro, acento lavanda; antes se llamaba `bk-noche`), `bk-pastel` (oscuro suave, con
+  rosa, menta, lila y durazno) y `bk-dia` (claro, papel cálido con acento lavanda, para usar de día); además
+  `catppuccin-mocha`, `rose-pine` y `tokyo-night`. Siguen al repo mientras no los retoques: bk anota qué instaló
+  (`bk-temas.json`) y solo pisa una copia que sigue igual a esa; un tema tuyo con el mismo nombre queda como está y
+  se avisa. El `bk-noche` que instaló una versión anterior se borra si nadie lo tocó.
+  En `alt+,`, elegir un tema de la otra claridad (`bk-dia` con la apariencia oscura, o uno oscuro con la clara)
+  cambia también la apariencia (`appearance` en `settings.json`); si no, Herdr no lo mostraría.
 - Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra
   las terminales. Lo que en tmux era el nombre de la ventana y sus `@opciones` son etiquetas de la terminal
   (`bk.kind`, `bk.win`, `bk.project`, `bk.role`, `bk.ref`, `bk.id`, y `bk.adopted` en las adoptadas), y el "pane"
@@ -234,9 +239,12 @@ A la izquierda, la marca, los espacios y los agentes, cada uno con el chip de su
 estado; angosta queda en un riel con solo los chips. En el centro, las pestañas y los panes, cada pane con su
 cabecera (número, programa, qué hace, carpeta y rama). A la derecha, tres tarjetas: sesión, GitHub y cambios
 (`alt+.` las esconde). Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, radio y las
-teclas de comandos y de la hoja de teclas. La marca de estado es la misma en todos, con los colores `blocked`,
-`done` y `working` del tema: en `bk-noche`, ámbar te espera, verde listo y rosa trabajando.
-El layout nombra el tema `bk-noche` (fondos violeta oscuro, acento lavanda) y la fuente de la interfaz, SF Mono; la
+teclas de comandos y de la hoja de teclas. La cuenta es la de Claude de la terminal que mirás: su mail (de su
+`.claude.json`, sin preguntarle a Claude) y, si no es la de siempre, el nombre de `bk account` delante; el panel
+derecho muestra lo mismo. La marca de estado es la misma en todos, con los colores `blocked`, `done` y `working`
+del tema: en `bk-neon`, ámbar te espera, verde listo y rosa trabajando.
+El layout nombra un par de temas, `bk-neon` con la apariencia oscura y `bk-dia` con la clara, y la fuente de la
+interfaz, SF Mono; la
 de la terminal es la tuya (`alt+,` la cambia, y también el tema, el tamaño y qué paneles se ven).
 El perfil de roles va en un renglón que sigue abajo si no entra; fuera de un proyecto, el panel lo dice.
 

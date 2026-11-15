@@ -284,6 +284,46 @@ bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$ROOT/herdr/themes/$T1" "$APP/themes/$T1" && echo igual)" "igual" "temas: una copia que bk instaló y nadie tocó se actualiza con la del repo"
 echo '{"background":"#111111"}' >"$APP/themes/$T1"; out=$(bk backend herdr 2>&1)
 check_eq "$(cat "$APP/themes/$T1") $(has "$out" "no piso los tuyos: $T1")" '{"background":"#111111"} si' "temas: uno retocado no se pisa, y se avisa"
+# bk-noche pasó a llamarse bk-neon: la copia vieja que bk instaló se va; una retocada queda
+echo '{"background":"#15142b"}' >"$APP/themes/bk-noche.json"
+jq --arg s "$(sha "$APP/themes/bk-noche.json")" '.["bk-noche.json"] = $s' "$APP/bk-temas.json" >"$TMP/temas" && mv "$TMP/temas" "$APP/bk-temas.json"
+out=$(bk backend herdr 2>&1)
+check_eq "$([ -e "$APP/themes/bk-noche.json" ] && echo queda || echo se-fue) $(jq -r '.["bk-noche.json"] // "sin-marca"' "$APP/bk-temas.json") $(has "$out" "se fue bk-noche → bk-neon")" "se-fue sin-marca si" "temas: el bk-noche que bk instaló se borra (ahora es bk-neon), y se dice"
+echo '{"background":"#15142b"}' >"$APP/themes/bk-noche.json"
+jq '.["bk-noche.json"] = "otro"' "$APP/bk-temas.json" >"$TMP/temas" && mv "$TMP/temas" "$APP/bk-temas.json"
+bk backend herdr >/dev/null 2>&1
+check_eq "$([ -e "$APP/themes/bk-noche.json" ] && echo queda)" "queda" "temas: un bk-noche retocado no se borra"
+rm -f "$APP/themes/bk-noche.json"
+# Los tres de bk: completos, legibles (contraste WCAG) y de la claridad que dicen; el layout los usa de par
+check_eq "$(python3 - "$ROOT/herdr" <<'PY'
+import json, re, sys
+root = sys.argv[1]
+def lum(h):
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+def cr(a, b):
+    x, y = sorted((lum(a), lum(b)), reverse=True)
+    return (x + 0.05) / (y + 0.05)
+NEED = ("canvas", "chrome", "background", "surface", "popover", "raised", "hover", "selected", "border", "input",
+        "foreground", "muted", "dim", "accent", "accent_foreground", "working", "blocked", "done", "idle")
+bad = []
+for name, light in (("bk-neon", False), ("bk-pastel", False), ("bk-dia", True)):
+    t = json.load(open(f"{root}/themes/{name}.json")); c = t.get("colors", {})
+    hexes = [t["background"], t["foreground"], t["selection"], *t["ansi"], *c.values()]
+    if len(t["ansi"]) != 16 or not all(re.fullmatch(r"#[0-9a-f]{6}", h) for h in hexes): bad.append(f"{name}: forma")
+    if [k for k in NEED if k not in c]: bad.append(f"{name}: faltan {[k for k in NEED if k not in c]}")
+    if (lum(t["background"]) > 0.5) != light: bad.append(f"{name}: claridad")
+    for fg, n in (("foreground", 7), ("muted", 4.5), ("dim", 3), ("accent", 3), ("working", 3), ("blocked", 3), ("done", 3)):
+        for bg in ("background", "chrome", "selected"):
+            if cr(c[fg], c[bg]) < n: bad.append(f"{name}: {fg}/{bg}")
+    if cr(c["accent_foreground"], c["accent"]) < 4.5: bad.append(f"{name}: accent_foreground")
+    if min(cr(a, t["background"]) for a in t["ansi"][1:7] + t["ansi"][9:15]) < 3: bad.append(f"{name}: ansi")
+lay = json.load(open(f"{root}/layouts/bk-lavanda.json"))["theme"]
+if lay != {"light": "bk-dia", "dark": "bk-neon"}: bad.append(f"layout: {lay}")
+print(" ".join(bad) or "ok")
+PY
+)" "ok" "temas: bk-neon, bk-pastel y bk-dia completos, legibles y de su claridad; el layout usa bk-dia de día y bk-neon de noche"
 echo '{"id":"viejo"}' >"$L"; sha "$L" >"$MARK"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$SRC" "$L" && echo igual) $(cat "$MARK")" "igual $(sha "$SRC")" "layout: una copia que bk instaló y nadie tocó se actualiza con la del repo"
 jq '.retoque = 1' "$SRC" >"$L"; cp "$L" "$TMP/retocado"; echo '<svg/>' >"$PVD"; out=$(bk backend herdr 2>&1)
