@@ -34,6 +34,19 @@ def bucket(tokens, U):
     return 2 + (tokens - U.CTX_HIGH) // STEP
 
 
+def next_chat():
+    """Cómo seguir en un chat nuevo: con Herdr, alt+h (pide el resumen y abre el chat nuevo solo); con tmux, alt+n.
+    El backend como lo decide bin/bk: BK_BACKEND; si no, ~/.config/bk/backend."""
+    b = os.environ.get("BK_BACKEND", "")
+    if not b:
+        try:
+            with open(os.path.expanduser("~/.config/bk/backend")) as f:
+                b = f.read().strip()
+        except OSError:
+            b = ""
+    return "en un chat nuevo con su resumen (alt+h)" if b == "herdr" else "en un chat nuevo (alt+n)"
+
+
 def message(tokens, U, sid="", cwd=None):
     n = U.human_ctx(tokens)
     if U.ctx_level(tokens) == "high":
@@ -47,7 +60,7 @@ def message(tokens, U, sid="", cwd=None):
             return (f"{head} dejá un resumen corto de dónde quedaste (qué está hecho, qué falta, archivos y "
                     "comandos) y recomendale a la persona seguir en una sesión nueva.")
     return (f"Llevás {n} de contexto y cada llamada lo vuelve a leer: cuando termines lo que estás haciendo, "
-            "recomendale a la persona seguir con /clear o en un chat nuevo (alt+n).")
+            f"recomendale a la persona seguir con /clear o {next_chat()}.")
 
 
 def handoff_written(ev, sid):

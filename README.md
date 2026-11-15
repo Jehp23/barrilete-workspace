@@ -54,7 +54,7 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   para este chat, `bk monitor` en la columna CTX, y `bk land` sugiere `/clear` o un chat nuevo si el chat que lo
   corrió pasa los 200k. Sale del último turno del transcript (`usage.context_of`), sin llamar a ningún modelo.
   Al agente se lo dice un hook de Claude Code (`lib/context_hook.py`, en `UserPromptSubmit` y `PostToolUse`): un mensaje
-  en su contexto al cruzar 200k (recomendar `/clear` o un chat nuevo), al cruzar 400k (cerrar en un punto estable y dejar
+  en su contexto al cruzar 200k (recomendar `/clear` o un chat nuevo: con Herdr, `alt+h`, que pide el resumen; con tmux, `alt+n`), al cruzar 400k (cerrar en un punto estable y dejar
   el resumen para seguir, abajo; un agente de bk termina con su `bk done`) y después cada +100k. No repite (estado en `~/.cache/bk/context_hook/`),
   no corre en subagentes y ante cualquier error no dice nada. Se instala en `~/.claude/settings.json`, en `hooks`:
   `{"type": "command", "command": "python3 ~/barrilete-workspace/lib/context_hook.py", "timeout": 5}` en
@@ -131,7 +131,7 @@ pisan con los del repo (se editan acá).
   | `alt+r` | Revisar o corregir un PR. Enter lanza al reviewer, o lo aprueba si el kit ya lo propuso; Tab pide una instrucción y lanza el fix; ctrl+g vuelve a correr los checks que fallaron; ctrl+o lo abre en GitHub | `bk review`, `bk approve`, `bk fix`, `bk rerun --go` |
   | `alt+e` | Te esperan: tareas y aprobaciones. Enter lanza el reviewer propuesto o va a la pestaña del agente; Tab suma el historial | `bk approve` |
   | `alt+a` | Agentes: los que te esperan arriba y, al lado, lo último de la terminal del elegido. Enter va a su pestaña, Tab le escribe, ctrl+x dos veces lo cierra, ctrl+o lo espía | `bk say`, `bk stop` |
-  | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
+  | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, el resumen de este chat para seguir en uno nuevo (abre `alt+h`), terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
   | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta | `bk _hub session-go`, `bk stop` |
   | `alt+h` | Resumen y seguir en un chat nuevo: se lo pide al chat que mirás, dejándolo abierto o cerrándolo cuando el nuevo abre. Abajo, los resúmenes listos | `bk handoff --term <t> [--cerrar]`, `bk chat --desde` |
   | `alt+g` | Cambios sin commitear del proyecto y de los worktrees de los agentes, con el diff al lado. Enter abre el archivo en un pane | |

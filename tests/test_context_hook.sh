@@ -52,5 +52,14 @@ check_eq "$(echo 'no es json' | python3 "$ROOT/lib/context_hook.py"; echo "rc=$?
 check_eq "$(printf '{"session_id":"s5","transcript_path":"%s/no-existe","hook_event_name":"UserPromptSubmit"}' "$TMP" | python3 "$ROOT/lib/context_hook.py"; echo "rc=$?")" "rc=0" "transcript que no existe: nada, código 0"
 : >"$TMP/ro"; check_eq "$(BK_CONTEXT_HOOK_STATE="$TMP/ro/x" hook UserPromptSubmit s6)" "- rc=0" "no puede escribir el estado: nada, código 0"
 
+# Cómo seguir en un chat nuevo: con Herdr, alt+h (pide el resumen); con tmux, alt+n. HOME de prueba: sin backend propio
+nc() { (cd "$ROOT/lib" && HOME="$TMP/home" python3 -c 'import context_hook as C; print(C.next_chat())'); }
+check_eq "$(BK_BACKEND=herdr nc)" "en un chat nuevo con su resumen (alt+h)" "con Herdr, el aviso ámbar manda a alt+h"
+check_eq "$(BK_BACKEND=tmux nc)" "en un chat nuevo (alt+n)" "con tmux, el aviso ámbar sigue en alt+n"
+mkdir -p "$TMP/home/.config/bk"; echo herdr >"$TMP/home/.config/bk/backend"
+check_eq "$(env -u BK_BACKEND bash -c "$(declare -f nc); TMP='$TMP' ROOT='$ROOT' nc")" "en un chat nuevo con su resumen (alt+h)" "sin BK_BACKEND: el de ~/.config/bk/backend"
+turn 0; turn 210000
+check_eq "$(printf '{"session_id":"s7","transcript_path":"%s","hook_event_name":"UserPromptSubmit"}' "$T" | BK_BACKEND=herdr python3 "$ROOT/lib/context_hook.py" | grep -c 'alt+h')" "1" "el aviso ámbar de verdad dice alt+h con Herdr"
+
 echo "1..$N"
 [ "$FAILED" -eq 0 ]

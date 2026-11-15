@@ -52,7 +52,7 @@ uso: bk [comando] [--dry-run]
   rerun [--go] [pr…]  volver a correr los checks de Actions que fallaron (sin --go: solo muestra)
   new | n           popup "Nuevo": chat nuevo en este proyecto u otro workspace (alt+n, o + en la tira)
                     Con Herdr, alt+n abre el panel Nuevo: chat, en una rama, con nombre, suelto, una terminal,
-                    otro proyecto o seguir desde un resumen
+                    otro proyecto, seguir desde un resumen o (parado en un chat) pedir su resumen y seguir (alt+h)
   chat [--suelto]   un claude nuevo en el proyecto del workspace (o sin proyecto), en el lugar del chat (alt+q vuelve)
   chat --nombre X   el chat nuevo se llama X (bk ls, bk say X "…", bk go X); también con --rama
   chat --carpeta D  un chat en esa carpeta (el worktree de una rama: Enter en alt+b), en su propio espacio
