@@ -7,7 +7,7 @@
 //     espacios: { <clave>: { color, imagen, carpeta, id, maquina, fijo } } }
 // Una referencia es "c:<id>" (una carpeta) o "e:<clave>" (un espacio). La clave de un espacio es su nombre
 // (nombre@máquina en otra máquina), no su id: bk abre siempre el mismo nombre para un proyecto, así que cerrarlo
-// y reabrirlo conserva su lugar. `fijo`: lo acomodaste vos (lo moviste o le pusiste color o imagen); los demás
+// y reabrirlo conserva su lugar. Con varios abiertos del mismo nombre, los demás son nombre#2, nombre#3… (keysOf). `fijo`: lo acomodaste vos (lo moviste o le pusiste color o imagen); los demás
 // se olvidan al cerrarse. Un espacio cerrado y fijo sigue en su carpeta, apagado, para reabrirlo con un clic.
 // Va igual en agentes y en menu (un mod de Herdr no puede importar de otra carpeta): si lo cambiás, copialo.
 
@@ -18,6 +18,8 @@ export const COLORS = ["ansi5", "ansi4", "ansi6", "ansi2", "ansi3", "ansi1", "an
 
 export const validColor = (c) => c === null || COLORS.includes(c) || /^#[0-9a-fA-F]{6}$/.test(typeof c === "string" ? c : "");
 export const keyOf = (s) => (s.machine ? `${s.name}@${s.machine}` : s.name);
+// La clave número n de un espacio entre los que se llaman igual: nombre, nombre#2, nombre#3…
+const nth = (s, n) => (n === 1 ? keyOf(s) : `${s.name}#${n}${s.machine ? `@${s.machine}` : ""}`);
 export const empty = () => ({ v: VERSION, raiz: [], carpetas: {}, espacios: {} });
 
 const isObj = (x) => Boolean(x) && typeof x === "object" && !Array.isArray(x);
@@ -70,6 +72,23 @@ function where(st, ref) {
   }
   return null;
 }
+// La clave de cada espacio abierto (clave → espacio). Entre varios con el mismo nombre, el que el estado ya conoce
+// por su id conserva la suya (aunque Herdr los dé vuelta o se cierre otro) y los demás toman la primera libre.
+export function keysOf(st, spaces) {
+  const out = new Map(), rest = [];
+  for (const s of spaces) {
+    let key = null;
+    for (let n = 1; n <= spaces.length && !key; n++) { const k = nth(s, n); if (st.espacios[k]?.id === s.id && !out.has(k)) key = k; }
+    key ? out.set(key, s) : rest.push(s);
+  }
+  for (const s of rest) { let n = 1; while (out.has(nth(s, n))) n++; out.set(nth(s, n), s); }
+  // en el orden de Herdr, que es el de los espacios nuevos
+  const at = new Map(spaces.map((s, i) => [s, i]));
+  return new Map([...out].sort((a, b) => at.get(a[1]) - at.get(b[1])));
+}
+// La clave de un espacio abierto, por su id (null si no está)
+export const keyFor = (st, spaces, id) => [...keysOf(st, spaces)].find(([, s]) => s.id === id)?.[0] ?? null;
+
 export const folderOf = (st, key) => where(st, `e:${key}`)?.dentro ?? null;
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -79,7 +98,7 @@ const done = (st, next) => (same(st, next) ? st : next);
 // cerrados que nadie acomodó se olvidan. `projects`: id del espacio → su proyecto de bk (etiqueta bk.project).
 export function sync(st, spaces, projects = new Map()) {
   const next = copy(st);
-  const live = new Map(spaces.map((s) => [keyOf(s), s]));
+  const live = keysOf(st, spaces);
   // El mismo id con otro nombre es un renombre: la clave vieja pasa a la nueva, en su lugar
   for (const [key, s] of live) {
     if (next.espacios[key]) continue;
@@ -123,7 +142,7 @@ export function sync(st, spaces, projects = new Map()) {
 // `s` es el espacio de Herdr, null si está cerrado. Un cerrado se ve solo dentro de una carpeta y si es de esta
 // máquina (reabrirlo es `bk open`, que abre acá).
 export function view(st, spaces) {
-  const live = new Map(spaces.map((s) => [keyOf(s), s]));
+  const live = keysOf(st, spaces);
   const placed = new Set();
   const row = (key) => { placed.add(key); return { key, s: live.get(key) ?? null, e: st.espacios[key] ?? entry() }; };
   const out = [];
