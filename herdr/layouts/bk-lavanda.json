@@ -8,6 +8,7 @@
   ],
   "preview": "layouts/bk-lavanda.svg",
   "theme": { "light": "bk-dia", "dark": "bk-neon" },
+  "terminal_menu": "bk-menu",
   "ui_font": "SF Mono",
   "background": "canvas",
   "terminal_padding": [

@@ -187,6 +187,43 @@ assert.match(look.error, /no toqué settings.json/);
 ok('Aspecto: con un settings.json que no es un objeto no lo pisa ni cambia el tema, y lo dice');
 assert.equal(Look.withFont('{"a":1}', 'Menlo'), '{\n  "a": 1,\n  "font": "Menlo"\n}\n');
 ok('Aspecto: la fuente sigue guardándose igual');
+
+// El menú del clic derecho de bk (herdr/mods/menu → bk-menu)
+const menuSrc = fs.readFileSync(`${root}/herdr/mods/menu/main.js`, 'utf8')
+  .replace(/^import .*;$/gm, '').replace('export default class Menu', 'class Menu').replace(/^export /gm, '');
+let mTerms = [], mPanes = [], mKeys = [], opened = [];
+const M = new Function('View', 'div', 'svg', 'v_flex', 'h_flex', 'run', 'props', 'closeOverlay', 'openOverlay', 'theme', 'keys',
+  'terminals', 'spaces', 'panes', 'exec', menuSrc + '\nreturn { items, height, shortcut, keyParts, openMenu, WIDTH };')(
+  class {}, () => ({}), () => ({}), () => ({}), () => ({}), () => {}, () => ({}), () => {}, (o) => opened.push(o), () => ({}),
+  () => mKeys, () => mTerms, () => [], () => mPanes, async () => ({ code: 1 }));
+mTerms = [{ address: 't1', labels: {} }, { address: 't2', parent: 't1', labels: { 'herdr.right-click': 'program' } }];
+mPanes = [{ pane: 'p1' }];
+const pane = M.items({ tab: 'pane', target: { pane: 'p1', terminal: 't1' } });
+assert.deepEqual(pane.map((x) => x[1]), ['pane.split', 'pane.split', 'pane.zoom', 'terminal.right_click', 'pane.close']);
+assert.deepEqual(pane.map((x) => x[0]), ['Dividir a la derecha', 'Dividir abajo', 'Agrandar', 'Clic derecho: al programa', 'Cerrar']);
+assert.ok(pane.every((x) => x[2].pane === 'p1' || x[2].terminal === 't1'), 'actúa sobre la terminal del clic');
+ok('menú: las opciones de una terminal en una pestaña, en castellano, sobre la terminal del clic');
+const sub = M.items({ tab: 'pane', target: { pane: 'bloque', terminal: 't2' } });
+assert.deepEqual(sub.map((x) => x[0]), ['Clic derecho: menú de Herdr', 'Devolver a t1']);
+ok('menú: una terminal fuera de una pestaña no se divide ni se cierra; un sub-agente se devuelve a su padre');
+assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, 'linked').map((x) => x[1]), ['space.rename', 'worktree', 'worktree', 'worktree', 'space.close']);
+assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, null).map((x) => x[1]), ['space.rename', 'space.close']);
+assert.deepEqual(M.items({ tab: 'tab', target: { id: 'c', space: 's' } }).map((x) => x[1]), ['tab.rename', 'tab.new', 'tab.close']);
+ok('menú: espacio (con los worktrees si es un repo) y pestaña');
+assert.equal(M.height(pane), 12 + 5 * 32 + 2 * 9);
+assert.equal(JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.height, M.height(pane));
+assert.ok(M.WIDTH >= 280 && JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.width === M.WIDTH);
+ok('menú: el alto justo para las opciones de una terminal, y ancho para el texto y las teclas');
+mKeys = [{ section: 'global', keys: 'cmd-d', action: 'pane.split:right' }, { section: 'global', keys: 'cmd-shift-w', action: 'pane.close' }, { section: 'tab', keys: 'x', action: 'pane.zoom' }];
+assert.deepEqual([M.keyParts(M.shortcut('pane.split', { direction: 'right', pane: 'p1' })), M.keyParts(M.shortcut('pane.close', { pane: 'p1' })), M.shortcut('pane.zoom', {})],
+  [['⌘', 'D'], ['⌘', '⇧', 'W'], '']);
+ok('menú: las teclas en símbolos (⌘ ⇧ D), solo las globales');
+M.openMenu('pane', { pane: 'p1', terminal: 't1' });
+assert.deepEqual([opened[0].mod, opened[0].width, opened[0].height], ['bk-menu', M.WIDTH, M.height(pane)]);
+const lay = JSON.parse(fs.readFileSync(`${root}/herdr/layouts/bk-lavanda.json`, 'utf8'));
+const users = ['agentes', 'pestanas'].map((m) => fs.readFileSync(`${root}/herdr/mods/${m}/main.js`, 'utf8'));
+assert.deepEqual([lay.terminal_menu, users.map((u) => u.includes('mod: "bk-menu"') && !u.includes('mod: "menu"'))], ['bk-menu', [true, true]]);
+ok('menú: el layout, la lista de agentes y las pestañas usan bk-menu, no el de Herdr');
 console.log(`1..${n}`);
 JS
 # La lista de agentes (herdr/mods/agentes): la antigüedad de la fila no va en una caja de ancho fijo. En 28 px

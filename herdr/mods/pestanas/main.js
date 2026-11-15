@@ -85,7 +85,7 @@ export default class Pestanas extends View {
           if (from !== null && from !== i) run("tab.move", { id: shown[from].id, index: space.tabs.findIndex((x) => x.id === c.id) + 1 });
           else run("tab.select", { id: c.id });
         })
-        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: c.id, space: space.id } } }); })
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "bk-menu", kind: "popup", width: 300, height: 12 + 3 * 32 + 9, props: { tab: "tab", target: { id: c.id, space: space.id } } }); })
         .when(Boolean(n), (el) => el.child(keycap(t, n, { on: c.active, size: 18 })))
         .when(Boolean(pic), (el) => el.child(pic))
         .child(div().max_w(c.active ? 240 : 180).truncate().font_family(PROSE).text_size(12.5).when(c.active, (el) => el.font_medium()).child(name))
