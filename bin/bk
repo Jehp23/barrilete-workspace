@@ -55,6 +55,7 @@ uso: bk [comando] [--dry-run]
                     otro proyecto o seguir desde un resumen
   chat [--suelto]   un claude nuevo en el proyecto del workspace (o sin proyecto), en el lugar del chat (alt+q vuelve)
   chat --nombre X   el chat nuevo se llama X (bk ls, bk say X "…", bk go X); también con --rama
+  chat --carpeta D  un chat en esa carpeta (el worktree de una rama: Enter en alt+b), en su propio espacio
   chat --desde N    seguir en un chat nuevo desde el resumen del workspace N (misma carpeta y cuenta; alt+n también)
   handoff [N]       pedirle al chat del workspace N (o de este) el resumen para seguir; --listos: los que hay
                     cuando el chat lo guarda, el chat nuevo se abre solo (si lo pidió el aviso de contexto: un
@@ -1180,6 +1181,9 @@ cmd_chat() {
       --desde) chat_from "${2:-}"; return ;;
       --nombre) export BK_WS_NAME="${2:?--nombre necesita un nombre}"; shift 2 ;;
       --rama) want_branch=1; branch="${2:-}"; [ $# -ge 2 ] && shift 2 || shift ;;
+      --carpeta) local dir="${2:?--carpeta necesita una carpeta}"; [ -d "$dir" ] || die "no existe la carpeta $dir"
+                 top=$(project_top "$dir"); WS_SESSION="bk-$(project_of "$top")-$(basename "$dir")"
+                 workspace "$dir"; return ;;
       *) break ;;
     esac
   done
@@ -1808,6 +1812,7 @@ case "${1:-}" in
   _tasks)      shift; exec python3 "$WS/lib/herdr_tasks.py" "$@" ;;   # bk tasks --json con el título de cada issue o PR (herdr/mods/tareas)
   _adopt)      shift; hd_adopt "${1:?bk _adopt <terminal>}" ;;   # la barra de Herdr: que bk conozca esa terminal y le dé su número
   _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)
+  _notice)     [ "$BACKEND" = herdr ] && hd_notice "${2:?bk _notice <título> <texto> [nivel]}" "${3:-}" "" "${4:-info}" || true ;;   # un aviso de Herdr (la limpieza de ramas)
   _hub)        shift; [ "$DRY" -eq 0 ] || export BK_DRY=1   # bk --dry-run _hub session-go: dice qué haría y no toca Herdr
                exec python3 "$WS/lib/herdr_hub.py" "$@" ;;   # los datos de los paneles nativos de Herdr, un JSON por tema (herdr/mods/hub)
   _do)         shift; [ "$DRY" -eq 0 ] || export BK_DRY=1   # bk --dry-run _do -- run 42: dice qué correría; ni log ni aviso

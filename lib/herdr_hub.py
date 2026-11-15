@@ -50,6 +50,20 @@ principal si la carpeta es un worktree. Agentes, chats y espacios salen siempre 
                            deja lib/song.sh (song.station y el socket de mpv): no arranca ni corta nada. Para eso:
                            bk song [género|estación] reproduce, bk song stop corta, bk song next / prev cambian de
                            estación dentro del género y bk song pause pausa o sigue
+  branches [dir] [--all] [--fresh]
+                           {projects: [{name, project, path, repo, base, stale, items: [{name, sha, ts, subject,
+                           worktree, dirty, ahead, pr, remote, done, how, contained, busy, can_rm, why}]}]}  las
+                           ramas de cada proyecto (lib/branches.py), sin la principal y solo los que tienen alguna.
+                           Con dir: ese proyecto; con --all (o sin dir): todos los de bk new, el de dir primero.
+                           done: entró a la principal (PR mergeado en ese commit, o bk land). can_rm: se puede borrar
+                           sin perder nada; si no, why dice por qué
+  branch-rm <repo> <rama>  borra su worktree, la rama y la del remoto si apunta al mismo commit. {ok, text}
+  branch-open <repo> <rama>
+                           {path, created}  la carpeta donde abrir un chat en esa rama: su worktree, o uno nuevo en
+                           ../<repo>-wt/<rama> si no tiene
+  branch-sweep [--if-due] [--dry-run]
+                           la limpieza sola: borra las ramas terminadas (done y can_rm) de todos los proyectos y
+                           avisa. La dispara status, cada 10 min como mucho. {removed, failed, dry}
   status [dir] [--terminal t7]
                            {project, branch, dirty, account, mode, waiting, pending, working, tokens_today,
                            cost_today, song, focus}  una llamada barata para la barra de estado: sin gh y sin leer
@@ -843,7 +857,90 @@ def status(args):
     now = now_playing()
     out["song"] = {k: now[k] for k in ("playing", "station", "title")} if now else None
     out["focus"] = focus()
+    if not os.environ.get("BK_NO_SWEEP"):   # la limpieza de ramas terminadas: suelta, cada 10 min como mucho
+        import branches as BR
+        if BR.due():
+            spawn(BK, "_hub", "branch-sweep")
     return out
+
+
+# ---------- ramas (alt+b) ----------
+def branches(args):
+    import branches as BR
+    pos, got = split_args(args, flags=("--fresh", "--all"))
+    if "--all" in got or not pos:
+        tops = BR.projects()
+        if pos:   # el proyecto que mirás, primero
+            first = BR.project_top(os.path.abspath(os.path.expanduser(pos[0])))
+            tops = ([first] if first else []) + [t for t in tops if os.path.realpath(t) != os.path.realpath(first or "")]
+    else:
+        tops = [BR.project_top(os.path.abspath(os.path.expanduser(pos[0])))]
+    busy = BR.busy_dirs()
+    out = []
+    for top in tops:
+        if not top:
+            continue
+        p = BR.info(top, busy=busy, fresh="--fresh" in got)
+        p["name"] = name_of(top)
+        if p["items"]:
+            out.append(p)
+    return {"projects": out}
+
+
+def branch_rm(args):
+    import branches as BR
+    if len(args) != 2:
+        raise Fail("uso: bk _hub branch-rm <repo> <rama>")
+    top = BR.project_top(os.path.abspath(os.path.expanduser(args[0])))
+    if not top:
+        raise Fail(f"{args[0]} no es un repo git")
+    ok, text = BR.remove(top, args[1])
+    if not ok:
+        raise Fail(text)
+    return {"ok": True, "text": text}
+
+
+def branch_open(args):
+    """La carpeta donde abrir un chat en esa rama: su worktree, o uno nuevo en ../<repo>-wt/<rama> si no tiene."""
+    import branches as BR
+    if len(args) != 2:
+        raise Fail("uso: bk _hub branch-open <repo> <rama>")
+    top = BR.project_top(os.path.abspath(os.path.expanduser(args[0])))
+    if not top:
+        raise Fail(f"{args[0]} no es un repo git")
+    name = args[1]
+    wts, main_branch = BR.worktrees(top)
+    if name == main_branch:
+        return {"path": top, "created": False}
+    if wts.get(name):
+        return {"path": wts[name], "created": False}
+    if BR.git(top, "show-ref", "-q", "--verify", f"refs/heads/{name}")[0] != 0:
+        raise Fail(f"no existe la rama {name}")
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name.split("/")[-1]).strip("-") or "rama"
+    base = os.path.join(os.path.dirname(top), os.path.basename(top) + "-wt")
+    path, k = os.path.join(base, slug), 2
+    while os.path.exists(path):
+        path, k = os.path.join(base, f"{slug}-{k}"), k + 1
+    if os.environ.get("BK_DRY"):
+        return {"path": path, "created": True, "dry": True}
+    rc, _, err = BR.git(top, "worktree", "add", "-q", path, name)
+    if rc != 0:
+        raise Fail("git no pudo crear el worktree: " + last(err))
+    return {"path": path, "created": True}
+
+
+def branch_sweep(args):
+    """La limpieza sola: borra las ramas terminadas y avisa. --if-due: solo si pasaron 10 min de la última."""
+    import branches as BR
+    if "--if-due" in args and not BR.due():
+        return {"skipped": True}
+    res = BR.sweep("--dry-run" in args)
+    if res["removed"] and not res["dry"]:
+        names = [f"{r['project']}: {r['branch']}" for r in res["removed"]]
+        more = f" y {len(names) - 3} más" if len(names) > 3 else ""
+        title = "Ramas terminadas borradas" if len(names) > 1 else "Rama terminada borrada"
+        run(BK, "_notice", title, ", ".join(names[:3]) + more, "info", timeout=10)
+    return res
 
 
 # ---------- bk _do ----------
@@ -927,7 +1024,8 @@ def do(args):
 
 TOPICS = {"issues": issues, "prs": prs, "agents": agents, "sessions": sessions, "session-go": session_go,
           "changes": changes, "diff": diff, "stats": stats, "projects": projects, "handoffs": handoffs,
-          "checkpoints": checkpoints, "song": song, "status": status, "palette": palette, "_do": do}
+          "checkpoints": checkpoints, "song": song, "status": status, "palette": palette, "_do": do,
+          "branches": branches, "branch-rm": branch_rm, "branch-open": branch_open, "branch-sweep": branch_sweep}
 
 
 def main(argv):

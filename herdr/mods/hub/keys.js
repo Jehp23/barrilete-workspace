@@ -32,6 +32,7 @@ const NAMES = {
   "agent.next": [IR, "Agente siguiente de la lista"],
   "agent.prev": [IR, "Agente anterior de la lista"],
   "mod.open:bk-changes": [VER, "Cambios sin commitear"],
+  "mod.open:bk-branches": [VER, "Ramas de todos los proyectos"],
   "mod.open:bk-stats": [VER, "Uso y costo"],
   "mod.open:bk-term": [VER, "Terminal rápida"],
   "mod.open:bk-song": [VER, "Radio"],

@@ -199,17 +199,27 @@ hd_go() {
 
 # hd_chat_cmd: bk chat [--suelto | --rama <nombre> | --desde <chat> | --nombre <X>] con Herdr
 hd_chat_cmd() {
-  local loose=0 branch="" want_branch=0 from="" top name
+  local loose=0 branch="" want_branch=0 from="" top name dir=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --suelto) loose=1; shift ;;
       --desde) from="${2:-}"; [ -n "$from" ] || die "bk chat --desde <chat|sesión>   (los resumenes listos: bk handoff --listos)"; shift 2 ;;
       --nombre) export BK_WS_NAME="${2:?--nombre necesita un nombre}"; shift 2 ;;
       --rama) want_branch=1; branch="${2:-}"; [ $# -ge 2 ] && shift 2 || shift ;;
+      --carpeta) dir="${2:?--carpeta necesita una carpeta}"; shift 2 ;;
       *) break ;;
     esac
   done
   if [ -n "$from" ]; then hd_chat_from "$from"; return; fi
+  if [ -n "$dir" ]; then
+    # Un chat en esa carpeta (el worktree de una rama, desde alt+b): su espacio <proyecto>-<carpeta>, como --rama
+    [ -d "$dir" ] || die "no existe la carpeta $dir"
+    dir=$(cd "$dir" && pwd -P); top=$(project_top "$dir"); name="$(project_of "$top")-$(basename "$dir")"
+    [ "$DRY" -eq 1 ] && { info "(dry-run: abriría el espacio $name de Herdr en $dir)"; return 0; }
+    [ -z "$(hd_chat_term "$name")" ] || { hd_go "$(hd_chat_term "$name")"; info "→ $name (ya estaba abierto)"; return; }
+    hd_chat "$name" "$name" chat "$dir" "$top"
+    return
+  fi
   if [ "$loose" = 1 ]; then
     # Chat sin proyecto: en una carpeta propia (~/.bk/chats), así Claude no lee tu home ni pide confiar en ella
     top="$HOME/.bk/chats"

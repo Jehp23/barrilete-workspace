@@ -130,5 +130,15 @@
       "width": 640,
       "height": 0.7
     }
+  },
+  "branches": {
+    "title": "Ramas",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 860,
+      "height": 0.8
+    }
   }
 }

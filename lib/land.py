@@ -250,7 +250,13 @@ def land(args):
         sha = out("rev-parse", "--short", MAIN_BRANCH, cwd=main)
         with Store(main) as st:
             st.data.pop(branch, None)
-        say(f"{branch} entró a main ({sha}). Ya podés borrar el worktree: git worktree remove {wt}")
+        try:   # la limpieza sola (lib/branches.py) borra el worktree y la rama cuando nadie trabaja ahí
+            import branches as BR
+            BR.note_landed(main, branch, out("rev-parse", branch, cwd=main))
+        except Exception:
+            pass
+        say(f"{branch} entró a main ({sha}). bk borra el worktree y la rama solos cuando cierres lo que corre"
+            " ahí (o ya: ctrl+x en alt+b)")
         hint = context_hint()
         if hint:
             say(hint)

@@ -28,6 +28,7 @@ const NATIVE = [
   ["back", "Chats", "Volver al chat de este espacio", "", "mod.open:bk-back", "orquestador", view("back")],
   ["last", "Chats", "Volver a donde estabas", "", "mod.open:bk-last", "anterior atrás", view("last")],
   ["changes", "Ver", "Cambios sin commitear", "bk changes", "mod.open:bk-changes", "diff git", view("changes")],
+  ["branches", "Ver", "Ramas de todos los proyectos", "", "mod.open:bk-branches", "ramas branch worktree limpiar borrar", view("branches")],
   ["stats", "Ver", "Uso y costo", "bk stats · tokens", "mod.open:bk-stats", "estadísticas tokens modelos", view("stats")],
   ["term", "Ver", "Terminal rápida", "bk term", "mod.open:bk-term", "shell", view("term")],
   ["keys", "Ver", "Teclas", "", "mod.open:bk-keys", "atajos ayuda shortcuts", view("keys")],

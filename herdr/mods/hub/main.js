@@ -15,6 +15,7 @@ import Keys from "./keys.js";
 import Song from "./song.js";
 import Look from "./look.js";
 import Handoff from "./handoff.js";
+import Branches from "./branches.js";
 
-const VIEWS = { palette: Palette, out: Out, issues: Issues, prs: Prs, tasks: Tasks, new: New, agents: Agents, sessions: Sessions, changes: Changes, stats: Stats, keys: Keys, song: Song, look: Look, handoff: Handoff };
+const VIEWS = { palette: Palette, out: Out, issues: Issues, prs: Prs, tasks: Tasks, new: New, agents: Agents, sessions: Sessions, changes: Changes, stats: Stats, keys: Keys, song: Song, look: Look, handoff: Handoff, branches: Branches };
 export default VIEWS[VIEW] ?? Palette;

@@ -134,6 +134,7 @@ pisan con los del repo (se editan acá).
   | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta | `bk _hub session-go`, `bk stop` |
   | `alt+h` | Resumen y seguir en un chat nuevo: se lo pide al chat que mirás, dejándolo abierto o cerrándolo cuando el nuevo abre. Abajo, los resúmenes listos | `bk handoff --term <t> [--cerrar]`, `bk chat --desde` |
   | `alt+g` | Cambios sin commitear del proyecto y de los worktrees de los agentes, con el diff al lado. Enter abre el archivo en un pane | |
+  | `alt+b` | Ramas de todos los proyectos, separadas por proyecto (el que mirás primero): si ya entró (PR mergeado o `bk land`), su PR, su worktree y lo sin commitear. Enter abre un chat en su worktree (o le crea uno); ctrl+x dos veces la borra, solo si no se pierde nada; ctrl+o abre su PR | `bk chat --carpeta`, `bk _hub branch-rm` |
   | `alt+u` | Uso y costo: hoy, el mes, los últimos 30 días, por modelo y por proyecto | |
   | `alt+/` | Hoja de teclas: lee el `keys.json` de Herdr y dice qué hace cada una; Enter la corre | |
   | `alt+m` | Radio | `bk song …` |
@@ -148,11 +149,19 @@ pisan con los del repo (se editan acá).
   | `alt+.` | Mostrar u ocultar el panel derecho | `layout.toggle:lado` de Herdr |
   | `alt+z` | Agrandar el pane | `pane.zoom` de Herdr |
 
-  Las trece primeras abren un panel; las siete que siguen son acciones sin panel; las dos últimas, comandos de Herdr.
+  Las catorce primeras abren un panel; las siete que siguen son acciones sin panel; las dos últimas, comandos de Herdr.
   Sin tecla: `bk-out` (la salida de un comando que solo imprime: tokens, roles, cuentas…; lo abre `alt+k`),
   `bk-aviso` (muestra los avisos que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic del aviso «Resumen
   listo»). El rastro de `alt+0` y la adopción los lleva el mod `bk-barra`, que está en `bk-lavanda`: en un layout
   que no lo tenga, `alt+0` no tiene a dónde volver y adoptar queda para `bk _adopt <terminal>` o `bk handoff --term`.
+- **Ramas que se borran solas**: una rama que ya entró a la principal (su PR se mergeó en el mismo commit al que
+  apunta, o la entró `bk land`) se borra sola con su worktree y, si apunta al mismo commit, la de GitHub. Lo hace
+  `lib/branches.py` (`bk _hub branch-sweep`), que la barra de estado dispara cada 10 min como mucho, en todos los
+  proyectos de `bk new`, y avisa qué borró. Nunca toca la rama principal, una con commits que no entraron, un
+  worktree con algo sin commitear (ni archivos nuevos) ni uno donde trabaja un proceso (si `lsof` falla, ningún
+  worktree). Una recién creada, sin commits, tampoco: puede ser trabajo que empieza; a mano (alt+b) sí. En GitHub,
+  los repos de barrilete además borran la rama de un PR al mergearlo («Automatically delete head branches»).
+  `BK_NO_SWEEP=1` la apaga. Tests: `tests/test_branches.sh`.
 - `bk s` en una terminal: cada sesión abierta muestra el id de su terminal (`t2d`, el que usan `bk say`, `bk peek`
   y `hc`) y esc cierra sin la espera de un segundo de curses (`ESCDELAY` 25 ms). Enter sobre una sesión abierta
   muestra su pestaña de Herdr y sobre una reciente la retoma en un chat más del espacio de su proyecto (`bk chat`
@@ -268,7 +277,9 @@ trabaja en su rama y su worktree (`git worktree add -b <rama> ../barrilete-works
   1. espera su turno;
   2. con el mutex de `main` tomado, rebasa sobre `main`;
   3. corre `lib/checks.sh`, una sola vez;
-  4. hace el fast-forward.
+  4. hace el fast-forward;
+  5. anota la rama y su commit (`~/.cache/bk/landed.json`): la limpieza sola borra el worktree y la rama cuando
+     ya no corre nada ahí (ver *Ramas que se borran solas*).
   Si choca, el choque queda en su worktree: `main` nunca queda a medias.
 - **Qué devuelve `bk land`**: 0 entró · 3 en cola · 4 choque en el rebase · 5 checks en rojo · 6 no pudo hacer el fast-forward.
 - **`bk claims`** muestra quién modifica qué y quién espera a quién; `bk release` suelta los claims de una rama.

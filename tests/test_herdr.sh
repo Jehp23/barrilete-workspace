@@ -150,6 +150,13 @@ check_eq "$([ -d "$TMP/proj-wt/chat-un-cambio" ] && echo hay || echo no)" "no" "
 (cd "$REPO" && bk chat --rama "Un cambio" >/dev/null 2>&1)
 check_eq "$(st -r '.spaces[2].name + " " + .spaces[2].folder')" "proj-un-cambio $TMP/proj-wt/chat-un-cambio" "bk chat --rama: un espacio propio en el worktree de la rama"
 check_eq "$(git -C "$TMP/proj-wt/chat-un-cambio" branch --show-current)" "chat/un-cambio" "bk chat --rama: en la rama chat/<nombre>"
+git -C "$REPO" worktree add -q -b claude/5-algo "$TMP/proj-wt/5-algo" HEAD
+cp "$HD_FAKE/state.json" "$TMP/antes.json"; : >"$HD_FAKE/log"
+out=$(bk --dry-run chat --carpeta "$TMP/proj-wt/5-algo" 2>&1)
+check_eq "$(log | wc -l | tr -d ' ') $(cmp -s "$HD_FAKE/state.json" "$TMP/antes.json" && echo igual) $(has "$out" "proj-5-algo")" "0 igual si" "bk --dry-run chat --carpeta: dice el espacio y no toca Herdr"
+bk chat --carpeta "$TMP/proj-wt/5-algo" >/dev/null 2>&1
+check_eq "$(st -r '[.spaces[] | select(.name == "proj-5-algo") | .folder] | first')" "$TMP/proj-wt/5-algo" "bk chat --carpeta: un espacio <proyecto>-<carpeta> en esa carpeta (Enter en alt+b)"
+check_eq "$(bk chat --carpeta "$TMP/no-existe" 2>&1 >/dev/null | grep -c 'no existe la carpeta')" "1" "bk chat --carpeta con una carpeta que no existe"
 
 # --- handoff desde Herdr: el origen es el chat de la terminal ---
 PATH="$TMP/fake:$PATH" BK_BACKEND=herdr HC_TERMINAL_ID=t1 "$ROOT/bin/bk" handoff --pedido --sid abc123 >/dev/null 2>&1

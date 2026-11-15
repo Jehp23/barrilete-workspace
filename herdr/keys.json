@@ -13,6 +13,7 @@
     "alt-q": "mod.open:bk-back",
     "alt-0": "mod.open:bk-last",
     "alt-g": "mod.open:bk-changes",
+    "alt-b": "mod.open:bk-branches",
     "alt-u": "mod.open:bk-stats",
     "alt-x": "mod.open:bk-term",
     "alt-m": "mod.open:bk-song",
