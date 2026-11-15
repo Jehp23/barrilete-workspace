@@ -177,7 +177,8 @@ pisan con los del repo (se editan acá).
   de hoy y lo que quedó sin commitear en el proyecto y sus worktrees). Instalar no cambia el layout que ves.
 - **Temas**: `herdr/themes/*.json` van a `themes/` de Herdr y se eligen en `alt+,` o en los ajustes de Herdr. Los
   de bk: `bk-neon` (violeta oscuro, acento lavanda; antes se llamaba `bk-noche`), `bk-pastel` (oscuro suave, con
-  rosa, menta, lila y durazno) y `bk-dia` (claro, papel cálido con acento lavanda, para usar de día); además
+  rosa, menta, lila y durazno), `bk-gentleman` (casi negro, acento rosa fuerte y champán; sale del tema
+  Gentleman-Sexy de pi) y `bk-dia` (claro, papel cálido con acento lavanda, para usar de día); además
   `catppuccin-mocha`, `rose-pine` y `tokyo-night`. Siguen al repo mientras no los retoques: bk anota qué instaló
   (`bk-temas.json`) y solo pisa una copia que sigue igual a esa; un tema tuyo con el mismo nombre queda como está y
   se avisa. El `bk-noche` que instaló una versión anterior se borra si nadie lo tocó.
