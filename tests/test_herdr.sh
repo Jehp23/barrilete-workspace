@@ -307,7 +307,7 @@ jq '.["bk-noche.json"] = "otro"' "$APP/bk-temas.json" >"$TMP/temas" && mv "$TMP/
 bk backend herdr >/dev/null 2>&1
 check_eq "$([ -e "$APP/themes/bk-noche.json" ] && echo queda)" "queda" "temas: un bk-noche retocado no se borra"
 rm -f "$APP/themes/bk-noche.json"
-# Los cinco de bk: completos, legibles (contraste WCAG) y de la claridad que dicen; el layout los usa de par
+# Los seis de bk: completos, legibles (contraste WCAG) y de la claridad que dicen; el layout los usa de par
 check_eq "$(python3 - "$ROOT/herdr" <<'PY'
 import json, re, sys
 root = sys.argv[1]
@@ -321,7 +321,7 @@ def cr(a, b):
 NEED = ("canvas", "chrome", "background", "surface", "popover", "raised", "hover", "selected", "border", "input",
         "foreground", "muted", "dim", "accent", "accent_foreground", "working", "blocked", "done", "idle")
 bad = []
-for name, light in (("bk-neon", False), ("bk-pastel", False), ("bk-gentleman", False), ("bk-gentleman-cute", False), ("bk-dia", True)):
+for name, light in (("bk-neon", False), ("bk-pastel", False), ("bk-gentleman", False), ("bk-gentleman-cute", False), ("bk-dia", True), ("bk-papel", True)):
     t = json.load(open(f"{root}/themes/{name}.json")); c = t.get("colors", {})
     hexes = [t["background"], t["foreground"], t["selection"], *t["ansi"], *c.values()]
     if len(t["ansi"]) != 16 or not all(re.fullmatch(r"#[0-9a-f]{6}", h) for h in hexes): bad.append(f"{name}: forma")
@@ -336,7 +336,7 @@ lay = json.load(open(f"{root}/layouts/bk-lavanda.json"))["theme"]
 if lay != {"light": "bk-dia", "dark": "bk-neon"}: bad.append(f"layout: {lay}")
 print(" ".join(bad) or "ok")
 PY
-)" "ok" "temas: bk-neon, bk-pastel, bk-gentleman, bk-gentleman-cute y bk-dia completos, legibles y de su claridad; el layout usa bk-dia de día y bk-neon de noche"
+)" "ok" "temas: bk-neon, bk-pastel, bk-gentleman, bk-gentleman-cute, bk-dia y bk-papel completos, legibles y de su claridad; el layout usa bk-dia de día y bk-neon de noche"
 echo '{"id":"viejo"}' >"$L"; sha "$L" >"$MARK"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$SRC" "$L" && echo igual) $(cat "$MARK")" "igual $(sha "$SRC")" "layout: una copia que bk instaló y nadie tocó se actualiza con la del repo"
 jq '.retoque = 1' "$SRC" >"$L"; cp "$L" "$TMP/retocado"; echo '<svg/>' >"$PVD"; out=$(bk backend herdr 2>&1)
