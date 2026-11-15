@@ -1,55 +1,67 @@
+// La cabecera de la barra izquierda de bk-lavanda (el barrilete de la marca, que cambia según haya quien te
+// espere, quien trabaje o nadie; buscar; plegar la barra) y, con props.footer, su pie de una línea (ajustes,
+// aspecto, agregar una máquina). Nació como clon de workspace-chrome de Herdr 0.1.15.
+
 import { View, div, image, svg } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
-import { theme, run, props, window, shared, setShared, updates, layout } from "herdr";
+import { h_flex } from "gpui-base";
+import { theme, run, props, window, shared, setShared, updates, layout, agents } from "herdr";
+import { find, narrow, iconButton } from "./kit.js";
 
-function find(node, id) {
-  if (node?.id === id) return node;
-  for (const child of node?.children ?? []) {
-    const found = find(child, id);
-    if (found) return found;
-  }
-  return null;
-}
-
-// The sidebar's rail goes by its width, not a flag: dragging its edge narrows it too.
-const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
-
-// To the rail (on macOS wide enough for the traffic lights), or back to the width it had.
+// Al riel (en macOS, con lugar para los botones de la ventana) o de vuelta al ancho que tenía.
 function toggleSidebar() {
   const width = find(layout(), "sidebar")?.size?.px;
   if (!narrow()) setShared("sidebar.width", width);
-  // Mods edited before the rail went by width still read the flag.
   setShared("sidebar.collapsed", !narrow());
-  run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 76 : 44 });
+  run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 288) : window()?.platform === "macos" ? 76 : 44 });
 }
 
-export default class WorkspaceChrome extends View {
-  button(id, label, action) {
-    const t = theme();
-    return div().id(id).size(26).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(action).child(label);
+export default class Marca extends View {
+  footer(t, collapsed) {
+    const ready = Boolean(updates()?.app?.ready);
+    const dot = div().size(6).flex_none().rounded_full().bg(t.accent);
+    if (collapsed) {
+      return h_flex().size_full().bg(t.chrome).items_center().justify_center()
+        .child(div().relative().child(iconButton(t, "settings", "mods/bk-marca/settings.svg", () => run("app.settings"), { tip: "Ajustes" }))
+          .when(ready, (el) => el.child(dot.absolute().top(2).right(2))));
+    }
+    return h_flex().size_full().bg(t.chrome).pl(8).pr(8).pb(4).gap(2).items_center().text_size(12)
+      .child(h_flex().id("settings").h(26).px(8).gap(8).flex_none().items_center().rounded(6).cursor_pointer().text_color(t.muted)
+        .hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_click(() => run("app.settings"))
+        .child(svg("mods/bk-marca/settings.svg").size(14).flex_none())
+        .child("Ajustes")
+        .when(ready, (el) => el.child(dot).tooltip("Hay una actualización lista")))
+      .child(div().flex_1())
+      .child(iconButton(t, "theme", "mods/bk-marca/theme.svg", () => run("mod.open", { name: "bk-look" }), { tip: "Aspecto: tema, fuente, tamaño" }))
+      .child(iconButton(t, "machine", "mods/bk-marca/plus.svg", () => run("mod.open", { name: "machine-add" }), { tip: "Agregar una máquina" }));
   }
+
   render() {
     const t = theme();
     const collapsed = narrow();
-    if (props()?.footer) {
-      const row = (id, icon, label, dim, action) => h_flex().id(id).h(28).px(8).gap(9).items_center().rounded(8)
-        .when(collapsed, el => el.relative().w(32).px(0).justify_center().tooltip(label))
-        .text_color(dim ? t.dim : t.muted).hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
-        .on_click(action).child(svg(`mods/bk-marca/${icon}.svg`).size(14))
-        .when(!collapsed, el => el.child(label));
-      const ready = div().size(6).rounded_full().bg(t.accent);
-      return v_flex().size_full().bg(t.chrome).border_t(1).border_color(t.border).px(8).pt(4).pb(8).text_size(13)
-        .when(collapsed, el => el.px(0).items_center())
-        .child(row("settings", "settings", "Settings", false, () => run("app.settings"))
-          .when(Boolean(updates().app.ready), el => el.child(collapsed ? ready.absolute().top(5).right(6) : ready)))
-        .child(row("machine", "plus", "Add machine", true, () => run("mod.open", { name: "machine-add" })));
+    if (props()?.footer) return this.footer(t, collapsed);
+    const w = window();
+    const lights = w?.platform === "macos" && !w?.fullscreen;
+    // En el riel de macOS los botones de la ventana ocupan la fila; la barra se abre desde abajo de la lista.
+    if (collapsed) {
+      return h_flex().size_full().bg(t.chrome).items_center().justify_center()
+        .when(!lights, (el) => el.child(iconButton(t, "sidebar-toggle", "mods/bk-marca/sidebar.svg", toggleSidebar, { tip: "Abrir la barra", stop: true, size: 15 })));
     }
-    return h_flex().size_full().bg(t.chrome).pl(collapsed ? 6 : 14).pr(10).gap(4).items_center().text_size(13.5)
-      .when(window()?.platform === "macos" && !window()?.fullscreen && !collapsed, el => el.pl(76))
-      .when(!collapsed, el => el.child(h_flex().flex_1().min_w(0).gap(9).items_center().tooltip("Barrilete Kit").child(div().size(28).flex_none().rounded(7).bg(t.accent).flex().items_center().justify_center().child(image("mods/bk-marca/bk.svg").size(24))).child(div().font_semibold().text_color(t.foreground).child("BK"))))
-      .when(!collapsed, el => el.child(this.button("search", svg("mods/bk-marca/search.svg").size(15), () => run("mod.open", { name: "picker" }))))
-      // On the macOS rail the traffic lights fill the row; the agents list's » unfolds it.
-      .when(!(collapsed && window()?.platform === "macos"), el => el.child(this.button("sidebar-toggle", svg("mods/bk-marca/sidebar.svg").size(15), toggleSidebar)));
+    const list = agents();
+    const waiting = list.filter((a) => a.status === "blocked").length;
+    const working = list.filter((a) => a.status === "working").length;
+    // El barrilete de la marca dice cómo está todo: ojos ámbar sobre fondo ámbar si alguien te espera,
+    // despierto si hay agentes trabajando, con los ojos cerrados si todo está quieto. Sin animación: no gasta.
+    const mood = waiting ? "wait" : working ? "fly" : "rest";
+    const tip = waiting ? `Barrilete Kit · ${waiting === 1 ? "1 agente te espera" : waiting + " agentes te esperan"}` : working ? `Barrilete Kit · ${working} trabajando` : "Barrilete Kit · todo quieto";
+    // Arrastrada a un ancho intermedio, la fila deja primero el nombre y después la lupa.
+    const width = find(layout(), "sidebar")?.size?.px ?? 288;
+    return h_flex().size_full().bg(t.chrome).pl(lights ? 80 : 14).pr(8).gap(2).items_center()
+      .child(h_flex().flex_1().min_w(0).gap(8).items_center().tooltip(tip)
+        .child(div().size(24).flex_none().rounded(7).bg(mood === "wait" ? t.blocked : t.accent).flex().items_center().justify_center()
+          .child(image(`mods/bk-marca/bk-${mood}.svg`).size(20)))
+        .when(width >= 208, (el) => el.child(div().text_size(13).font_bold().text_color(t.foreground).child("BK"))))
+      .when(width >= 184, (el) => el.child(iconButton(t, "search", "mods/bk-marca/search.svg", () => run("mod.open", { name: "picker" }), { tip: "Buscar", stop: true, size: 15 })))
+      .child(iconButton(t, "sidebar-toggle", "mods/bk-marca/sidebar.svg", toggleSidebar, { tip: "Plegar la barra", stop: true, size: 15 }));
   }
 }

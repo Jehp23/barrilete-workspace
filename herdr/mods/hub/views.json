@@ -1,0 +1,134 @@
+{
+  "palette": {
+    "title": "Comandos",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 720,
+      "height": 0.8
+    }
+  },
+  "out": {
+    "title": "bk",
+    "overlay": {
+      "kind": "dialog",
+      "width": 0.8,
+      "height": 0.8
+    }
+  },
+  "issues": {
+    "title": "Issues",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 780,
+      "height": 0.8
+    }
+  },
+  "prs": {
+    "title": "Pull requests",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 780,
+      "height": 0.8
+    }
+  },
+  "tasks": {
+    "title": "Tareas",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 780,
+      "height": 0.8
+    }
+  },
+  "new": {
+    "title": "Nuevo",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 720,
+      "height": 0.8
+    }
+  },
+  "agents": {
+    "title": "Agentes",
+    "overlay": {
+      "kind": "dialog",
+      "width": 0.92,
+      "height": 0.88
+    }
+  },
+  "sessions": {
+    "title": "Sesiones",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 820,
+      "height": 0.8
+    }
+  },
+  "changes": {
+    "title": "Cambios",
+    "overlay": {
+      "kind": "dialog",
+      "width": 0.92,
+      "height": 0.88
+    }
+  },
+  "stats": {
+    "title": "Uso",
+    "overlay": {
+      "kind": "dialog",
+      "width": 0.8,
+      "height": 0.84
+    }
+  },
+  "keys": {
+    "title": "Teclas",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 760,
+      "height": 0.8
+    }
+  },
+  "song": {
+    "title": "Radio",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 560,
+      "height": 0.7
+    }
+  },
+  "look": {
+    "title": "Aspecto",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 620,
+      "height": 0.8
+    }
+  },
+  "handoff": {
+    "title": "Seguir en un chat nuevo",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 640,
+      "height": 0.7
+    }
+  }
+}

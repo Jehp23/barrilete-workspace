@@ -131,7 +131,9 @@ def mark_handoffs(rows, sids):
     return rows
 
 
-def load():
+def load(prune=True):
+    """(abiertas, recientes). prune=False: no borra el estado de las sesiones cuyo pane ya no existe (igual pasan a
+    recientes); lo usa bk _hub, que solo mira."""
     panes = tmux_panes()
     hpanes = herdr_panes() if backend() == "herdr" else {}
     live = {}  # session_id -> estado
@@ -148,10 +150,11 @@ def load():
         # va a recientes (enter la retoma) y se borra el estado para que la barra no la cuente.
         # Solo si tmux (o Herdr, si el pane es una terminal suya) respondió: una lista vacía no prueba nada.
         if gone(s.get("pane"), panes, hpanes):
-            try:
-                os.remove(f)
-            except OSError:
-                pass
+            if prune:
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
             continue
         live[sid] = s
     try:
@@ -300,11 +303,13 @@ def herdr_show(addr):
 
 def herdr_resume(r, cwd):
     """Retomar una sesión cerrada con Herdr: un chat más en el espacio de su proyecto (bk chat), que arranca con
-    claude --resume en la carpeta de la sesión (Claude la busca por carpeta)."""
+    claude --resume en la carpeta de la sesión (Claude la busca por carpeta). Devuelve si se abrió."""
     env = dict(os.environ, BK_BACKEND="herdr", BK_PROJECT=cwd,
                WS_CHAT_CMD=f"cd {shlex.quote(cwd)} && claude --resume {shlex.quote(r['sid'])}")
     if quiet(BK, "chat", env=env) != 0:
         print("bk: no pude abrir el chat en Herdr (probá: bk chat)", file=sys.stderr)
+        return False
+    return True
 
 
 def open_row(r):

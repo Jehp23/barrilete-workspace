@@ -118,8 +118,10 @@ def hc(args):
         t = st["terms"].get(rest[0])
         if not t:
             sys.exit(1)
-        out({"address": rest[0], "cwd": t["cwd"], "labels": t["labels"], "argv": t["argv"],
-             "foreground": {"cwd": t["cwd"]}})
+        # status: lo que informa un agente (un test lo pone en state.json: {"app": "claude-code", "state": "idle"});
+        # una shell no tiene
+        out({"address": rest[0], "cwd": t["cwd"], "labels": t["labels"], "argv": t["argv"], "state": "live",
+             "status": t.get("status"), "foreground": {"cwd": t["cwd"]}})
     if cmd == "label":
         if os.path.exists(os.path.join(FAKE, "fail-label")) or rest[0] not in st["terms"]:
             sys.exit(1)

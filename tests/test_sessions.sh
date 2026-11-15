@@ -59,7 +59,7 @@ elif cmd == "close":
     print(S.close_action({"herdr": True, "pane": "t7", "target": "t7", "session": "herdr"}, None)[1].split(":")[0])
 PY2
 }
-check_eq "$(hpy panes)" "['t7'] proj / chat" "Herdr: las terminales vivas, con su espacio y pestaña (una terminada no cuenta)"
+check_eq "$(hpy panes)" "['t7'] t7 proj / chat" "Herdr: las terminales vivas, con el id de la terminal delante de su espacio y pestaña (una terminada no cuenta)"
 check_eq "$(hpy gone t8 '%1' 't7')" "True" "una sesión cuya terminal de Herdr ya no está: se fue"
 check_eq "$(hpy gone t7 '%1' 't7')" "False" "una sesión en una terminal viva de Herdr: sigue, aunque tmux no la conozca"
 check_eq "$(hpy gone t7 '%1' '')" "False" "Herdr no respondió (o el backend es tmux): no se da por muerta una terminal suya"

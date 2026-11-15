@@ -13,6 +13,7 @@ import gentle as G  # noqa: E402  (paleta del tema, una sola para todas las vist
 
 SESSION = os.environ.get("BK_SESSION", "agents")
 STATE = os.path.expanduser("~/.cache/sketchybar/agents")
+COUNT_MAX = 1024 * 1024   # hasta qué tamaño se cuentan las líneas de un archivo nuevo
 
 
 def sh(*a, cwd=None):
@@ -22,16 +23,19 @@ def sh(*a, cwd=None):
         return ""
 
 
-def roots():
-    cands = [os.getcwd()]
-    panes = set(sh("tmux", "list-panes", "-s", "-t", SESSION, "-F", "#{pane_id}").split())
-    for f in glob.glob(os.path.join(STATE, "*.json")):
-        try:
-            s = json.load(open(f))
-        except Exception:
-            continue
-        if s.get("cwd") and (not panes or s.get("pane") in panes or not s.get("pane")):
-            cands.append(s["cwd"])
+def roots(cands=None):
+    """Las raíces a mirar: el repo de esta carpeta y el worktree de cada agente vivo de tmux. Con `cands` (bk _hub,
+    que con Herdr saca los agentes de sus terminales): la raíz de cada una de esas carpetas."""
+    if cands is None:
+        cands = [os.getcwd()]
+        panes = set(sh("tmux", "list-panes", "-s", "-t", SESSION, "-F", "#{pane_id}").split())
+        for f in glob.glob(os.path.join(STATE, "*.json")):
+            try:
+                s = json.load(open(f))
+            except Exception:
+                continue
+            if s.get("cwd") and (not panes or s.get("pane") in panes or not s.get("pane")):
+                cands.append(s["cwd"])
     seen, out = set(), []
     for c in cands:
         top = sh("git", "-C", c, "rev-parse", "--show-toplevel").strip()
@@ -40,9 +44,34 @@ def roots():
     return out
 
 
-def load():
+def unquote(path):
+    """Un nombre con espacios u otros caracteres raros sale de git status entre comillas y con escapes de C."""
+    if len(path) < 2 or not (path.startswith('"') and path.endswith('"')):
+        return path
+    try:
+        return path[1:-1].encode("latin-1", "backslashreplace").decode("unicode_escape").encode("latin-1").decode("utf-8")
+    except (UnicodeError, ValueError):
+        return path[1:-1]
+
+
+def new_lines(full):
+    """Cuántas líneas tiene un archivo nuevo; "" si no se sabe: un binario, o uno enorme (un video, un volcado),
+    que no se lee entero."""
+    try:
+        if os.path.getsize(full) > COUNT_MAX:
+            return ""
+        with open(full, "rb") as f:
+            data = f.read()
+    except OSError:
+        return ""
+    if b"\0" in data[:8000]:
+        return ""
+    return str(data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0))
+
+
+def load(tops=None):
     items = []  # ("root", top, branch) | ("file", top, code, path, add, del)
-    for top in roots():
+    for top in roots() if tops is None else tops:
         st = [l for l in sh("git", "-C", top, "status", "--porcelain", "-uall").splitlines() if l.strip()]
         if not st:
             continue
@@ -50,18 +79,14 @@ def load():
         for l in sh("git", "-C", top, "diff", "--numstat", "HEAD").splitlines():
             p = l.split("\t")
             if len(p) == 3:
-                num[p[2]] = (p[0], p[1])
+                num[unquote(p[2])] = (p[0], p[1])
         items.append(("root", top, sh("git", "-C", top, "branch", "--show-current").strip()))
         for l in st:
             code = l[:2].strip() or "M"
-            path = l[3:].split(" -> ")[-1]
+            path = unquote(l[3:].split(" -> ")[-1])
             a, d = num.get(path, ("", ""))
             if code == "??":
-                code = "A"
-                try:
-                    a = str(sum(1 for _ in open(os.path.join(top, path), errors="replace")))
-                except OSError:
-                    a = ""
+                code, a = "A", new_lines(os.path.join(top, path))
             items.append(("file", top, code, path, a, d))
     return items
 

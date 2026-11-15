@@ -8,6 +8,7 @@
 #   bk.kind     agent | chat
 #   bk.win      la "ventana" del agente (i42) o el nombre del chat (abra, abra-2, abra-<rama>)
 #   bk.project  el proyecto · bk.role · bk.ref · bk.account · bk.name (el nombre que le pusiste a un chat)
+#   bk.id       el número fijo de la ventana (más abajo) · bk.adopted=1 si bk la adoptó (hd_adopt)
 # El "pane" de bk es la dirección de la terminal (t7): la que el hook de estado anota como pane
 # (HC_TERMINAL_ID), así que pane_state, bk say en cola y el pre-registro andan igual que en tmux.
 HD_APP="${BK_HERDR_APP:-herdr-app}"
@@ -36,19 +37,32 @@ hd_up() {
   die "Herdr no respondió: abrilo y volvé a correr el comando"
 }
 
-# hd_install: los mods bk-* y las teclas alt+… de tmux en Herdr (herdr/ del repo → ~/.config/herdr-app).
+# hd_install: las teclas alt+…, los mods bk-* (acciones y paneles), los temas y el layout bk-lavanda en Herdr
+# (herdr/ del repo → ~/.config/herdr-app; lib/herdr_install.py).
 # No corta bk: si algo falla, avisa.
 HD_HOME="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 hd_install() {
   python3 "$WS/lib/herdr_install.py" "$WS/herdr" "$HD_HOME" || info "(los atajos de bk no quedaron instalados en Herdr)"
 }
 
-# hd_notice <título> <texto> [mod]: un aviso de Herdr; al hacerle clic abre ese mod (bk-seguir). Solo un mod
-# puede avisar: bk deja el aviso en ~/.cache/bk/herdr-aviso.json y abre bk-aviso, que lo muestra y se cierra.
+# hd_notice <título> <texto> [mod] [nivel] [log]: un aviso de Herdr; al hacerle clic abre ese mod (bk-seguir).
+# nivel: info (si no se dice) | success | warning | error. log: el archivo con la salida de lo que avisa (bk _do).
+# Solo un mod puede avisar: bk deja el aviso en la cola ~/.cache/bk/herdr-avisos/<epoch>-<pid>.json, uno por
+# archivo (dos avisos casi juntos no se pisan), y abre bk-aviso, que los muestra, los borra y se cierra.
+#   {"title": "…", "body": "…", "mod": "bk-seguir" | "", "level": "info", "ts": <epoch>, "log": "…" (solo si hay)}
+# ~/.cache/bk/herdr-aviso.json, el aviso único de antes, sigue quedando con el último (lo lee el bk-aviso viejo).
 hd_notice() {
-  local f="$HOME/.cache/bk/herdr-aviso.json"
-  mkdir -p "${f%/*}"
-  jq -cn --arg title "$1" --arg body "$2" --arg mod "${3:-}" '{title: $title, body: $body, mod: $mod}' >"$f.tmp" && mv "$f.tmp" "$f" || return 1
+  local dir="$HOME/.cache/bk/herdr-avisos" old="$HOME/.cache/bk/herdr-aviso.json" level="${4:-info}" json name f k=1
+  case "$level" in info|success|warning|error) ;; *) level=info ;; esac
+  json=$(jq -cn --arg title "$1" --arg body "$2" --arg mod "${3:-}" --arg level "$level" --arg log "${5:-}" \
+           '{title: $title, body: $body, mod: $mod, level: $level, ts: (now | floor)}
+            + (if $log != "" then {log: $log} else {} end)') || return 1
+  mkdir -p "$dir" || return 1
+  name="$(date +%s)-$$"; f="$dir/$name.json"
+  while [ -e "$f" ]; do k=$((k + 1)); f="$dir/$name-$k.json"; done   # dos avisos del mismo bk en un segundo
+  # primero con otro nombre (no termina en .json): el mod nunca lee un aviso a medio escribir
+  printf '%s\n' "$json" >"$f.tmp" && mv "$f.tmp" "$f" || return 1
+  printf '%s\n' "$json" >"$old.tmp" && mv "$old.tmp" "$old" || true
   hd_app do mod.open --name bk-aviso >/dev/null 2>&1 || info "(Herdr no mostró el aviso: $1)"
 }
 
@@ -144,7 +158,8 @@ hd_chat() {
   cta=$(account_of claude); [ -z "$cta" ] || lab+=("bk.account=$cta")
   [ -z "${BK_WS_NAME:-}" ] || lab+=("bk.name=$BK_WS_NAME")
   hd_hc label "$t" "${lab[@]}" >/dev/null 2>&1 || info "(no pude etiquetar el chat $ws: bk ls no lo va a mostrar)"
-  info "chat $ws → Herdr, espacio $space"
+  local n; n=$(hd_id_give "$t" 2>/dev/null) || n=""
+  info "chat $ws → Herdr, espacio $space${n:+ · ventana $n}"
 }
 
 # hd_free <base>: el primer nombre de chat libre: <base>-2, <base>-3…
@@ -262,7 +277,8 @@ hd_open() {
     echo; info "bk open <proyecto|ruta> abre (o muestra) el espacio de ese proyecto"
     return
   fi
-  dir=$(resolve_project "$q"); [ -n "$dir" ] || die "no encuentro el proyecto '$q' (pasá la ruta, o bk open para ver los abiertos)"
+  dir=$(resolve_project "$q") || dir=""   # sin el ||, set -e cortaba acá y bk salía con 1 sin decir nada
+  [ -n "$dir" ] || die "no encuentro el proyecto '$q' (pasá la ruta, o bk open para ver los abiertos)"
   hd_workspace "$dir"
 }
 
@@ -278,4 +294,69 @@ hd_stop() {
   done
   sketchybar --trigger agent_update >/dev/null 2>&1 || true
   info "cerrada $win (el worktree, si había, queda: cleanup.sh lo limpia cuando el issue cierre)"
+}
+
+# ---------- números fijos de ventana ----------
+# Cada chat o agente de Herdr toma al aparecer el número libre más chico (etiqueta bk.id) y lo conserva hasta
+# cerrarse, como los workspaces de tmux (ws_ids): alt+N va a esa ventana, bk go N la muestra y bk say N "…" le
+# escribe. Los reparte hd_adopt, que corre al lanzar (hd_chat, launch) y cuando la barra de Herdr ve una
+# terminal de agente sin número (bk _adopt).
+HD_IDS_LOCK="${BK_HD_IDS_LOCK:-$HOME/.cache/bk/herdr-ids.lock}"
+
+# hd_id_term <n>: la terminal viva con ese número (vacío si no hay)
+hd_id_term() { hd_find "bk.id=$1" | head -1; }
+
+# hd_id_give <terminal>: su número; si no tiene, el libre más chico. Con candado: dos chats que nacen juntos
+# no toman el mismo.
+hd_id_give() {
+  local t="$1" n i k=1
+  n=$(hd_label "$t" bk.id); [ -z "$n" ] || { printf '%s' "$n"; return 0; }
+  mkdir -p "${HD_IDS_LOCK%/*}"
+  for i in $(seq 40); do
+    mkdir "$HD_IDS_LOCK" 2>/dev/null && break
+    # un candado de más de 10 s es de un proceso que murió
+    [ -z "$(find "$HD_IDS_LOCK" -maxdepth 0 -mmin +0.17 2>/dev/null)" ] || rmdir "$HD_IDS_LOCK" 2>/dev/null
+    sleep 0.1
+  done
+  n=$(hd_label "$t" bk.id)
+  if [ -z "$n" ]; then
+    while [ -n "$(hd_id_term "$k")" ]; do k=$((k + 1)); done
+    n="$k"
+    hd_hc label "$t" "bk.id=$n" >/dev/null 2>&1 || n=""
+  fi
+  rmdir "$HD_IDS_LOCK" 2>/dev/null
+  [ -n "$n" ] || return 1
+  printf '%s' "$n"
+}
+
+# hd_adopt <terminal>: que bk conozca esa terminal. Un agente abierto desde Herdr (el + de las pestañas: un
+# claude o un codex sin etiquetas de bk) pasa a ser un chat de su proyecto (<proyecto>, <proyecto>-2…), así
+# bk ls, bk say, bk go y bk handoff andan con él igual que con los que abre bk chat. Y le da su número.
+# Imprime el número. No toca lo que no es un agente con pestaña (una shell, un popup, un subagente).
+hd_adopt() {
+  local t="$1" j kind dir top name ws
+  j=$(hd_hc get "$t" --json 2>/dev/null) || return 1
+  [ "$(jq -r '.state // ""' <<<"$j" 2>/dev/null)" = live ] || return 0
+  kind=$(jq -r '.labels["bk.kind"] // ""' <<<"$j" 2>/dev/null)
+  case "$kind" in
+    chat|agent) ;;
+    "")
+      [ -n "$(jq -r '.labels["herdr.tab"] // ""' <<<"$j")" ] || return 0
+      [ -n "$(jq -r '.status.app // ""' <<<"$j")" ] || return 0
+      dir=$(jq -r '.cwd // ""' <<<"$j"); [ -d "$dir" ] || return 0
+      top=$(project_top "$dir"); name=$(project_of "$top")
+      ws="$name"; [ -z "$(hd_chat_term "$name")" ] || ws=$(hd_free "$name")
+      hd_hc label "$t" bk.kind=chat "bk.win=$ws" "bk.project=$name" bk.adopted=1 >/dev/null 2>&1 || return 1 ;;
+    *) return 0 ;;
+  esac
+  hd_id_give "$t"
+}
+
+# hd_id_win <n>: la ventana de bk con ese número, como la entienden go y say (i42, o chat:<nombre>)
+hd_id_win() {
+  local t; t=$(hd_id_term "$1"); [ -n "$t" ] || return 1
+  case "$(hd_label "$t" bk.kind)" in
+    chat) printf 'chat:%s' "$(hd_label "$t" bk.win)" ;;
+    *)    printf '%s' "$(hd_label "$t" bk.win)" ;;
+  esac
 }

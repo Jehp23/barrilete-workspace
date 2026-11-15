@@ -1,110 +1,89 @@
-// Agents in grouped or priority views; parents take their most urgent sub-agent's place.
+// La barra izquierda de bk-lavanda: los espacios y, debajo, los agentes con sus sub-agentes (quién lanzó a
+// quién). Cada agente lleva el chip con su número fijo de ventana (alt+N), su título, dónde está y la marca
+// de estado, la misma que usan las pestañas, la cabecera de cada pane y la barra de abajo.
+// Dos vistas (el botón de la derecha de "AGENTES"): por prioridad (te esperan, listos, trabajando, quietos)
+// o por espacio. Angosta (riel), solo los chips con su marca.
+// Nació como clon del `agents` de Herdr 0.1.15: el orden, los pins y el árbol de sub-agentes son los suyos.
 
-import { View, div, image, svg } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, exec, home } from "herdr";
+import { agents, terminals, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, exec, home } from "herdr";
+import { ICONS, PROSE, RANK, al, find, narrow, ago, ids, said, picto, mark, keycap, iconButton, rule } from "./kit.js";
 
-function find(node, id) {
-  if (node?.id === id) return node;
-  for (const child of node?.children ?? []) {
-    const found = find(child, id);
-    if (found) return found;
-  }
-  return null;
-}
+const SUBS_EVERY = 4000;
+const bin = () => shared("bk.bin") || "bk";
 
-// The sidebar's rail goes by its width, not a flag: dragging its edge narrows it too.
-const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
-
-// To the rail (on macOS wide enough for the traffic lights), or back to the width it had.
+// Al riel (en macOS, con lugar para los botones de la ventana) o de vuelta al ancho que tenía.
 function toggleSidebar() {
   const width = find(layout(), "sidebar")?.size?.px;
   if (!narrow()) setShared("sidebar.width", width);
-  // Mods edited before the rail went by width still read the flag.
   setShared("sidebar.collapsed", !narrow());
-  run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 76 : 44 });
+  run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 288) : window()?.platform === "macos" ? 76 : 44 });
 }
 
-const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
-
-function leadPanes(all) {
-  const leads = new Map();
-  for (const p of all) {
-    if (!p.terminal) continue;
-    const current = leads.get(p.tab);
-    // First agent, else first focused terminal, else first terminal in the tab.
-    if (!current || (!current.program?.agent && (p.program?.agent || (!current.focused && p.focused)))) leads.set(p.tab, p);
-  }
-  return leads;
-}
-
-function title(tab, l) {
-  const prog = l?.program?.name;
-  const live = clean(l?.title);
-  // clean() would strip a path's leading ~ or /: test the title with only its status glyph gone.
-  const path = /^[~/]|^[A-Za-z]:\\/.test((l?.title ?? "").replace(/^[^\p{L}\p{N}~/]+/u, ""));
-  const telling = live && live !== prog && !path && !live.includes("@") && live.toLowerCase() !== l?.program?.key;
-  return (tab.name === prog || !tab.named) && telling ? live : tab.name;
-}
-const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
-// A sub-agent without a pane isn't in agents(): its raw word, error counting as
-// blocked. It's never done: it reports to its parent, and the parent's done is the news.
+// Un sub-agente sin pane no está en agents(): su palabra cruda, con error como "te espera". Nunca "listo":
+// le rinde a su padre, y la novedad es el listo del padre.
 const kidStatus = (k, listed) => {
   const s = listed.get(k.address) ?? k.status;
   return s === "error" ? "blocked" : s === "done" ? "idle" : s;
 };
 const SORTS = [
-  { id: "priority", label: "Priority", icon: "clock" },
-  { id: "grouped", label: "Grouped by space", icon: "layers" },
+  { id: "priority", label: "Por prioridad", icon: "clock" },
+  { id: "grouped", label: "Por espacio", icon: "layers" },
 ];
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
-const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
+const SECTION = { 4: "Te esperan", 3: "Listos", 2: "Trabajando", 1: "Quietos" };
 const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
-
-function duration(ms) {
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return "<1m";
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
-}
-
-// The agent's icon from the app's program table: a one-color glyph or a picture.
-function icon(p, size, color) {
-  if (!p?.icon) return null;
-  return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
-}
+// El color de cada espacio: el que eligió Herdr (shared "space.colors", un nombre del tema) o uno fijo por su id.
+const TINTS = ["ansi4", "ansi5", "ansi6", "ansi13", "ansi3", "ansi2"];
+const hash = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
+const menu = (tab, target) => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab, target } });
+// La marca de un sub-agente. tests/test_herdr_subagents.sh evalúa tree() y subRow() de este archivo sin sus
+// imports (solo les pasa View, div, svg, h_flex, v_flex, agents, run y home): por eso subRow no usa del kit
+// nada más que esto, y sin kit dibuja un hueco.
+const subMark = (t, st) => (typeof mark === "function" ? mark(t, st, 12) : div());
 
 export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
     this.folded = new Set();
     this.claudeSubs = {};
+    this.subsRaw = "";
     this.subError = null;
     const refresh = async (cx) => {
       if (this.subBusy) return;
       this.subBusy = true;
+      let changed = false;
       try {
-        const r = await exec("bk", ["_subagents"], { timeout: 8000 });
+        const r = await exec(bin(), ["_subagents"], { timeout: 8000 });
         if (r.code !== 0) throw new Error(r.stderr.trim() || "bk _subagents no respondió");
-        this.claudeSubs = JSON.parse(r.stdout).by_terminal ?? {};
+        if (r.stdout !== this.subsRaw) {
+          this.claudeSubs = JSON.parse(r.stdout).by_terminal ?? {};
+          this.subsRaw = r.stdout;
+          changed = true;
+        }
+        if (this.subError) changed = true;
         this.subError = null;
-      } catch (e) { this.subError = String(e?.message ?? e); }
-      finally { this.subBusy = false; }
-      cx.notify();
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        changed = msg !== this.subError;
+        this.subError = msg;
+      } finally { this.subBusy = false; }
+      // Solo se redibuja si cambió algo: cada dibujo de un mod repinta la ventana entera.
+      if (changed) cx.notify();
     };
     cx.spawn(refresh);
-    cx.timer.every(3000, (cx) => cx.spawn(refresh));
-    // Each agent's last state and when it changed (ms), kept across restarts.
+    cx.timer.every(SUBS_EVERY, (cx) => cx.spawn(refresh));
+    // El último estado de cada agente y cuándo cambió (ms), guardado entre reinicios.
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
     this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]");
     if (!this.pendingPins.length) localStorage.removeItem("pins");
     this.migratingPins = new Set();
-    cx.timer.every(30000, (cx) => cx.notify());
+    cx.timer.every(30000, (cx) => cx.notify());   // los "hace 12m"
   }
 
-  // Stamps agents whose state changed. Done and idle count as one: looking at a
-  // finished agent turns done into idle, and looking isn't the agent doing anything.
+  // Anota los agentes que cambiaron de estado. Listo y quieto cuentan como uno: mirar a uno que terminó lo
+  // pasa de listo a quieto, y mirar no es que el agente haya hecho algo.
   track(list, now) {
     let dirty = false;
     for (const a of list) {
@@ -114,15 +93,14 @@ export default class Agents extends View {
       dirty = true;
     }
     if (!dirty) return;
-    // Gone and old: the list alone is empty right after a start.
     const listed = new Set(list.map((a) => a.address));
     for (const [k, c] of Object.entries(this.changed)) if (!listed.has(k) && now - c.at > 30 * 86400000) delete this.changed[k];
     localStorage.setItem("changed", JSON.stringify(this.changed));
   }
 
-  // Keep offline pins until their terminal returns, and keep each pending until
-  // core echoes the label so a failed write doesn't erase the old pin.
+  // Los pins de la versión vieja (guardados acá) pasan a la etiqueta de su terminal cuando vuelve.
   migratePins(all) {
+    if (!this.pendingPins.length) return;
     const listed = new Map(all.filter((t) => t.state === "live").map((t) => [t.address, t]));
     const pending = this.pendingPins.filter((address) => {
       const terminal = listed.get(address);
@@ -144,41 +122,19 @@ export default class Agents extends View {
     return this.changed[a.address]?.at ?? 0;
   }
 
-  rank(a) {
-    return RANK[a.status] ?? 0;
-  }
-
   sortMenu(t) {
     const on = sortOf().id;
-    return v_flex()
-      .w_full()
-      .p(5)
-      .bg(t.popover)
-      .text_size(12.8)
-      .child(div().px(8).pt(4).pb(6).text_size(11).text_color(t.dim).child("Sort agents"))
-      .children(SORTS.map((s) => h_flex()
-        .id(`sort-${s.id}`)
-        .h(31)
-        .px(8)
-        .gap(9)
-        .rounded(7)
-        .items_center()
-        .text_color(t.foreground)
+    return v_flex().w_full().p(5).bg(t.popover).text_size(12.5)
+      .child(div().px(8).pt(4).pb(6).text_size(10.5).font_semibold().text_color(t.accent).child("ORDENAR AGENTES"))
+      .children(SORTS.map((s) => h_flex().id(`sort-${s.id}`).h(30).px(8).gap(9).rounded(6).items_center().text_color(t.foreground)
         .hover((el) => el.bg(t.hover))
-        .on_click(() => {
-          setShared("agents.sort", s.id);
-          closeOverlay(props().overlay);
-        })
-        .child(svg(`mods/workspace-chrome/${s.icon}.svg`).size(14).flex_none().text_color(t.muted))
+        .on_click(() => { setShared("agents.sort", s.id); closeOverlay(props().overlay); })
+        .child(svg(`${ICONS}${s.icon}.svg`).size(14).flex_none().text_color(t.muted))
         .child(div().flex_1().child(s.label))
-        .when(s.id === on, (el) => el.child(svg("mods/workspace-chrome/check.svg").size(14).flex_none().text_color(t.foreground)))));
+        .when(s.id === on, (el) => el.child(svg(`${ICONS}check.svg`).size(14).flex_none().text_color(t.accent)))));
   }
 
-  peek(addr) {
-    run("terminal.peek", { terminal: addr });
-  }
-
-  // Live sub-agents of `addr`, depth first, each with the tree lines in front of it.
+  // Los sub-agentes vivos de `addr`, en profundidad, cada uno con las líneas del árbol delante.
   tree(all, addr, lead = []) {
     const kids = all.filter((k) => k.parent === addr && k.state === "live");
     return kids.flatMap((k, i) => {
@@ -190,49 +146,54 @@ export default class Agents extends View {
     });
   }
 
-  subRow(t, s, shown, compact) {
+  subRow(t, s, shown) {
     const k = s.t;
     const st = kidStatus(k, this.listed);
-    const pic = icon(k.program, 14, t.foreground);
     const on = k.address === shown;
-    return h_flex()
-      .id(`sub-${k.address}`)
-      .pl(39)
-      .pr(8)
-      .rounded(8)
-      .h(26)
-      .flex_none()
-      .gap(0)
-      .items_center()
-      .text_size(12.5)
-      .when(on, (el) => el.bg(t.raised))
-      .hover((s) => s.bg(t.hover))
+    return h_flex().id(`sub-${k.address}`).pl(19).pr(8).h(24).flex_none().rounded(6).items_center().text_size(11.5).cursor_pointer()
+      .when(on, (el) => el.bg(t.selected))
+      .hover((x) => x.bg(t.hover))
       .on_click(() => {
         if (k.transcript) {
           const parent = agents().find((a) => a.address === k.parent);
           if (parent) run("space.select", { id: parent.space });
           run("tab.new", { ...(parent ? { space: parent.space } : {}), name: k.name.split(" · ")[0], folder: home(), argv: ["bk", "sub", k.transcript] });
         } else if (this.listed.has(k.address)) run("pane.focus", { terminal: k.address });
-        else this.peek(k.address);
+        else run("terminal.peek", { terminal: k.address });
       })
-      .tooltip(k.transcript ? `${k.name}${k.background ? " · segundo plano" : ""} · clic para seguir en vivo` : k.name || k.address)
-      .children(s.lines.map(l => div().self_start().mt(-4).w(9).h(17).mr(4).flex_none()
-        .when(Boolean(l), el => el.border_l(1.5).border_color(t.input))
-        .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6))))
-      .when(Boolean(pic), el => el.child(div().mr(8).child(pic)))
-      .child(div().flex_1().truncate().text_color(on ? t.foreground : t.muted).child(k.name || k.template || k.program?.name || k.address))
-      .child(this.status(t, { status: st }, compact));
+      .tooltip(k.transcript ? `${k.name}${k.background ? " · segundo plano" : ""} · clic para seguirlo en vivo` : k.name || k.address)
+      .children(s.lines.map((l, i) => div().self_start().mt(-3).w(i === s.lines.length - 1 ? 14 : 10).h(15).mr(i === s.lines.length - 1 ? 7 : 4).flex_none()
+        .when(Boolean(l), (el) => el.border_l(1).border_color(t.input))
+        .when(l === "└" || l === "├", (el) => el.border_b(1).rounded_bl(5))))
+      .child(div().flex_1().min_w(0).truncate().text_color(on ? t.foreground : t.muted).child(k.name || k.template || k.program?.name || k.address))
+      .when(Boolean(k.background), (el) => el.child(div().flex_none().ml(6).text_size(10.5).text_color(t.dim).child("2º")))
+      .child(div().ml(6).child(subMark(t, st)));
   }
 
-  // compact: a ! for blocked where a header already says "Needs you".
-  status(t, a, compact = false) {
-    const color = t[a.status] ?? t.dim;
-    if (a.status === "working") return svg("mods/workspace-chrome/spinner.svg").size(12).mx(1).flex_none().text_color(t.working).spin(900);
-    if (a.status === "blocked" && compact) return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
-    if (a.status === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child("Needs you");
-    // Idle: a ring; done: a dot.
-    if (a.status === "idle") return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
-    return div().size(7).mx(3).flex_none().rounded(4).bg(a.status === "done" ? color : t.dim + "00");
+  // Los espacios: color y letra, nombre, la rama si no es la de siempre, y la marca si algo ahí te necesita.
+  spaceRow(t, s, collapsed) {
+    const name = (shared("space.colors") ?? {})[s.id];
+    const color = (name?.startsWith?.("#") ? name : t[name]) ?? t[TINTS[hash(s.id) % TINTS.length]] ?? t.accent;
+    const loud = s.status && s.status !== "idle";
+    const tile = div().size(collapsed ? 22 : 18).flex_none().rounded(collapsed ? 6 : 5).bg(al(color, s.active ? "40" : "26")).flex().items_center().justify_center()
+      .text_size(collapsed ? 11.5 : 10.5).line_height(1).font_bold().text_color(color).child([...s.name][0]?.toUpperCase() ?? "?");
+    const act = (el) => el.cursor_pointer()
+      .on_click(() => run("space.select", { id: s.id }))
+      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); menu("space", { id: s.id }); });
+    if (collapsed) {
+      return act(h_flex().id(`sp-${s.id}`).relative().h(30).flex_none().justify_center().items_center().tooltip(s.name)
+        .child(div().p(3).rounded(8).when(s.active, (el) => el.bg(t.selected)).child(tile))
+        .when(loud, (el) => el.child(div().absolute().top(0).right(15).rounded_full().bg(t.chrome).child(mark(t, s.status, 12)))));
+    }
+    const usual = !s.branch || s.branch === "main" || s.branch === "master" || s.branch.toLowerCase() === s.name.toLowerCase();
+    return act(h_flex().id(`sp-${s.id}`).h(28).px(8).gap(9).flex_none().rounded(8).items_center()
+      .when(s.active, (el) => el.bg(t.selected))
+      .when(!s.active, (el) => el.hover((x) => x.bg(t.hover)))
+      .child(tile)
+      .child(div().flex_shrink(0).max_w(usual ? 190 : 130).truncate().text_color(s.active ? t.foreground : t.muted).when(s.active, (el) => el.font_medium()).child(s.name))
+      .when(Boolean(s.machine), (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(`@${s.machine}`)))
+      .child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(usual ? "" : s.branch))
+      .when(loud, (el) => el.child(mark(t, s.status, 12))));
   }
 
   render(cx) {
@@ -243,6 +204,7 @@ export default class Agents extends View {
     let list = agents();
     this.listed = new Map(list.map((a) => [a.address, a.status]));
     const native = terminals();
+    const numbers = ids(native);
     const internal = Object.entries(this.claudeSubs).flatMap(([parent, children]) =>
       children.map((child) => ({
         address: `claude:${parent}:${child.id}`, parent, state: "live", status: "working",
@@ -254,14 +216,13 @@ export default class Agents extends View {
     const shown = focused()?.agent;
     const now = Date.now();
     this.track(list, now);
-    // A kept sub-agent (one with a pane) is in agents() too: where a tree shows
-    // it, it gets no row of its own, unless it's pinned.
+    // Un sub-agente con pane también está en agents(): donde un árbol lo muestra no lleva fila propia, salvo fijado.
     const nested = new Set(collapsed ? [] : list.flatMap((a) => this.tree(all, a.address).map((s) => s.t.address)));
     list = list.filter((a) => a.pinned || !nested.has(a.address));
     const tabCounts = new Map();
     for (const a of list) tabCounts.set(a.tab, (tabCounts.get(a.tab) ?? 0) + 1);
     const byPriority = sort.id === "priority";
-    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
+    const urgency = new Map(list.map((a) => [a.address, Math.max(RANK[a.status] ?? 0, ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
     const pinned = list.filter((a) => a.pinned);
@@ -269,136 +230,106 @@ export default class Agents extends View {
     list = [...pinned, ...rest];
     setAgentOrder(list.map((a) => a.address));
 
-    const withKids = (a, i) => {
-      const subs = collapsed ? [] : this.tree(all, a.address);
-      const r = row(a, i, subs);
-      if (this.folded.has(a.address)) return [r];
-      return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority))];
+    const sp = spaces();
+    const tabs = new Map(sp.flatMap((s) => s.tabs).map((tab) => [tab.id, tab]));
+    // El título de la fila: lo que el agente dice que hace. Una pestaña que alguien nombró a mano gana; los
+    // nombres automáticos (chat-3, 2, el del programa) no dicen nada y van a la segunda línea.
+    const titleOf = (a) => {
+      const tab = tabs.get(a.tab);
+      const own = said(a.title, a.program, a.address);
+      const auto = !tab?.named || /^(chat-\d+|\d+)$/.test(tab.name) || tab.name === a.program?.name || tabCounts.get(a.tab) > 1;
+      return (auto ? own : "") || (tab?.named ? tab.name : "") || own || a.program?.name || a.address;
+    };
+    const metaOf = (a, title, full) => {
+      const tab = tabs.get(a.tab);
+      const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
+      const tabName = tab?.named && tab.name !== title ? tab.name : null;
+      return [machine, full ? a.space_name : null, tabName ?? (a.program?.name !== title ? a.program?.name : null)].filter(Boolean).join(" · ");
     };
 
-    // The fold chevron; folded, the count too, colored by the most urgent one.
+    // El chevron que pliega los sub-agentes; plegado, cuántos son, con el color del más urgente.
     const fold = (a, subs) => {
       const sts = subs.map((s) => kidStatus(s.t, this.listed));
       const top = sts.reduce((m, s) => ((RANK[s] ?? 0) > (RANK[m] ?? 0) ? s : m), null);
       const open = !this.folded.has(a.address);
-      return div()
-        .id(`fold-${a.address}`)
-        .h(18)
-        .px(3)
-        .gap(3)
-        .flex()
-        .items_center()
-        .rounded(4)
-        .text_size(11)
-        .text_color(open ? t.dim : (t[top] ?? t.dim))
-        .cursor_pointer()
+      return div().id(`fold-${a.address}`).h(16).px(2).gap(2).flex().flex_none().items_center().rounded(4).text_size(10.5)
+        .text_color(open ? t.dim : (t[top] ?? t.dim)).cursor_pointer()
         .hover((s) => s.bg(t.hover).text_color(t.foreground))
         .on_click((_e, cx) => {
           cx.stop_propagation();
           open ? this.folded.add(a.address) : this.folded.delete(a.address);
           cx.notify();
         })
-        .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(11).flex_none())
+        .child(svg(`${ICONS}chevron-${open ? "down" : "right"}.svg`).size(11).flex_none())
         .when(!open, (el) => el.child(String(subs.length)));
     };
 
-    // A row reads "space \u00b7 detail": the detail is a tab someone named or the
-    // agent's own title, never an automatic tab number unless two rows would
-    // otherwise read the same.
-    // Read the pane snapshot once: every host read copies the whole list into JS.
-    const leads = leadPanes(panes());
-    const tabs = new Map(spaces().flatMap(s => s.tabs).map(tab => [tab.id, tab]));
-    const labels = new Map(list.map(a => {
-      const tab = tabs.get(a.tab);
-      const many = tabCounts.get(a.tab) > 1;
-      return [a.address, tab ? title(many ? { ...tab, named: false } : tab, many ? a : leads.get(a.tab)) : (a.title || a.program?.name || "")];
-    }));
-    const label = (a) => labels.get(a.address);
-    const detail = new Map(list.map(a => [a.address, /^\d+$/.test(label(a)) ? null : label(a)]));
-    const seen = {};
-    for (const a of list) { const k = `${a.space_name}\u0000${detail.get(a.address) ?? ""}`; seen[k] = (seen[k] ?? 0) + 1; }
-    for (const a of list) {
-      if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
-    }
-
-    const row = (a, i, subs = []) => {
-      const pic = icon(a.program, 16, t.foreground);
-      const more = detail.get(a.address);
-      // An agent on another machine (`vps/t7`) says which.
-      const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
+    const row = (a, subs = []) => {
+      const n = numbers.get(a.address);
       if (collapsed) {
-        return h_flex()
-          .id(`ag-${a.address}`)
-          .h(26)
-          .px(8)
-          .flex_none()
-          .items_center()
-          .gap(4)
-          .hover((s) => s.bg(t.hover))
+        // El riel: el chip con su número y, en la esquina, la marca si no está quieto.
+        return h_flex().id(`ag-${a.address}`).relative().h(30).flex_none().justify_center().items_center().cursor_pointer()
+          .tooltip(titleOf(a))
           .on_click(() => run("pane.focus", { pane: a.pane }))
-          .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
-          .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
+          .child(div().p(3).rounded(8).when(a.focused, (el) => el.bg(t.selected)).child(keycap(t, n, { on: a.focused })))
+          .when(a.status !== "idle", (el) => el.child(div().absolute().top(0).right(15).rounded_full().bg(t.chrome).child(mark(t, a.status, 12))));
       }
       const when = this.since(a);
-      const idle = a.status === "idle" && !a.focused;
       const isPinned = a.pinned;
-      const pin = div()
-        .id(`pin-${a.address}`)
-        .flex_none()
-        .p(2)
-        .rounded(4)
-        .text_color(t.dim)
-        .cursor_pointer()
+      const full = byPriority || isPinned;   // sin un rótulo de espacio arriba, la fila dice el suyo
+      const title = titleOf(a);
+      const meta = metaOf(a, title, full);
+      const quiet = a.status === "idle" && !a.focused;
+      const pic = picto(a.program, 12, t.dim);
+      const pin = div().id(`pin-${a.address}`).flex_none().p(1).rounded(4).text_color(t.dim).cursor_pointer()
         .hover((s) => s.bg(t.hover).text_color(t.foreground))
-        .tooltip(isPinned ? "Unpin" : "Pin to the top")
+        .tooltip(isPinned ? "Soltar" : "Fijar arriba")
         .on_click((_e, cx) => {
           cx.stop_propagation();
           run("terminal.pin", { terminal: a.address, pinned: !isPinned });
-          // The row moves away from under the pointer, and no hover-out comes.
-          this.hovered = null;
+          this.hovered = null;   // la fila se va de abajo del puntero y no llega el aviso de salida
           cx.notify();
         })
-        .child(svg(`mods/workspace-chrome/${isPinned ? "pin-off" : "pin"}.svg`).size(13));
-      // Under a space header the space goes without saying; an automatic tab number says nothing.
-      // Without a space header above (priority, pinned) the row names its space.
-      const full = byPriority || isPinned;
-      const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
-      return h_flex()
-        .id(`ag-${a.address}`)
-        .px(8)
-        .h(30)
-        .flex_none()
-        .rounded(8)
-        .items_center()
-        .gap(9)
+        .child(svg(`${ICONS}${isPinned ? "pin-off" : "pin"}.svg`).size(12));
+      const timeColor = a.status === "blocked" ? t.blocked : a.status === "working" ? t.working : t.dim;
+      const waits = a.status === "blocked";
+      // La que te espera es una tarjeta con borde ámbar: se encuentra sin leer.
+      return h_flex().id(`ag-${a.address}`).px(7).h(44).flex_none().rounded(8).items_center().gap(10).cursor_pointer()
+        .border_1().border_color(waits ? al(t.blocked, "59") : "#00000000")
         .when(a.focused, (el) => el.bg(t.selected))
-        .cursor_pointer()
-        .hover((s) => s.bg(t.hover))
+        .when(!a.focused && waits, (el) => el.bg(al(t.blocked, "14")))
+        .hover((s) => s.bg(a.focused ? t.selected : waits ? al(t.blocked, "22") : t.hover))
         .on_hover((on, cx) => {
           if (on) this.hovered = a.address;
           else if (this.hovered === a.address) this.hovered = null;
           cx.notify();
         })
         .on_click(() => run("pane.focus", { pane: a.pane }))
-        .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
-          .when(subs.length > 0, el => el.on_click((_e, cx) => {
-            cx.stop_propagation();
-            this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
-            cx.notify();
-          })).child(pic)))
-        .child(h_flex().flex_1().min_w(0).gap(5).items_center()
-          .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
-          .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
-        .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
-        .when(subs.length > 0, el => el.child(fold(a, subs)))
-        .when(this.hovered === a.address, el => el.child(pin))
-        .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
-        .child(this.status(t, a, byPriority && !isPinned));
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); menu("pane", { pane: a.pane, terminal: a.address }); })
+        .child(keycap(t, n, { on: a.focused }))
+        .child(v_flex().flex_1().min_w(0).gap(3)
+          .child(h_flex().gap(6).items_center()
+            .child(div().flex_1().min_w(0).truncate().font_family(PROSE).text_size(13).line_height(1.25).font_medium().text_color(quiet ? t.muted : t.foreground).child(title))
+            .when(subs.length > 0, (el) => el.child(fold(a, subs)))
+            .child(mark(t, a.status)))
+          .child(h_flex().gap(5).items_center().text_size(11).line_height(1.25).text_color(t.dim)
+            .when(Boolean(pic), (el) => el.child(pic))
+            .child(div().flex_1().min_w(0).truncate().child(meta))
+            .when(this.hovered === a.address, (el) => el.child(pin))
+            .when(this.hovered !== a.address && isPinned, (el) => el.child(svg(`${ICONS}pin.svg`).size(11).flex_none()))
+            .when(this.hovered !== a.address && Boolean(when), (el) => el.child(div().flex_none().min_w(28).whitespace_nowrap().text_right().text_color(timeColor).child(ago(now - when))))));
     };
 
-    // Groups in list order: spaces (grouped) or priority sections. Agents of a
-    // space are next to each other in agents(), so neighbours make a group.
-    const groups = pinned.length ? [{ id: "pinned", label: "Pinned", status: null, members: pinned }] : [];
+    const withKids = (a) => {
+      const subs = collapsed ? [] : this.tree(all, a.address);
+      const r = row(a, subs);
+      if (this.folded.has(a.address)) return [r];
+      return [r, ...subs.map((s) => this.subRow(t, s, shown))];
+    };
+
+    // Los grupos, en el orden de la lista: secciones por prioridad o espacios. Los agentes de un espacio
+    // vienen juntos en agents(), así que los vecinos arman el grupo.
+    const groups = pinned.length ? [{ id: "pinned", label: "Fijados", status: null, members: pinned }] : [];
     for (const a of rest) {
       const r = rankOf(a) || RANK.idle;
       const id = byPriority ? `sec-${r}` : `sp-${a.space}`;
@@ -406,88 +337,45 @@ export default class Agents extends View {
       else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, members: [a] });
     }
 
-    // A group's header; it folds the group. Folded, it says how many and the most urgent state.
-    const header = (g) => {
+    // El rótulo de un grupo; lo pliega. Plegado dice cuántos son y el estado más urgente.
+    const header = (g, first) => {
       const open = !this.folded.has(g.id);
       const top = g.members.reduce((m, a) => ((RANK[a.status] ?? 0) > (RANK[m] ?? 0) ? a.status : m), null);
-      return h_flex()
-        .id(g.id)
-        .px(8)
-        .pt(8)
-        .h(30)
-        .flex_none()
-        .gap(6)
-        .items_center()
-        .text_size(11)
-        .font_medium()
-        .cursor_pointer()
+      return h_flex().id(`g-${g.id}`).px(8).h(first ? 22 : 30).pt(first ? 0 : 8).flex_none().gap(6).items_center().text_size(11).cursor_pointer()
         .hover((s) => s.text_color(t.foreground))
         .on_click((_e, cx) => {
           open ? this.folded.add(g.id) : this.folded.delete(g.id);
           cx.notify();
         })
-        .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
-        .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
+        .child(div().flex_shrink(1).min_w(0).truncate().font_medium().text_color(t[g.status] ?? t.muted).child(g.label))
+        .child(div().flex_none().text_color(t.dim).child(String(g.members.length)))
         .child(div().flex_1())
         .when(!open, (el) => el
-          .when(!byPriority && top && top !== "idle", (el) => el.child(this.status(t, { status: top }, true)))
-          .child(svg("mods/workspace-chrome/chevron-right.svg").size(11).flex_none().text_color(t.dim)));
+          .when(!byPriority && top && top !== "idle", (x) => x.child(mark(t, top, 12)))
+          .child(svg(`${ICONS}chevron-right.svg`).size(11).flex_none().text_color(t.dim)));
     };
     const rows = collapsed
       ? list.flatMap(withKids)
-      : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]);
+      : groups.flatMap((g, i) => [header(g, i === 0), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]);
 
-    return v_flex()
-      .size_full()
-      .min_h(0)
-      .bg(t.chrome)
-      .border_t(1)
-      .border_color(t.border)
-      .text_size(13)
-      .when(!collapsed, (el) =>
-        el.child(
-          h_flex()
-            .px(16)
-            .h(41)
-            .pt(14)
-            .pb(5)
-            .flex_none()
-            .items_center()
-            .justify_between()
-            .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Agents"))
-            .child(
-              div()
-                .id("ag-sort")
-                .text_size(11)
-                .text_color(t.dim)
-                .hover((s) => s.text_color(t.foreground))
-                .on_click(() => openOverlay({ mod: "bk-agentes", kind: "popup", width: 200, height: 140, props: { sortMenu: true } }))
-                .tooltip(`Sort agents: ${sort.label}`)
-                .child(svg(`mods/workspace-chrome/${sort.icon}.svg`).size(14)),
-            ),
-        ),
-      )
-      .when(list.length === 0 && !collapsed, (el) =>
-        el.child(div().px(12).text_size(12).text_color(t.dim).child("No agent status yet. Agents show up here when they report their status. Older versions and agents inside tmux may not.")),
-      )
-      .when(Boolean(this.subError), el => el.child(div().px(12).text_size(11).text_color(t.blocked).tooltip(this.subError || "").child("No pude leer los subagentes de Claude")))
-      .child(v_flex().id("ag-list").flex_1().min_h(0).px(collapsed ? 0 : 8).overflow_y_scrollbar().mode("always").children(rows))
-      .when(collapsed, (el) =>
-        el.child(
-          h_flex()
-            .h(28)
-            .items_center()
-            .justify_center()
-            .child(
-              div()
-                .id("collapse")
-                .text_size(13)
-                .text_color(t.dim)
-                .hover((s) => s.text_color(t.foreground))
-                .on_click(toggleSidebar)
-                .child("»"),
-            ),
-        ),
-      );
+    if (collapsed) {
+      return v_flex().size_full().min_h(0).bg(t.chrome).pt(4)
+        .child(v_flex().flex_none().max_h(200).overflow_hidden().children(sp.map((s) => this.spaceRow(t, s, true))))
+        .child(div().flex_none().mx(22).my(6).h(1).bg(t.border))
+        .child(v_flex().id("ag-list").flex_1().min_h(0).overflow_y_scrollbar().children(rows))
+        .child(h_flex().h(30).flex_none().items_center().justify_center()
+          .child(iconButton(t, "collapse", "sidebar", toggleSidebar, { tip: "Abrir la barra", size: 15 })));
+    }
+    return v_flex().size_full().min_h(0).bg(t.chrome).pl(8).pr(4).pt(8).text_size(12.5)
+      .child(rule(t, "ESPACIOS", [iconButton(t, "space-new", "plus", () => run("space.new"), { tip: "Espacio nuevo" })]))
+      // Hasta ocho espacios, la lista mide lo que ocupa; con más, se desplaza dentro de ese alto.
+      .child((sp.length > 8 ? v_flex().id("sp-list").h(8 * 29).overflow_y_scrollbar() : v_flex().id("sp-list")).flex_none().gap(1).pr(4).children(sp.map((s) => this.spaceRow(t, s, false))))
+      .child(div().h(6).flex_none())
+      .child(rule(t, "AGENTES", [
+        iconButton(t, "ag-sort", sort.icon, () => openOverlay({ mod: "bk-agentes", kind: "popup", width: 200, height: 110, props: { sortMenu: true } }), { tip: `Orden: ${sort.label.toLowerCase()}` }),
+      ]))
+      .when(list.length === 0, (el) => el.child(div().px(8).pt(2).text_size(11.5).text_color(t.dim).child("Todavía no hay agentes. Aparecen acá cuando avisan su estado.")))
+      .when(Boolean(this.subError), (el) => el.child(div().px(8).pb(4).text_size(11).text_color(t.blocked).tooltip(this.subError || "").child("No pude leer los sub-agentes de Claude")))
+      .child(v_flex().id("ag-list").flex_1().min_h(0).pr(4).pb(8).gap(1).overflow_y_scrollbar().children(rows));
   }
 }

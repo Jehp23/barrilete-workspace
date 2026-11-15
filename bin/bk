@@ -45,17 +45,23 @@ uso: bk [comando] [--dry-run]
                     Con Herdr (bk backend herdr): el espacio del proyecto, con su chat en una pestaña
   backend [tmux|herdr]  dónde viven los chats y agentes: el workspace de tmux o la app Herdr (cada proyecto un
                     espacio, cada chat o agente una pestaña; sin riel ni tira: la lista de agentes es la de Herdr)
-                    bk backend herdr instala además el mod bk y los atajos alt+… de tmux en Herdr (herdr/)
-                    y el layout bk-lavanda: agentes y acceso a las tareas del kit en la barra y, a la derecha,
-                    estado, GitHub y cambios (herdr-app do layout.switch --name bk-lavanda; main vuelve al de Herdr)
+                    bk backend herdr instala además en Herdr lo de herdr/: las teclas alt+… (abajo), los mods y
+                    paneles que abren, los temas y el layout bk-lavanda con su vista previa: espacios y agentes a
+                    la izquierda, pestañas, a la derecha sesión, GitHub y cambios, y abajo la barra de estado
+                    (herdr-app do layout.switch --name bk-lavanda; main vuelve al de Herdr)
   rerun [--go] [pr…]  volver a correr los checks de Actions que fallaron (sin --go: solo muestra)
   new | n           popup "Nuevo": chat nuevo en este proyecto u otro workspace (alt+n, o + en la tira)
+                    Con Herdr, alt+n abre el panel Nuevo: chat, en una rama, con nombre, suelto, una terminal,
+                    otro proyecto o seguir desde un resumen
   chat [--suelto]   un claude nuevo en el proyecto del workspace (o sin proyecto), en el lugar del chat (alt+q vuelve)
   chat --nombre X   el chat nuevo se llama X (bk ls, bk say X "…", bk go X); también con --rama
   chat --desde N    seguir en un chat nuevo desde el resumen del workspace N (misma carpeta y cuenta; alt+n también)
   handoff [N]       pedirle al chat del workspace N (o de este) el resumen para seguir; --listos: los que hay
                     cuando el chat lo guarda, el chat nuevo se abre solo (si lo pidió el aviso de contexto: un
                     aviso de Herdr con clic; --seguir abre el más nuevo)
+                    Con Herdr, N es el número fijo de la ventana (o el nombre del chat). --term <terminal> se lo
+                    pide al chat de esa terminal desde afuera (lo usa alt+h; si bk no la conocía, la adopta) y
+                    --cerrar cierra el chat viejo cuando el nuevo abre
   name ["nombre"]   nombrar el chat de este workspace (sin nombre: el de /rename o el título de Claude; - lo borra)
   open [proyecto]   abrir el workspace de otro proyecto en una ventana nueva (sin argumento: los abiertos)
   plan "<idea>"     planner: /plan-feature en la raíz del proyecto
@@ -68,11 +74,13 @@ uso: bk [comando] [--dry-run]
   orchestrate       orchestrator: /orchestrate (reparte hasta 3 issues como subagentes)
   ls [--all]        agentes con el título de su issue/PR, los que te esperan primero (--all: todas las sesiones)
   go <agente>       saltar a un agente. <agente>: la ventana (i42, pr57), un número (#240) o una palabra del título
-  changes           lo que los agentes dejaron sin commitear, con diff (alt+g)
-  palette | k       todos los comandos con búsqueda (alt+k)
+                    Con Herdr, un número de una o dos cifras es primero el número fijo de la ventana de un chat
+                    o un agente (bk go 3, lo mismo que alt+3); si nadie lo tiene, vale como antes
+  changes           lo que los agentes dejaron sin commitear, con diff (alt+g; con Herdr, alt+g abre su panel)
+  palette | k       todos los comandos con búsqueda (alt+k; con Herdr, alt+k abre el panel Comandos)
   monitor           pantalla para el otro monitor: qué te espera, agentes, tareas, costo y desvíos en vivo (los graves suenan)
                     (c o bk monitor --clear limpian los desvíos: lo anterior no vuelve aunque relea los transcripts)
-  stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u)
+  stats             estadísticas de uso: actividad, modelos, rachas, costo (alt+u; con Herdr, alt+u abre su panel)
   chat [--rama N]   otro chat del proyecto, como un workspace más (alt+N); con --rama, en su worktree y rama chat/N
   sound [on|off|test]  sonidos de los agentes: terminó (Glass), pregunta (Ping), permiso (Purr), error (Basso)
   mode <rol>        cómo lo lanza el orquestador: main, bk (ventana propia) o sub (subagente)
@@ -80,15 +88,21 @@ uso: bk [comando] [--dry-run]
   term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
   bot               verifica la GitHub App de los agentes (~/.config/bk/gh-app.json)
-  customize         estilo del workspace: header, tema y fuente (alt+,)
+  customize         estilo del workspace de tmux: header, tema y fuente (alt+,). Con Herdr, alt+, abre Aspecto:
+                    tema, paneles, tamaño y fuente de la terminal
   s                 sesiones de Claude estilo Orca: abiertas (saltar) y recientes de todas las
                     carpetas (retomar con claude --resume). En tmux: prefijo + s
+                    Con Herdr, cada abierta lleva el id de su terminal (t2d) y Enter muestra su pestaña; una
+                    reciente se retoma en un chat más de su proyecto. alt+s abre lo mismo en un panel
   peek [ventana] [n] ver qué hace un agente sin entrar (sin ventana: todos, últimas líneas)
   say [agente] "…"  escribirle a un agente (o a un chat por su nombre) como si estuvieras ahí; sin agente, al que te espera.
                     Si el agente está trabajando, se encola y se escribe al terminar su turno (--now: ya)
+                    Con Herdr, también por su número fijo de ventana: bk say 3 "…"
   watch [ventana]   pantalla de un agente en vivo, solo lectura (sin ventana: toma el próximo
                     agente que nadie esté mirando; --all: todos en un panel, como en el workspace)
   stop <agente>     cerrar la ventana del agente (el worktree queda; su tarea queda cancelada)
+                    Con Herdr, un número de una o dos cifras es el de la ventana: bk stop 7 cierra el agente de
+                    la ventana 7 (el del issue 7 es bk stop i7)
   clean [--yes]     limpiar restos: claude, codex o scripts de bk sin padre (PPID 1) y estado de la barra de
                     panes cerrados. No toca nada vivo ni tmux; sin --yes solo muestra
   done <resultado>  (lo corre el agente) cerrar su tarea: pr <n> | blockers | dropped "…" | escalate "…"
@@ -118,6 +132,15 @@ uso: bk [comando] [--dry-run]
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
   theme [day|night|auto]  tema de Ghostty: violeta pastel / violeta oscuro / según macOS
   font [sf|jetbrains|menlo]  tipografía de Ghostty: SF Mono / JetBrains Mono (la que trae) / Menlo
+
+Con Herdr (bk backend herdr) cada chat y cada agente tiene un número fijo de ventana, y todo tiene tecla:
+  alt+k comandos · alt+i implementar un issue · alt+r revisar o corregir un PR · alt+e te esperan
+  alt+a agentes: ver, escribirles, cerrar · alt+n nuevo · alt+c chat nuevo · alt+s sesiones
+  alt+h resumen y seguir en un chat nuevo · alt+g cambios · alt+u uso y costo · alt+m radio
+  alt+, aspecto · alt+/ la hoja de teclas · alt+1…9 la ventana N · alt+shift+1…9 el agente N del espacio
+  alt+j el próximo que te espera · alt+0 donde estabas · alt+q el chat del espacio · alt+x terminal rápida
+  alt+. panel derecho · alt+z agrandar el pane
+Un agente abierto desde Herdr (sin etiquetas de bk) se adopta como chat de su proyecto y toma su número.
 
 Los comandos de agentes se corren dentro de un proyecto Barrilete.
 EOF
@@ -506,6 +529,7 @@ launch() {
       [ "$fresh" = 0 ] || python3 "$TASKS" cancel "$tdir" >/dev/null 2>&1 || true
       die "no pude lanzar $win en Herdr"
     fi
+    hd_id_give "$pane" >/dev/null 2>&1 || true   # su número fijo de ventana (alt+N, bk go N)
   else
   parent=$(launcher_of)
   if tmux has-session -t "$SESSION" 2>/dev/null; then
@@ -608,6 +632,11 @@ win_pane() {
 }
 
 resolve_win() {
+  # Con Herdr, un número corto es primero el número fijo de la ventana (bk.id); si nadie lo tiene, un issue
+  if [ "$BACKEND" = herdr ] && [[ "$1" =~ ^[0-9]{1,2}$ ]]; then
+    local byid; byid=$(hd_id_win "$1" 2>/dev/null) || byid=""
+    [ -z "$byid" ] || { printf '%s' "$byid"; return; }
+  fi
   if has_window "$1"; then printf '%s' "$1"; return; fi
   python3 "$WS/lib/agents.py" resolve "$1"
 }
@@ -1068,7 +1097,20 @@ cmd_handoff() {
       local via where
       IFS=$'\t' read -r via where < <(python3 "$WS/lib/handoff.py" listo "${2:-}") || return 0
       case "$via:$BACKEND" in
-        persona:herdr) cmd_chat --desde "$2" ;;
+        persona:herdr)
+          cmd_chat --desde "$2"
+          # Pedido con "y cerrá este chat" (alt+h en Herdr): el chat nuevo ya abrió, se va el viejo. Solo si la
+          # terminal anotada sigue siendo la de esa sesión y el pedido es de la última media hora.
+          local mark old osid
+          mark="$(python3 "$WS/lib/handoff.py" dir)/$2.cerrar"
+          if [ -f "$mark" ]; then
+            old=$(cat "$mark"); 
+            if [ -n "$(find "$mark" -mmin -30 2>/dev/null)" ]; then
+              read -r osid _ < <(pane_sid "$old"; echo)
+              [ "$osid" != "$2" ] || { hd_hc kill "$old" >/dev/null 2>&1 && info "cerré el chat viejo ($old)"; }
+            fi
+            rm -f "$mark"
+          fi ;;
         persona:tmux)  [ -z "${TMUX:-}" ] || cmd_chat --desde "$2" ;;
         aviso:herdr)   hd_notice "Resumen listo: $where" "Clic para seguir en un chat nuevo" bk-seguir ;;
       esac
@@ -1086,7 +1128,18 @@ cmd_handoff() {
   need_backend
   if [ "$BACKEND" = herdr ]; then
     # El chat por su nombre (bk ls), o el de esta terminal
-    if [ -n "${1:-}" ]; then s="$1"; pane=$(hd_chat_term "$s"); else pane="$me"; s=$(hd_label "$pane" bk.win); fi
+    # --term <terminal>: el chat de esa terminal de Herdr (lo usa alt+h, que corre fuera del chat); si bk no
+    # la conocía, la adopta
+    local cerrar=0 a rest=()
+    for a in "$@"; do if [ "$a" = --cerrar ]; then cerrar=1; else rest+=("$a"); fi; done
+    set -- "${rest[@]+"${rest[@]}"}"
+    if [ "${1:-}" = --term ]; then
+      pane="${2:-}"; [ -n "$pane" ] || die "bk handoff --term <terminal>"
+      hd_adopt "$pane" >/dev/null 2>&1 || true
+      s=$(hd_label "$pane" bk.win); me=""
+    elif [ -n "${1:-}" ]; then
+      s=$(resolve_win "$1" 2>/dev/null) || s="$1"; s="${s#chat:}"; pane=$(hd_chat_term "$s")
+    else pane="$me"; s=$(hd_label "$pane" bk.win); fi
     [ -n "$pane" ] && [ -n "$s" ] || die "bk handoff [chat]: desde un chat de bk, o nombrando uno (bk ls)"
   else
     s=$(ws_session "${1:-$(caller_session)}")
@@ -1097,13 +1150,20 @@ cmd_handoff() {
   fi
   read -r sid st < <(pane_sid "$pane"; echo)
   case "$sid" in ""|bk-*) die "no sé qué sesión de Claude corre en el chat de $s" ;; esac
+  # --cerrar (solo con Herdr): cuando el chat nuevo abra, este se cierra (bk handoff --listo lo lee)
+  if [ "${cerrar:-0}" = 1 ]; then
+    local hdir; hdir=$(python3 "$WS/lib/handoff.py" dir); mkdir -p "$hdir" && printf '%s\n' "$pane" >"$hdir/$sid.cerrar"
+  else
+    rm -f "$(python3 "$WS/lib/handoff.py" dir)/$sid.cerrar" 2>/dev/null
+  fi
   if [ "$pane" = "$me" ]; then exec python3 "$WS/lib/handoff.py" pedido --sid "$sid" --pane "$pane"; fi
   # Un menú abierto: el Enter elegiría la opción marcada (como en bk say)
   [ -z "$(open_menu "$pane")" ] || die "el chat de $s tiene un menú abierto: respondelo y volvé a pedirlo"
   be_type "$pane" "Pasemos a un chat nuevo: corré \`bk handoff --pedido --sid $sid\` y hacé lo que dice." \
     || die "no pude escribirle al chat de $s"
   [ "$BACKEND" = herdr ] || wsid=$(tmux show-options -qv -t "=$s:" @bk_id)
-  info "→ $s: le pedí el resumen. Cuando lo escriba: bk chat --desde ${wsid:-$s}"
+  if [ "$BACKEND" = herdr ]; then info "→ $s: le pedí el resumen. Cuando lo escriba, el chat nuevo se abre solo$([ "${cerrar:-0}" = 1 ] && printf ' y este se cierra')"
+  else info "→ $s: le pedí el resumen. Cuando lo escriba: bk chat --desde ${wsid:-$s}"; fi
 }
 
 # chat_branch_wt <repo> <nombre del cambio>: el worktree de un chat en una rama aparte (../<repo>-wt/chat-<nombre>,
@@ -1629,8 +1689,28 @@ cmd_run() {
   launch "i$n" "$wt" "$role" "#$n" "/implement-issue $n" "$n-$role" "$orch"
 }
 
+# bk _do_run <log> <título> -- <args de bk…>: lo deja corriendo bk _do (lib/herdr_hub.py), suelto de quien lo pidió
+# y con la salida ya apuntada al log. Corre bk con esos argumentos y al terminar deja un aviso de Herdr: success
+# si salió con 0, error si no; el texto es la última línea no vacía de la salida, sin colores. Si esa línea es
+# un JSON (bk _hub session-go), lib/herdr_hub.py la pasa a palabras (y un "error" ahí es un aviso de error).
+do_run() {
+  local log="${1:?}" title="${2:-}" rc=0 level="" body=""
+  shift 2; [ "${1:-}" != -- ] || shift
+  "$WS/bin/bk" "$@" || rc=$?
+  { IFS= read -r level; IFS= read -r body; } < <(python3 "$WS/lib/herdr_hub.py" _aviso "$log" "$rc" 2>/dev/null) || true
+  if [ -z "$level" ] || [ -z "$body" ]; then   # sin python: lo mínimo, según cómo salió
+    if [ "$rc" -eq 0 ]; then level=success body=listo; else level=error body="salió con $rc"; fi
+  fi
+  hd_notice "${title:-bk $*}" "$body" "" "$level" "$log" || true
+  exit "$rc"
+}
+
 # ---------- main ----------
 ARGS=()
+# _hub, _do y _do_run llevan argumentos que no son de este bk (los de otro bk, o un archivo que se llame
+# --dry-run): pasan tal cual. Si no, el bucle de abajo se quedaría con el --dry-run y el --account del bk de
+# adentro (`bk _do -- run 42 --account trabajo`) y los validaría o los perdería acá.
+case "${1:-}" in _hub|_do|_do_run) ARGS=("$@"); set -- ;; esac
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
@@ -1738,7 +1818,13 @@ case "${1:-}" in
   _ids)        tmux_only _ids "los espacios de Herdr"; ws_ids ;;
   _subagents)  shift; exec python3 "$WS/lib/herdr_subagents.py" "$@" ;;
   _tasks)      shift; exec python3 "$WS/lib/herdr_tasks.py" "$@" ;;   # bk tasks --json con el título de cada issue o PR (herdr/mods/tareas)
+  _adopt)      shift; hd_adopt "${1:?bk _adopt <terminal>}" ;;   # la barra de Herdr: que bk conozca esa terminal y le dé su número
   _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)
+  _hub)        shift; [ "$DRY" -eq 0 ] || export BK_DRY=1   # bk --dry-run _hub session-go: dice qué haría y no toca Herdr
+               exec python3 "$WS/lib/herdr_hub.py" "$@" ;;   # los datos de los paneles nativos de Herdr, un JSON por tema (herdr/mods/hub)
+  _do)         shift; [ "$DRY" -eq 0 ] || export BK_DRY=1   # bk --dry-run _do -- run 42: dice qué correría; ni log ni aviso
+               exec python3 "$WS/lib/herdr_hub.py" _do "$@" ;;   # bk <args> suelto y con un aviso de Herdr al terminar
+  _do_run)     shift; do_run "$@" ;;   # (interno) lo que bk _do deja corriendo
   _launcher)   launcher_of ;;   # lo que launch anota como @bk_parent (la tira lo usa; tests)
   changes)     exec python3 "$WS/lib/changes.py" ;;
   palette|k)   exec python3 "$WS/lib/palette.py" ;;

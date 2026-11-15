@@ -1,24 +1,21 @@
-// bk en Herdr: los atajos alt+… del workspace de tmux (dotfiles/tmux.conf), con las mismas teclas.
+// bk en Herdr: las acciones sin panel (ir a la ventana N, al agente N, al próximo que te espera, volver, chat
+// nuevo, terminal rápida) y los avisos que pide bk. Los paneles (comandos, issues, agentes…) son mods/hub.
 // keys.json no puede correr un programa ni pasarle argumentos a un mod: cada tecla abre un mod con el nombre
-// del comando ("alt-k": "mod.open:bk-palette"), que hace lo suyo y se cierra. Todos son este mismo archivo
+// del comando ("alt-j": "mod.open:bk-next"), que hace lo suyo y se cierra. Todos son este mismo archivo
 // (lib/herdr_install.py lo copia a mods/bk-<comando>); el comando sale del nombre con que Herdr lo abrió.
 // Nada queda abierto: una ventana del mod siempre a la escucha tapaba los clics de toda la app (2026-11-13).
 // Un popup es una terminal sobre la ventana que se cierra sola cuando el comando termina (display-popup -E).
 
 import { View, div } from "gpui-kit";
-import { hc, run, props, openOverlay, closeOverlay, focused, terminals, spaces, home, notify, shared, setShared, readTextFile } from "herdr";
+import { hc, exec, run, props, openOverlay, closeOverlay, focused, terminals, spaces, agents, home, notify, shared, setShared, readTextFile } from "herdr";
 
-// comando → lo que corre en el popup y su tamaño (los de tmux.conf)
-const POPUPS = {
-  palette: { cmd: "bk palette", w: 0.7, h: 0.7 },
-  changes: { cmd: "bk changes", w: 0.92, h: 0.88 },
-  sessions: { cmd: "bk s", w: 0.9, h: 0.75 },
-  stats: { cmd: "bk stats", w: 0.92, h: 0.85 },
-  new: { cmd: "bk new", w: 0.7, h: 0.6 },
-  agents: { cmd: "bk ls; echo; bk peek; printf '\\n  (enter para cerrar) '; read -r _", w: 0.92, h: 0.88 },
-  seguir: { cmd: "bk handoff --seguir", w: 0.6, h: 0.3 },   // el clic del aviso «Resumen listo» (sin tecla)
-};
+// El único comando que corre en un popup: el clic del aviso «Resumen listo» (sin tecla). Lo demás que era un
+// popup de terminal (comandos, cambios, sesiones, uso, nuevo, agentes) ahora es un panel de mods/hub.
+const SEGUIR = { cmd: "bk handoff --seguir", w: 0.6, h: 0.3 };
 const AVISO_MS = 600000;   // el aviso «Resumen listo» espera el clic diez minutos
+const AVISOS = ".cache/bk/herdr-avisos";   // la cola de hd_notice (lib/herdr.sh), bajo el home: un aviso por archivo
+// Lo que queda a la vista un aviso sin clic, por nivel: un error se tiene que poder leer
+const AVISO_NIVEL = { info: 5000, success: 5000, warning: 15000, error: 15000 };
 const POP = "bk.pop";   // el popup abierto, compartido entre las copias: { name, id, terminal, keep }
 
 const label = (t, k) => t.labels?.[k] ?? "";
@@ -41,10 +38,15 @@ export default class Bk extends View {
 
   async handle(c) {
     const f = focused();
-    if (POPUPS[c]) return this.popup(c, POPUPS[c], f);
+    if (c === "seguir") return this.popup(c, SEGUIR, f);
     if (c === "term") return this.term(f);
     if (c === "aviso") return this.aviso();
     if (c === "back") return this.show(f, (t) => label(t, "bk.kind") === "chat", 1, "este espacio no tiene un chat de bk");
+    if (c === "chat") return this.chat(f);
+    if (c === "next") return this.next(f);
+    if (c === "last") return this.last(f);
+    const g = /^go([1-9])$/.exec(c);
+    if (g) return this.go(g[1]);
     const m = /^agent([1-9])$/.exec(c);
     if (m) return this.show(f, (t) => label(t, "bk.kind") === "agent", Number(m[1]), `no hay agente ${m[1]} en este espacio`);
     notify({ title: "bk", body: `comando desconocido: ${c}`, level: "warning" });
@@ -78,12 +80,42 @@ export default class Bk extends View {
     this.open(name, JSON.parse(r.stdout).address, spec, false);
   }
 
-  // Un aviso que pide bk (hd_notice en lib/herdr.sh): solo un mod puede avisar, así que bk lo deja en un archivo
-  // y abre este mod. Al hacerle clic abre el mod que diga (bk-seguir).
+  // Los avisos que pide bk (hd_notice en lib/herdr.sh): solo un mod puede avisar, así que bk deja cada uno en un
+  // archivo de la cola y abre este mod, que los muestra en orden (el nombre empieza con la hora) y los borra.
+  // El que trae un mod lo abre con el clic (bk-seguir) y espera diez minutos; el resto (lo que deja bk _do al
+  // terminar) va con su nivel y se va solo. Primero avisa y después borra: si Herdr cierra esta copia en el
+  // medio (otro aviso que llega justo: mod.open sobre un mod abierto lo cierra), lo que falta queda en la cola
+  // para la próxima. Uno de hace más de diez minutos se borra sin mostrarse: quedó de cuando Herdr no estaba.
   async aviso() {
-    const n = JSON.parse((await readTextFile(`${home()}/.cache/bk/herdr-aviso.json`)) ?? "{}");
-    if (!n.title) return;
-    notify({ title: n.title, body: n.body ?? "", level: "info", timeout: AVISO_MS, ...(n.mod ? { action: { name: "mod.open", args: { name: n.mod } } } : {}) });
+    const dir = `${home()}/${AVISOS}`;
+    const ls = await exec("ls", [dir], { timeout: 5000 });
+    const files = ls.code === 0 ? ls.stdout.split("\n").filter((f) => f.endsWith(".json")) : [];
+    // <hora>-<pid>[-<k>].json: por hora, y los de un mismo bk en el mismo segundo en el orden en que los pidió
+    // (como texto, "…-2.json" queda antes que "….json")
+    const turn = (f) => {
+      const p = f.slice(0, -".json".length).split("-").map((x) => Number(x) || 0);
+      return [p[0] ?? 0, p[1] ?? 0, p[2] ?? 1];
+    };
+    files.sort((a, b) => {
+      const x = turn(a), y = turn(b);
+      return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || (a < b ? -1 : a > b ? 1 : 0);
+    });
+    for (const f of files) {
+      let n = null;
+      try {
+        n = JSON.parse(await readTextFile(`${dir}/${f}`));   // null si otra copia ya se lo llevó
+      } catch (_e) {
+        n = null;   // no es un aviso: se borra abajo, sin mostrar nada
+      }
+      const fresh = typeof n?.ts !== "number" || Date.now() / 1000 - n.ts <= AVISO_MS / 1000;
+      if (n?.title && fresh) {
+        const level = Object.hasOwn(AVISO_NIVEL, n.level) ? n.level : "info";
+        const mod = typeof n.mod === "string" ? n.mod : "";
+        notify({ title: String(n.title), body: String(n.body ?? ""), level,
+          ...(mod ? { timeout: AVISO_MS, action: { name: "mod.open", args: { name: mod } } } : { timeout: AVISO_NIVEL[level] }) });
+      }
+      await exec("rm", ["-f", `${dir}/${f}`], { timeout: 5000 });
+    }
   }
 
   // alt+x: la terminal rápida del espacio. Esconderla no la cierra: vuelve con lo que dejaste.
@@ -97,6 +129,53 @@ export default class Bk extends View {
       addr = JSON.parse(r.stdout).address;
     }
     this.open("term", addr, { w: 0.85, h: 0.75 }, true);
+  }
+
+  // Mostrar la pestaña de una terminal (su espacio, su pestaña y el foco en ella)
+  reveal(t) {
+    const space = label(t, "herdr.space"), tab = label(t, "herdr.tab");
+    if (space) run("space.select", { id: space });
+    if (tab) run("tab.select", { id: tab });
+    run("pane.focus", { terminal: t.address });
+  }
+
+  // alt+N: la ventana con ese número fijo (etiqueta bk.id, lib/herdr.sh), esté en el espacio que esté
+  go(n) {
+    const t = terminals().find((x) => live(x) && label(x, "bk.id") === n);
+    if (!t) return notify({ title: "bk", body: `no hay ventana ${n}`, level: "info", timeout: 2500 });
+    this.reveal(t);
+  }
+
+  // alt+c: otro chat en el proyecto de la terminal que mirás (bk chat), sin menú. bk avisa cuando abrió.
+  async chat(f) {
+    const dir = f?.cwd || home();
+    notify({ title: "Chat nuevo", body: dir.replace(home(), "~"), level: "info", timeout: 3000 });
+    const r = await exec(shared("bk.bin") || "bk", ["_do", "--cwd", dir, "--title", "Chat nuevo", "--", "chat"], { cwd: dir, timeout: 15000 });
+    if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim().split("\n").pop() || "bk chat falló");
+  }
+
+  // alt+j: el próximo agente que te necesita (primero los que preguntan, después los que terminaron); cada
+  // pulsación pasa al siguiente. Sin ninguno, lo dice.
+  next(f) {
+    const urgent = (a) => (a.status === "blocked" ? 0 : a.status === "done" ? 1 : 2);
+    const list = agents().filter((a) => urgent(a) < 2).sort((a, b) => urgent(a) - urgent(b) || b.seq - a.seq);
+    if (!list.length) return notify({ title: "bk", body: "nadie te espera", level: "info", timeout: 2500 });
+    const at = list.findIndex((a) => a.address === f?.terminal);
+    const a = list[(at + 1) % list.length];
+    run("space.select", { id: a.space });
+    run("tab.select", { id: a.tab });
+    run("pane.focus", { terminal: a.address });
+  }
+
+  // alt+0: la pestaña donde estabas antes de esta. El rastro lo anota la barra de bk (mods/barra) en
+  // shared "bk.trail": [{ space, tab }, …], lo más nuevo primero.
+  last(f) {
+    const trail = shared("bk.trail") ?? [];
+    const alive = (p) => spaces().some((s) => s.id === p.space && s.tabs.some((tab) => tab.id === p.tab));
+    const prev = trail.find((p) => (p.space !== f?.space || p.tab !== f?.tab) && alive(p));
+    if (!prev) return notify({ title: "bk", body: "no hay un lugar anterior", level: "info", timeout: 2500 });
+    run("space.select", { id: prev.space });
+    run("tab.select", { id: prev.tab });
   }
 
   // La pestaña n (desde 1) del espacio a la vista cuya terminal cumple `pick`, en el orden de las pestañas

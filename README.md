@@ -75,11 +75,20 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   que lo abre al hacerle clic (`bk handoff --seguir`, el resumen listo más nuevo; dura diez minutos), y con tmux queda
   la marca `↪` como siempre. Una sola vez por pedido, aunque el agente guarde el archivo de nuevo; con tmux, fuera de
   tmux no abre nada. El `.json` anota quién lo pidió (`via`).
+  **Con Herdr** el pedido también llega desde afuera del chat: `bk handoff --term <terminal>` se lo pide al chat de
+  esa terminal (si bk no la conocía, la adopta) y `bk handoff N`, al de la ventana N. Con `--cerrar`, el chat viejo
+  se cierra cuando el nuevo abre: bk anota la terminal en `<session_id>.cerrar`, junto al resumen, y
+  `bk handoff --listo` la cierra solo si sigue siendo la de esa sesión y la marca tiene menos de media hora. Un
+  pedido sin `--cerrar` borra la marca de uno anterior. Es lo que corre `alt+h`, con sus dos opciones.
 
 ## Herdr en vez de tmux (`bk backend herdr`)
 `bk backend herdr` hace que los chats y los agentes vivan en la app [Herdr](https://herdr.dev) y no en tmux
 (`bk backend tmux` vuelve; queda en `~/.config/bk/backend`, y `BK_BACKEND` manda para un comando). No hay riel,
 tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
+Además instala en `~/.config/herdr-app` lo de `herdr/` del repo (`lib/herdr_install.py`): las teclas, los mods de
+las acciones, los paneles, los temas y el layout `bk-lavanda` con su vista previa. Correrlo de nuevo trae lo que
+cambió en el repo. Un layout, un tema o una tecla que retocaste quedan como están; los mods y la vista previa se
+pisan con los del repo (se editan acá).
 
 - **Un espacio por proyecto**: `bk` en la carpeta del proyecto abre (o muestra) el espacio `<proyecto>` con su
   chat en la pestaña `chat`. `bk chat` suma otra pestaña (`chat-2`…), `bk chat --rama X` abre el espacio
@@ -87,31 +96,92 @@ tira ni footer: la lista de espacios y la de agentes de Herdr muestran lo mismo.
 - **Una pestaña por agente**: `bk run`, `fix`, `review`, `plan` y `orchestrate` lanzan al agente en una pestaña
   del espacio de su proyecto (`i42`, `pr57`…) sin sacarte de la que estás mirando. Herdr muestra su estado.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
-  su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`, `dash`, `new`, `snapshot`, `restore`) avisa y no
+  su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`, `dash`, `snapshot`, `restore`) avisa y no
   corre: herdr-core ya mantiene vivas las terminales. `bk account use` sigue siendo de tmux; `--account X` anda.
-- **Los mismos atajos que en tmux**: `bk backend herdr` instala en Herdr los mods `bk-*` (`herdr/mods/bk`) y suma a su
-  `keys.json` las teclas de `dotfiles/tmux.conf` (`herdr/keys.json`), sin pisar las que ya hacen otra cosa y con
-  respaldo en `keys.json.antes-de-bk`. `alt+k` paleta, `alt+g` cambios, `alt+s` sesiones, `alt+u` stats, `alt+n`
-  nuevo y `alt+a` agentes (`bk ls` y `bk peek`) abren en un popup que se cierra al salir (la misma tecla también lo
-  cierra); `alt+x` muestra y esconde la terminal rápida del espacio; `alt+1…9` va al espacio N (su posición en la
-  lista), `alt+shift+1…9` a la pestaña del agente N del espacio y `alt+q` vuelve al chat; `alt+,` abre los ajustes
-  de Herdr. Una tecla no puede correr un programa ni pasar argumentos: abre un mod con el nombre del comando
-  (`mod.open:bk-palette`), que hace lo suyo y se cierra; todos son el mismo archivo. Nada queda abierto (una ventana
-  del mod siempre a la escucha tapaba los clics de toda la app). Herdr deja de actualizar un `keys.json` editado.
-  Dos mods más, sin tecla: `bk-aviso` (muestra un aviso que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic
-  del aviso «Resumen listo»). En `bk s` (`alt+s`) cada sesión abierta muestra el id de su terminal (`t2d`, el que usan `bk say`, `bk peek` y `hc`) y esc cierra sin la espera de un segundo de curses (`ESCDELAY` 25 ms). Enter sobre una sesión abierta
+  `bk palette`, `new`, `changes`, `stats` y `s` en una terminal siguen siendo las pantallas de siempre; en Herdr
+  sus teclas abren los paneles de abajo.
+- **Número fijo de ventana**: cada chat y cada agente toma al nacer el número libre más chico (la etiqueta `bk.id`
+  de su terminal) y lo conserva hasta cerrarse; el de una ventana que se cerró vuelve a estar libre. `alt+1…9` va
+  a esa ventana, esté en el espacio que esté. El número va en un chip en la barra izquierda, las pestañas, la
+  cabecera de cada pane y la barra de estado, y en las listas de `alt+a` y `alt+s`. Por comando: `bk go 3`,
+  `bk say 3 "…"`, `bk peek 3`, `bk handoff 3`. Un número de una o dos cifras es primero el de la ventana; si nadie
+  lo tiene, vale como antes (un issue o un PR). Para el agente del issue 7 habiendo una ventana 7: `bk say i7 "…"`.
+  `bk stop` y `bk watch` leen el número igual: `bk stop 7` cierra el agente de la ventana 7, no el del issue 7
+  (ese es `bk stop i7`).
+- **Adopción**: un agente abierto desde Herdr (el `+` de las pestañas: no tiene etiquetas de bk) pasa a ser un
+  chat de su proyecto. Toma el nombre `<proyecto>` (o `<proyecto>-2`… si ya es de otro chat) y su número, y desde
+  ahí `bk ls`, `say`, `go` y `handoff` andan con él como con los de `bk chat`. Solo se adopta una terminal viva,
+  con pestaña y que informa estado de agente: una shell no se toca. Lo hace la barra de estado de `bk-lavanda`
+  cada 1,5 s, una vez por terminal y solo con las de esta máquina (`bk _adopt <terminal>`), y también
+  `bk handoff --term`.
+- **Todo con teclas**: `herdr/keys.json` se suma al `keys.json` de Herdr sin pisar las teclas que ya hacen otra
+  cosa (dice cuáles quedaron ocupadas) y con respaldo en `keys.json.antes-de-bk`. Las que había puesto una versión
+  anterior de bk y siguen igual se actualizan: `alt+1…9` iba al espacio N y ahora va a la ventana N; `alt+,` abría
+  los ajustes de Herdr y ahora abre Aspecto. Herdr deja de actualizar un `keys.json` editado. Una tecla no puede
+  correr un programa ni pasar argumentos: abre un mod por su nombre (`mod.open:bk-issues`). Por eso hay dos
+  paquetes, cada uno copiado a una carpeta por tecla:
+  - `herdr/mods/hub/` → `mods/bk-<vista>`: los paneles, dibujados por Herdr (no son terminales). Es el mismo
+    paquete en cada carpeta: `view.js` dice cuál es, `views.json` da su título y tamaño y `kit.js` es la base
+    (buscador, lista y pie con las teclas del panel). Leen de `bk _hub` y lanzan con `bk _do` (más abajo).
+  - `herdr/mods/bk/` → `mods/bk-<acción>`: las acciones sin panel. Hacen lo suyo y se cierran: nada queda abierto
+    (una ventana del mod siempre a la escucha tapaba los clics de toda la app).
+
+  | Tecla | Qué hace | Corre |
+  |---|---|---|
+  | `alt+k` | Comandos: todo lo que se puede hacer, por nombre y con su tecla. Planear y orquestar se lanzan desde acá | `bk plan`, `bk orchestrate`… |
+  | `alt+i` | Implementar un issue: los abiertos del proyecto que mirás. Enter lanza al agente (o va a su pestaña si ya corre); Tab cambia el rol | `bk run <n>` |
+  | `alt+r` | Revisar o corregir un PR. Enter lanza al reviewer, o lo aprueba si el kit ya lo propuso; Tab pide una instrucción y lanza el fix; ctrl+g vuelve a correr los checks que fallaron; ctrl+o lo abre en GitHub | `bk review`, `bk approve`, `bk fix`, `bk rerun --go` |
+  | `alt+e` | Te esperan: tareas y aprobaciones. Enter lanza el reviewer propuesto o va a la pestaña del agente; Tab suma el historial | `bk approve` |
+  | `alt+a` | Agentes: los que te esperan arriba y, al lado, lo último de la terminal del elegido. Enter va a su pestaña, Tab le escribe, ctrl+x dos veces lo cierra, ctrl+o lo espía | `bk say`, `bk stop` |
+  | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
+  | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta | `bk _hub session-go`, `bk stop` |
+  | `alt+h` | Resumen y seguir en un chat nuevo: se lo pide al chat que mirás, dejándolo abierto o cerrándolo cuando el nuevo abre. Abajo, los resúmenes listos | `bk handoff --term <t> [--cerrar]`, `bk chat --desde` |
+  | `alt+g` | Cambios sin commitear del proyecto y de los worktrees de los agentes, con el diff al lado. Enter abre el archivo en un pane | |
+  | `alt+u` | Uso y costo: hoy, el mes, los últimos 30 días, por modelo y por proyecto | |
+  | `alt+/` | Hoja de teclas: lee el `keys.json` de Herdr y dice qué hace cada una; Enter la corre | |
+  | `alt+m` | Radio | `bk song …` |
+  | `alt+,` | Aspecto: tema, paneles, tamaño y fuente de la terminal | |
+  | `alt+1…9` | Ir a la ventana con ese número fijo | |
+  | `alt+shift+1…9` | Ir al agente N del espacio que mirás, en el orden de las pestañas | |
+  | `alt+c` | Chat nuevo en el proyecto que mirás, sin menú | `bk chat` |
+  | `alt+j` | Ir al próximo que te espera: primero los que preguntan, después los que terminaron; cada pulsación pasa al siguiente | |
+  | `alt+0` | Volver a la pestaña donde estabas | |
+  | `alt+q` | Volver al chat del espacio | |
+  | `alt+x` | Terminal rápida del espacio: la muestra y la esconde sin cerrarla | |
+  | `alt+.` | Mostrar u ocultar el panel derecho | `layout.toggle:lado` de Herdr |
+  | `alt+z` | Agrandar el pane | `pane.zoom` de Herdr |
+
+  Las trece primeras abren un panel; las siete que siguen son acciones sin panel; las dos últimas, comandos de Herdr.
+  Sin tecla: `bk-out` (la salida de un comando que solo imprime: tokens, roles, cuentas…; lo abre `alt+k`),
+  `bk-aviso` (muestra los avisos que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic del aviso «Resumen
+  listo»). El rastro de `alt+0` y la adopción los lleva el mod `bk-barra`, que está en `bk-lavanda`: en un layout
+  que no lo tenga, `alt+0` no tiene a dónde volver y adoptar queda para `bk _adopt <terminal>` o `bk handoff --term`.
+- `bk s` en una terminal: cada sesión abierta muestra el id de su terminal (`t2d`, el que usan `bk say`, `bk peek`
+  y `hc`) y esc cierra sin la espera de un segundo de curses (`ESCDELAY` 25 ms). Enter sobre una sesión abierta
   muestra su pestaña de Herdr y sobre una reciente la retoma en un chat más del espacio de su proyecto (`bk chat`
   con `claude --resume`, en la carpeta de la sesión); `x` no cierra pestañas de Herdr, y una sesión cuya terminal
-  ya no está pasa a recientes. Falta: `alt+0` (espacio anterior) no tiene equivalente.
-- **Los paneles y el layout**: `bk backend herdr` también instala dos paneles dibujados por Herdr (no terminales),
-  `herdr/mods/tareas` y `herdr/mods/lado`, y el layout que los muestra, uno solo: `bk-lavanda` (ver *Estética
-  Lavanda* y *Centro de tareas en Herdr*). El lado derecho sale de `bk _side` (proyecto, rama, perfil de roles, contexto de la sesión de Claude de la carpeta, uso de
-  hoy y lo que quedó sin commitear en el proyecto y sus worktrees). Instalar no cambia el layout que ves. Tests:
-  `tests/test_side.sh` y `tests/test_herdr.sh`.
+  ya no está pasa a recientes.
+- **Los paneles del layout**: `bk backend herdr` copia cada carpeta de `herdr/mods` (menos `bk` y `hub`) a
+  `mods/bk-<nombre>`, y el layout que las muestra, uno solo: `bk-lavanda` (ver *Estética Lavanda*). `agentes` es
+  la barra izquierda (espacios y agentes, cada uno con el chip de su número), `marca` su cabecera y su pie,
+  `pestanas` las pestañas, `cabecera` la de cada pane, `lado` el panel derecho y `barra` la barra de estado.
+  `agentes`, `pestanas`, `cabecera`, `lado` y `marca` comparten las piezas de dibujo de `kit.js`: un mod no puede
+  importar de otra carpeta, así que cada uno lleva su copia y un test falla si dejan de ser iguales. El lado
+  derecho sale de `bk _side` (proyecto, rama, perfil de roles, contexto de la sesión de Claude de la carpeta, uso
+  de hoy y lo que quedó sin commitear en el proyecto y sus worktrees). Instalar no cambia el layout que ves.
+- **Temas**: `herdr/themes/*.json` (`bk-noche`, `catppuccin-mocha`, `rose-pine`, `tokyo-night`) van a `themes/` de
+  Herdr y se eligen en `alt+,`. Siguen al repo mientras no los retoques: bk anota qué instaló (`bk-temas.json`) y
+  solo pisa una copia que sigue igual a esa; un tema tuyo con el mismo nombre queda como está y se avisa.
 - Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra
   las terminales. Lo que en tmux era el nombre de la ventana y sus `@opciones` son etiquetas de la terminal
-  (`bk.kind`, `bk.win`, `bk.project`, `bk.role`, `bk.ref`), y el "pane" es su dirección (`t7`), que el hook de
-  estado toma de `HC_TERMINAL_ID`. Tests: `tests/test_herdr.sh`, con un Herdr falso (`tests/herdr_fake.py`).
+  (`bk.kind`, `bk.win`, `bk.project`, `bk.role`, `bk.ref`, `bk.id`, y `bk.adopted` en las adoptadas), y el "pane"
+  es su dirección (`t7`), que el hook de estado toma de `HC_TERMINAL_ID`.
+- **Qué está probado**: con un Herdr falso (`tests/herdr_fake.py`), `tests/test_herdr.sh` prueba los comandos de
+  `lib/herdr.sh`, el instalador (teclas, mods, paneles, temas, layout y vista previa), los números fijos, la
+  adopción y `bk handoff --term/--cerrar`; `tests/test_side.sh`, los datos del lado derecho; `tests/test_hub.sh`,
+  los de los paneles. Partes de algunos mods corren en `node`, sin Herdr (`tests/test_herdr_subagents.sh`,
+  `tests/test_herdr_tasks.sh`). Lo que no está probado: apretar las teclas. macOS no deja mandarle teclas a Herdr
+  desde un script, así que ninguna prueba recorre tecla → mod → acción dentro de la app.
 
 ## Sesiones (`bk s` · `C-a s`)
 Selector estilo Orca (`lib/sessions.py`): arriba las sesiones abiertas (Enter salta a su pane; un agente que
@@ -160,12 +230,17 @@ eventos, en `~/.local/state/bk/tasks/<proyecto>/<id>/` (`task.json` y `events.js
 
 `bk backend herdr` instala también `bk-lavanda`. Activarlo:
 `herdr-app do layout.switch --name bk-lavanda`.
-Fondos ciruela, acentos violeta pastel, tipografía JetBrains Mono y tarjetas redondeadas:
-proyectos, agentes en vivo y acceso al centro de tareas a la izquierda; terminal en el centro;
-contexto, GitHub y cambios a la derecha. Ámbar indica atención, menta éxito y coral errores.
-El perfil de roles va en un renglón que sigue abajo si no entra; fuera de un proyecto, el panel lo dice. El panel nativo de agentes muestra todos los espacios, títulos, estados en vivo y actividad animada.
+A la izquierda, la marca, los espacios y los agentes, cada uno con el chip de su número de ventana y su marca de
+estado; angosta queda en un riel con solo los chips. En el centro, las pestañas y los panes, cada pane con su
+cabecera (número, programa, qué hace, carpeta y rama). A la derecha, tres tarjetas: sesión, GitHub y cambios
+(`alt+.` las esconde). Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, radio y las
+teclas de comandos y de la hoja de teclas. La marca de estado es la misma en todos, con los colores `blocked`,
+`done` y `working` del tema: en `bk-noche`, ámbar te espera, verde listo y rosa trabajando.
+El layout nombra el tema `bk-noche` (fondos violeta oscuro, acento lavanda) y la fuente de la interfaz, SF Mono; la
+de la terminal es la tuya (`alt+,` la cambia, y también el tema, el tamaño y qué paneles se ven).
+El perfil de roles va en un renglón que sigue abajo si no entra; fuera de un proyecto, el panel lo dice.
 
-GitHub muestra hasta cuatro PRs abiertos con enlaces al navegador, borrador,
+GitHub muestra hasta cinco PRs abiertos con enlaces al navegador, borrador,
 revisión y CI. Requiere `gh` autenticado (`gh auth status`) y un remoto GitHub;
 se actualiza cada minuto y al cambiar de carpeta, sin bloquear el estado local.
 Si no puede consultar GitHub, muestra el error sin ocultar los cambios de Git.
@@ -173,6 +248,8 @@ El layout vive en `herdr/layouts/bk-lavanda.json` y es el único de bk. `bk back
 del repo mientras no lo retoques: anota qué instaló (`bk-lavanda.instalado` en la carpeta de Herdr) y solo pisa una
 copia que sigue igual a esa. Si lo retocaste queda como está y avisa; para volver al del repo, borrá
 `~/.config/herdr-app/layouts/bk-lavanda.json` y repetí. Para volver al de Herdr: `herdr-app do layout.switch --name main`.
+Su vista previa (`herdr/layouts/bk-lavanda.svg`, la que el layout nombra en `preview`) se copia al lado si falta o
+si difiere de la del repo, también cuando el layout está retocado.
 El layout `bk` de la primera versión ya no se instala; si te quedó `layouts/bk.json`, podés borrarlo.
 
 ## main protegido (`bk land`)
@@ -233,21 +310,16 @@ que dan *no baja* son para reescribir o retirar. Usa `accepted:` y `mide:` del f
 
 Ambos son enlaces simbólicos: se editan acá y quedan versionados.
 
-### Centro de tareas en Herdr
+### Tareas en Herdr
 
-El acceso «Tareas de Barrilete» de la barra abre el espacio **Barrilete · Tareas**,
-con una pestaña nativa del mod `bk-tareas` (`props: {"board": true}`). Si el
-espacio ya existe lo reutiliza. La vista reúne todos los proyectos y el historial
-de `bk _tasks --all` (lo mismo que `bk tasks --json --all`, con el título de cada issue o PR), con filtros por proyecto y estado, totales y acceso
-al agente disponible. El proyecto elegido se recuerda; por defecto muestra activas.
-El tablero se actualiza al cambiar las tareas y cada 30 segundos, con un botón
-para actualizar a mano. La barra lateral de Lavanda solo conserva el acceso, que
-dice sin entrar qué te espera: cuántas hay por aprobar, cuántas te esperan y
-cuántas están trabajando.
-Cada fila muestra el título de su issue o PR (de la caché de `bk ls`; lo que
-falta se le pide a GitHub, hasta 8 por vez). Un reviewer propuesto tiene el botón
-**Lanzar reviewer**, que corre `bk approve <tarea>` en el repo de la tarea y avisa
-cómo salió. Tests: `tests/test_herdr_tasks.sh` (necesita `node`) y
+Las tareas del kit se ven con `alt+e`: por aprobar, te esperan y en marcha; Tab suma el historial. Enter sobre un
+reviewer propuesto corre `bk approve <tarea>`; sobre una tarea con agente, va a su pestaña. La barra de estado dice
+cuántas te esperan y su clic abre el mismo panel. Los datos son los de `bk _tasks` (lo mismo que `bk tasks --json`,
+con el título de cada issue o PR: de la caché de `bk ls`; lo que falta se le pide a GitHub, hasta 8 por vez).
+
+El tablero «Tareas de Barrilete» (`herdr/mods/tareas`, con su espacio **Barrilete · Tareas**) quedó abandonado:
+`bk-lavanda` ya no lo muestra ni tiene su acceso en la barra izquierda. El mod sigue en el repo y `bk backend herdr`
+lo sigue copiando a `mods/bk-tareas`, pero nada lo abre. Tests: `tests/test_herdr_tasks.sh` (necesita `node`) y
 `tests/test_tasks_titles.sh`.
 
 ### Subagentes de Claude en Herdr
@@ -257,9 +329,30 @@ y subagentes de herdr-core. También muestra debajo de cada sesión sus subagent
 internos de Claude (`Agent`), con descripción, tipo y número estable como bk-shell.
 `bk _subagents` relaciona los hooks de sesión con los metadatos de Claude: excluye
 los terminados y los que llevan más de diez minutos sin escribir, igual que bk-shell.
-Se actualiza cada tres segundos; el clic abre `bk sub` para seguir el transcript
+Se actualiza cada cuatro segundos; el clic abre `bk sub` para seguir el transcript
 en una pestaña de solo lectura. No envía instrucciones al subagente.
 
-La cabecera de Lavanda muestra **BK** y el icono original de Barrilete Kit
-(`herdr/mods/marca/bk.svg`, variante para 32 px). El mod propio `bk-marca`
-conserva los controles de búsqueda y de la barra lateral sin editar Herdr.
+La cabecera de Lavanda muestra **BK** y el barrilete de la marca, que cambia según haya quien te espere, quien
+trabaje o nadie (`herdr/mods/marca/bk-wait.svg`, `bk-fly.svg`, `bk-rest.svg`). El mod propio `bk-marca` conserva
+los controles de búsqueda y de la barra lateral sin editar Herdr, y en su pie van ajustes, aspecto y agregar una
+máquina.
+
+### Datos para los paneles nativos (`bk _hub`) y acciones sueltas (`bk _do`)
+
+Un mod de Herdr solo puede correr programas y leer su salida. `bk _hub <tema>` (`lib/herdr_hub.py`) le da cada
+cosa en un JSON: `issues`, `prs`, `agents`, `sessions` (y `session-go <sid>`), `changes` (y `diff <raíz> <archivo>`),
+`stats`, `projects`, `handoffs`, `checkpoints`, `song`, `status` (lo de la barra de estado, en una llamada barata) y
+`palette`. Usa las mismas funciones que los comandos de la terminal (`bk ls`, `bk s`, `bk changes`, `bk tokens`…),
+así que muestran lo mismo. Si no puede, sale con 1 y una línea en stderr. Lo que le pregunta a GitHub se guarda 60 s
+en `~/.cache/bk/hub/` (`--fresh` lo saltea; sin red sale lo guardado con `"stale": true`). El contrato de cada
+tema está en el encabezado de `lib/herdr_hub.py`.
+
+`bk _do [--cwd DIR] [--title T] -- <args de bk…>` corre ese `bk` suelto de quien lo pidió (sobrevive al panel),
+con la salida en `~/.cache/bk/hub/do/<fecha>-<pid>.log`, y vuelve en el acto con `{"ok": true, "log": …}`. Al
+terminar deja un aviso de Herdr con la última línea de la salida: `success` si salió con 0, `error` si no (si esa
+línea es un JSON, como el de `bk _hub session-go`, el aviso lo dice en palabras). Con `--dry-run` dice qué
+correría y no deja log ni aviso. Los avisos de bk (`hd_notice`) van a una cola, un archivo por aviso en
+`~/.cache/bk/herdr-avisos/`, para que dos casi juntos no se pisen; `~/.cache/bk/herdr-aviso.json` sigue quedando
+con el último. El mod `bk-aviso` muestra la cola en orden, cada aviso con su nivel (uno de error queda 15 s a la
+vista, el resto 5 s; el que abre un mod con el clic, diez minutos), y la vacía; uno de hace más de diez minutos
+se borra sin mostrarse. Tests: `tests/test_hub.sh` y `tests/test_herdr_mods.sh`.

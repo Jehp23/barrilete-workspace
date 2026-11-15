@@ -19,6 +19,7 @@ persona, bk abre solo el chat nuevo; si fue el aviso, con Herdr sale un aviso qu
   handoff.py take <session_id>                      imprime el resumen y lo borra (.md y .json)
   handoff.py list                                   los resumenes listos: "sid<TAB>ws<TAB>sesión<TAB>nombre"
   handoff.py listo <session_id>                     "via<TAB>de dónde" la primera vez que el resumen está escrito
+  handoff.py dir                                    la carpeta de los resumenes
 
 La tira (sidebar.py) y bk s (sessions.py) marcan con ↪ el chat cuya sesión dejó un resumen listo.
 """
@@ -245,6 +246,8 @@ def main(argv):
             sys.exit(1)
         where = (f"ws {m['ws']}" if m.get("ws") else m.get("session") or m["sid"][:8]) + (f" «{m['name']}»" if m.get("name") else "")
         print("\t".join([m["via"], where]))
+    elif cmd == "dir":
+        print(folder())
     elif cmd == "list":
         for _, m in ready():
             print("\t".join([m["sid"], str(m.get("ws") or ""), m.get("session") or "", m.get("name") or ""]))

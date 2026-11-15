@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Instala en Herdr lo de bk: el mod `bk` de los atajos, las teclas alt+…, los paneles (tareas del kit, lado derecho)
-y el layout `bk-lavanda` que los muestra (herdr/ del repo).
+"""Instala en Herdr lo de bk (herdr/ del repo): el mod `bk` de las acciones sin panel, los paneles nativos del hub
+(una carpeta por vista), las teclas alt+…, los paneles del layout (cada carpeta de herdr/mods), los temas y el
+layout `bk-lavanda` que los muestra, con su vista previa.
 
   herdr_install.py <herdr/ del repo> <carpeta de Herdr (~/.config/herdr-app)>
 
@@ -13,22 +14,106 @@ import filecmp, hashlib, json, os, shutil, sys
 
 
 NO_KEY = ("bk-aviso", "bk-seguir")   # mods sin tecla: los abre bk (un aviso de Herdr) o el clic en ese aviso
+HUB = "hub"   # herdr/mods/hub: los paneles nativos (paleta, issues, PRs…), un mismo paquete instalado una vez por vista
 
 
-# Los paneles de bk: herdr/mods/<nombre> → mods/bk-<nombre>. El layout bk-lavanda dice dónde va cada uno.
-PANELS = ["tareas", "lado", "agentes", "marca"]
+# Teclas que una versión anterior de bk instaló con otra acción: si siguen igual a esa, se actualizan (no son
+# una elección tuya). alt+1…9 iba al espacio por posición y ahora va a la ventana con ese número fijo.
+MOVED = {**{f"alt-{n}": f"space.select:{n}" for n in range(1, 10)}, "alt-,": "app.settings"}
+
+# Los paneles de bk: cada carpeta de herdr/mods (menos el mod de las teclas y el paquete del hub) →
+# mods/bk-<nombre>. El layout bk-lavanda dice dónde va cada uno.
 LAYOUT = "bk-lavanda"
 
 
+def mod_first(names):
+    """mod.json antes que el resto: si Herdr ve primero un main.js en una carpeta nueva, acopla una copia del mod
+    en el layout que se muestra (el mod.json es el que dice "place": "none")."""
+    return sorted(names, key=lambda fn: (fn != "mod.json", fn))
+
+
+def panel_names(src):
+    root = os.path.join(src, "mods")
+    return sorted(n for n in os.listdir(root) if n not in (HUB, "bk") and os.path.isfile(os.path.join(root, n, "main.js")))
+
+
 def panels(src, home):
-    copied = 0
-    for name in PANELS:
+    copied, names = 0, panel_names(src)
+    for name in names:
         a, b = os.path.join(src, "mods", name), os.path.join(home, "mods", "bk-" + name)
         os.makedirs(b, exist_ok=True)
-        for fn in sorted(os.listdir(a)):
+        for fn in mod_first(f for f in os.listdir(a) if os.path.isfile(os.path.join(a, f)) and not f.startswith(".")):
             if not (os.path.isfile(os.path.join(b, fn)) and filecmp.cmp(os.path.join(a, fn), os.path.join(b, fn), shallow=False)):
                 shutil.copyfile(os.path.join(a, fn), os.path.join(b, fn)); copied += 1
-    print(f"paneles bk: {'actualizados' if copied else 'al día'} ({', '.join('bk-' + n for n in PANELS)})")
+    print(f"paneles bk: {'actualizados' if copied else 'al día'} ({', '.join('bk-' + n for n in names)})")
+
+
+def themes(src, home):
+    """Los temas de bk (herdr/themes/*.json) → themes/ de Herdr, para elegirlos en alt+, o en los ajustes. Siguen
+    al repo mientras no los retoques: bk anota el sha256 de lo que instaló (bk-temas.json) y solo pisa una copia
+    que sigue igual a esa; un tema tuyo con el mismo nombre queda como está."""
+    a = os.path.join(src, "themes")
+    if not os.path.isdir(a):
+        return
+    mark = os.path.join(home, "bk-temas.json")
+    try:
+        was = json.load(open(mark))
+    except (OSError, ValueError):
+        was = {}
+    now, done, kept = dict(was), 0, []
+    os.makedirs(os.path.join(home, "themes"), exist_ok=True)
+    for fn in sorted(f for f in os.listdir(a) if f.endswith(".json")):
+        want, have = os.path.join(a, fn), os.path.join(home, "themes", fn)
+        new = digest(want)
+        if os.path.exists(have) and digest(have) != new and digest(have) != was.get(fn):
+            kept.append(fn); continue
+        if not os.path.exists(have) or digest(have) != new:
+            shutil.copyfile(want, have + ".tmp"); os.replace(have + ".tmp", have); done += 1
+        now[fn] = new
+    if now != was:
+        put(mark, json.dumps(now, indent=1, sort_keys=True) + "\n")
+    print(f"temas bk: {'actualizados' if done else 'al día'}" + (f" (no piso los tuyos: {', '.join(kept)})" if kept else ""))
+
+
+def put(path, text):
+    """Escribe el archivo solo si cambia (guardar de más hace recargar el mod en Herdr). 1 si escribió."""
+    try:
+        if open(path).read() == text:
+            return 0
+    except OSError:
+        pass
+    with open(path + ".tmp", "w") as f:
+        f.write(text)
+    os.replace(path + ".tmp", path)
+    return 1
+
+
+def hub_views(src):
+    """Las vistas del paquete hub: {nombre: {title, overlay}} (herdr/mods/hub/views.json)."""
+    try:
+        return json.load(open(os.path.join(src, "mods", HUB, "views.json")))
+    except (OSError, ValueError):
+        return {}
+
+
+def hub(src, home):
+    """Cada vista del hub en su carpeta mods/bk-<vista>: los mismos archivos, un view.js que dice cuál es y el
+    mod.json con el tamaño de su ventana. Una tecla abre un mod por su nombre y no le puede pasar argumentos."""
+    views, a, copied = hub_views(src), os.path.join(src, "mods", HUB), 0
+    files = sorted(f for f in os.listdir(a) if f.endswith((".js", ".svg")) and f != "view.js") if views else []
+    for name, spec in sorted(views.items()):
+        dst = os.path.join(home, "mods", "bk-" + name)
+        os.makedirs(dst, exist_ok=True)
+        mod = {"place": "none", "title": spec.get("title", "bk")}
+        if spec.get("overlay"):
+            mod["overlay"] = spec["overlay"]
+        copied += put(os.path.join(dst, "mod.json"), json.dumps(mod, ensure_ascii=False) + "\n")   # primero: ver mod_first
+        copied += put(os.path.join(dst, "view.js"), f"export const VIEW = {json.dumps(name)};\n")
+        for fn in files:
+            if not (os.path.isfile(os.path.join(dst, fn)) and filecmp.cmp(os.path.join(a, fn), os.path.join(dst, fn), shallow=False)):
+                shutil.copyfile(os.path.join(a, fn), os.path.join(dst, fn)); copied += 1
+    print(f"paneles del hub: {'actualizados' if copied else 'al día'} ({len(views)} vistas)")
+    return set("bk-" + n for n in views)
 
 
 def digest(path):
@@ -36,13 +121,35 @@ def digest(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
+def preview(src, home):
+    """La vista previa del layout (herdr/layouts/bk-lavanda.svg, la que el .json nombra en "preview") → layouts/ de
+    Herdr. Es un dibujo, no algo que se retoque: se copia si falta o si difiere de la del repo. 1 si copió.
+    Si no se puede (hay una carpeta con ese nombre, no hay permiso) avisa y sigue: el resto se instala igual."""
+    want, have = os.path.join(src, "layouts", LAYOUT + ".svg"), os.path.join(home, "layouts", LAYOUT + ".svg")
+    if not os.path.isfile(want) or (os.path.isfile(have) and filecmp.cmp(want, have, shallow=False)):
+        return 0
+    try:
+        os.makedirs(os.path.dirname(have), exist_ok=True)
+        shutil.copyfile(want, have + ".tmp"); os.replace(have + ".tmp", have)
+    except OSError as e:
+        print(f"layout {LAYOUT}: no pude copiar la vista previa a {have} ({e.strerror or e})")
+        try:
+            os.remove(have + ".tmp")
+        except OSError:
+            pass   # no llegó a escribirse
+        return 0
+    return 1
+
+
 def layout(src, home):
     """El layout de bk, uno solo: herdr/layouts/bk-lavanda.json del repo → layouts/ de Herdr. Sigue al repo mientras
     no lo retoques: bk anota qué instaló (bk-lavanda.instalado, su sha256) y solo pisa una copia que sigue igual a
     esa. Una copia retocada (o una que bk no instaló) queda como está y se avisa. No cambia el layout que se
-    muestra: eso es `herdr-app do layout.switch --name bk-lavanda`."""
+    muestra: eso es `herdr-app do layout.switch --name bk-lavanda`. Su vista previa (preview) va primero, así el
+    .json nunca nombra un dibujo que todavía no está."""
     want, have = os.path.join(src, "layouts", LAYOUT + ".json"), os.path.join(home, "layouts", LAYOUT + ".json")
     mark = os.path.join(home, LAYOUT + ".instalado")
+    drawn = preview(src, home)
     new = digest(want)
     try:
         was = open(mark).read().strip()
@@ -63,7 +170,7 @@ def layout(src, home):
     if was != new:
         with open(mark, "w") as f:
             f.write(new + "\n")
-    print(f"layout {LAYOUT}: {what}")
+    print(f"layout {LAYOUT}: {what}" + (" (vista previa actualizada)" if drawn and what == "al día" else ""))
 
 
 def main():
@@ -73,12 +180,13 @@ def main():
     want = json.load(open(os.path.join(src, "keys.json")))
     # Una carpeta por comando (mods/bk-<comando>), todas con el mismo mod: una tecla abre un mod por su nombre
     # y no puede pasarle argumentos. mods/bk era la versión con una copia siempre abierta: se va.
-    names = sorted({a.split(":", 1)[1] for b in want.values() for a in b.values() if a.startswith("mod.open:bk-")} | set(NO_KEY))
+    views = hub(src, home)
+    names = sorted(({a.split(":", 1)[1] for b in want.values() for a in b.values() if isinstance(a, str) and a.startswith("mod.open:bk-")} | set(NO_KEY)) - views)
     mod, copied = os.path.join(src, "mods", "bk"), 0
     for name in names:
         dst = os.path.join(home, "mods", name)
         os.makedirs(dst, exist_ok=True)
-        for fn in ("main.js", "mod.json"):
+        for fn in ("mod.json", "main.js"):   # mod.json primero: ver mod_first
             a, b = os.path.join(mod, fn), os.path.join(dst, fn)
             if not (os.path.isfile(b) and filecmp.cmp(a, b, shallow=False)):
                 shutil.copyfile(a, b); copied += 1
@@ -86,6 +194,7 @@ def main():
     print(f"mods bk-*: {'actualizados' if copied else 'al día'} ({len(names)} en {os.path.join(home, 'mods')})")
 
     panels(src, home)
+    themes(src, home)
     layout(src, home)
 
     path = os.path.join(home, "keys.json")
@@ -99,7 +208,8 @@ def main():
     for section, binds in want.items():
         have = keys.setdefault(section, {})
         for key, action in binds.items():
-            ours = isinstance(have.get(key), str) and (have[key].startswith("bk.") or have[key].startswith("mod.open:bk-"))
+            ours = isinstance(have.get(key), str) and (have[key].startswith("bk.") or have[key].startswith("mod.open:bk-")
+                                                       or have[key] == MOVED.get(key))
             if key not in have or (ours and have[key] != action):   # las de una versión anterior de bk se actualizan
                 have[key] = action; added.append(key)
             elif have[key] != action:

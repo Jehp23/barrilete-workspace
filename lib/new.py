@@ -21,7 +21,8 @@ import gentle as G  # noqa: E402  (paleta del tema, una sola para todas las vist
 
 BK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "bin", "bk")
 PROJECTS = os.path.expanduser("~/.claude/projects")
-SKIP = re.compile(r"/private/|/tmp/|scratch|/Library/|/\.cache/|-wt/")
+# Carpetas que no son un proyecto tuyo. BK_NEW_SKIP cambia la regla (los tests: sus repos viven en /tmp o /private)
+SKIP = re.compile(os.environ.get("BK_NEW_SKIP") or r"/private/|/tmp/|scratch|/Library/|/\.cache/|-wt/")
 
 
 def sh(*a):
