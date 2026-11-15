@@ -139,7 +139,6 @@ export default class Barra extends View {
       .when(esperan + done + working === 0, (el) => el.child(seg("b-quiet", "bk-agents", "Agentes").child(mark(t, "idle")).child(list.length + (list.length === 1 ? " agente" : " agentes"))))
       .when(d?.cost_today != null, (el) => el.child(seg("b-cost", "bk-stats", "Uso de hoy").child(div().text_color(t.dim).child("hoy")).child(human(d?.tokens_today ?? 0) + " · $" + (d?.cost_today ?? 0).toFixed(2))))
       .when(Boolean(d?.song?.playing), (el) => el.child(seg("b-song", "bk-song", "Radio").child(div().text_color(t.accent).child("♪")).child(div().max_w(180).truncate().child(d?.song?.title || d?.song?.station || "radio"))))
-      .when(Boolean(d?.focus), (el) => el.child(seg("b-focus", null, "Foco").child(div().text_color(t.blocked).child("◷")).child((d?.focus?.label ?? "foco") + " " + (d?.focus?.left_min ?? 0) + " min")))
       .child(div().w(4))
       .child(hint("mod.open:bk-palette", "comandos"))
       .child(hint("mod.open:bk-keys", "teclas"));
