@@ -88,10 +88,10 @@ export function items(p, git) {
     ];
   }
   if (p.tab === "space") {
-    const space = spaces().find((s) => s.id === tg.id);
+    const key = E.keyFor(E.clean(shared(E.KEY)), spaces(), tg.id);
     return [
       ["Renombrar", "space.rename", { id: tg.id }, "square-pen"],
-      ...(space ? placing(`e:${E.keyOf(space)}`) : []),
+      ...(key ? placing(`e:${key}`) : []),
       ...(git ? [["Worktree nuevo", "worktree", { space: tg.id, action: "new" }, "git-branch"],
         ["Abrir un worktree", "worktree", { space: tg.id, action: "open" }, "git-branch"]] : []),
       ...(git === "linked" ? [["Borrar este worktree", "worktree", { space: tg.id, action: "remove" }, "git-branch"]] : []),

@@ -138,6 +138,22 @@ ok('estado roto, de otra versión o a medias: se ignora lo que no sirve y la lis
 assert.ok(E.COLORS.length >= 6 && E.COLORS.every(E.validColor) && E.validColor('#A1b2C3') && E.validColor(null) && !E.validColor(''));
 assert.deepEqual([E.keyOf(sp('a', 'x')), E.keyOf(sp('a', 'x', { machine: 'pc' }))], ['x', 'x@pc']);
 ok('colores: las muestras son nombres del tema; además vale #rrggbb, y null es "sin color"');
+
+// 10: varios espacios abiertos con el mismo nombre (dos checkouts del mismo proyecto)
+const dup = [sp('m1', 'mobile'), sp('a1', 'app'), sp('m2', 'mobile'), sp('r1', 'mobile', { machine: 'pc' }), sp('r2', 'mobile', { machine: 'pc' })];
+let d = E.sync(E.clean(null), dup);
+assert.equal(draw(d, dup), 'mobile app mobile#2 mobile@pc mobile#2@pc', 'cada uno con su fila');
+assert.equal(E.sync(d, dup), d, 'y el estado queda quieto');
+assert.deepEqual(E.target(d, dup), ['m1', 'a1', 'm2', 'r1', 'r2'], 'el orden nombra a todos');
+assert.deepEqual(E.moves(dup.map((s) => s.id), E.target(d, dup)), [], 'sin nada que mover no se pide nada');
+const turned = [dup[2], dup[1], dup[0], dup[4], dup[3]];
+assert.equal(E.sync(d, turned), d, 'Herdr los dio vuelta: cada uno conserva su clave, por su id');
+assert.deepEqual([E.keyFor(d, turned, 'm2'), E.keyFor(d, turned, 'r1'), E.keyFor(d, turned, 'nadie')], ['mobile#2', 'mobile@pc', null]);
+d = E.move(E.createFolder(d, 'c1', 'Abra'), 'e:mobile#2', { dentro: 'c1' });
+assert.equal(draw(d, turned), 'mobile app mobile@pc mobile#2@pc Abra[mobile#2]');
+const one = E.sync(d, turned.filter((s) => s.id !== 'm1'));
+assert.equal(draw(one, turned.filter((s) => s.id !== 'm1')), 'app mobile@pc mobile#2@pc Abra[mobile#2]', 'cerrar el primero no le cambia la clave al otro');
+ok('nombres repetidos: cada espacio tiene su fila y su lugar, y Herdr no queda con movimientos pendientes');
 JS
 
 # La lista y el diálogo (herdr/mods/agentes/lista.js y editar.js) con un Herdr falso: cada elemento anota sus
@@ -278,6 +294,19 @@ assert.deepEqual([store[E.KEY].espacios.abra.color, store[E.KEY].espacios.abra.f
 P = { editar: 'e:nadie', overlay: 'o3' };
 new Editar(cx).render(t);
 ok('diálogo de un espacio: color e imagen; de algo que ya no está, no falla');
+
+// Herdr no deja el orden como se pidió (otra pantalla, un espacio que no se mueve): no se insiste sin fin
+live = [sp('s1', 'abra'), sp('s2', 'bk')];
+store[E.KEY] = E.move(E.sync(E.clean(null), live), 'e:bk', { antes: 'e:abra' });
+const terca = new L.Lista(), now = Date.now;
+let clock = 1e6;
+Date.now = () => clock;
+ran = [];
+for (let i = 0; i < 10; i++) { terca.section(t); clock += 5000; }
+Date.now = now;
+const pedidos = ran.filter((r) => r[0] === 'space.move').length;
+assert.ok(pedidos >= 1 && pedidos <= 3, `pidió ${pedidos} veces el mismo orden`);
+ok('orden que Herdr no toma: se pide unas pocas veces y se deja, sin bucle');
 JS
 
 # bk _logo: la imagen va a mods/bk-agentes/logos/<hash>.<ext> de la carpeta de Herdr y dice la ruta relativa

@@ -14,6 +14,7 @@ const TINTS = ["ansi4", "ansi5", "ansi6", "ansi13", "ansi3", "ansi2"];
 const hash = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 const bin = () => shared("bk.bin") || "bk";
 const ROWS = 10;      // hasta tantas filas la lista mide lo que ocupa; con más, se desplaza dentro de ese alto
+const TRIES = 3;       // y si Herdr no lo toma (otra pantalla, un espacio que no se mueve), no se insiste sin fin
 const SETTLE = 2000;  // un space.move puede perder contra otro cambio: no se repite el mismo pedido antes de esto
 
 // El menú del clic derecho (mods/bk-menu), del alto de sus opciones (6 px arriba y abajo, 32 por opción, 9 por raya)
@@ -59,8 +60,9 @@ export class Lista {
     const plan = E.moves(have, want);
     if (!plan.length || checking()) { this.ordering = null; return; }
     const key = JSON.stringify([have, want]);
-    if (this.ordering?.key === key && Date.now() - this.ordering.at < SETTLE) return;
-    this.ordering = { key, at: Date.now() };
+    const tries = this.ordering?.key === key ? this.ordering.tries : 0;
+    if (tries && (tries >= TRIES || Date.now() - this.ordering.at < SETTLE)) return;
+    this.ordering = { key, at: Date.now(), tries: tries + 1 };
     for (const m of plan) run("space.move", m);
   }
 
