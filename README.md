@@ -10,7 +10,7 @@ bk ls              bk go <ventana>  bk stop <ventana>  bk clean [--yes]
 bk peek [ventana]  bk say <ventana> "…"   bk watch [ventana|--all]
 bk monitor         bk checkpoints   bk tasks         bk done <resultado>   bk approve <tarea>
 bk account         bk account use <cuenta> [--relaunch]   bk run … --account <cuenta>
-bk roles           bk mode <rol>    bk song [estación]   bk theme [day|night|auto]
+bk roles           bk mode <rol>    bk profile [perfil]  bk song [estación]   bk theme [day|night|auto]
 ```
 
 ## Workspace (`bk`)
@@ -151,6 +151,7 @@ pisan con los del repo (se editan acá).
 
   Las catorce primeras abren un panel; las siete que siguen son acciones sin panel; las dos últimas, comandos de Herdr.
   Sin tecla: `bk-out` (la salida de un comando que solo imprime: tokens, roles, cuentas…; lo abre `alt+k`),
+  `bk-profiles` (los perfiles de modelos; lo abre «Perfiles de modelos: editar…» de `alt+k`),
   `bk-aviso` (muestra los avisos que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic del aviso «Resumen
   listo»). El rastro de `alt+0` y la adopción los lleva el mod `bk-barra`, que está en `bk-lavanda`: en un layout
   que no lo tenga, `alt+0` no tiene a dónde volver y adoptar queda para `bk _adopt <terminal>` o `bk handoff --term`.
@@ -216,6 +217,13 @@ en zsh, que expande el `=`).
 
 - `bk run` reusa el kit: `routing.py` elige el rol y `prepare.sh --worktree` asigna el issue y crea el worktree.
 - `roles.yml` dice qué provider/modelo corre cada rol; un proyecto lo pisa con `.barrilete/roles.yml`.
+- Perfiles de modelos (`bk profile`, `profiles.yml`): un juego de provider/modelo por rol (`normal`, `barato`, `a-fondo`)
+  que se cambia de una vez y vale para todos los proyectos. `bk profile barato` lo elige y `bk profile off` vuelve a
+  `roles.yml`; en `alt+k` hay un renglón «Usar el perfil …» por perfil y «Perfiles de modelos: editar…» abre el panel
+  (→ edita un perfil, enter en un rol elige el modelo, «Otro…» acepta cualquier `provider/modelo`, así un perfil mezcla
+  `claude/…` y `codex/…`). Editar copia los de fábrica a `~/.config/bk/profiles.yml`, que desde ahí manda.
+  Solo cambia modelos: el modo sale de `roles.yml`. Orden: `.barrilete/roles.yml` del proyecto, el perfil y `roles.yml`.
+  Los agentes que ya corren siguen con el modelo con el que arrancaron.
 - `--dry-run` en cualquier comando de agentes, y en `bk ws` y `bk chat` (también `--rama`, `--suelto` y `--desde`), muestra qué haría sin lanzar ni abrir nada.
 - Provider `codex`: preparado pero sin probar. Las barandas y los eventos de las tareas le llegan por el `.codex/hooks.json`
   del proyecto (los trae el kit), pero no está verificado que Codex los dispare igual que Claude Code.
@@ -254,7 +262,8 @@ del tema: en `bk-neon`, ámbar te espera, verde listo y rosa trabajando.
 El layout nombra un par de temas, `bk-neon` con la apariencia oscura y `bk-dia` con la clara, y la fuente de la
 interfaz, SF Mono; la
 de la terminal es la tuya (`alt+,` la cambia, y también el tema, el tamaño y qué paneles se ven).
-El perfil de roles va en un renglón que sigue abajo si no entra; fuera de un proyecto, el panel lo dice.
+El perfil de roles va en un renglón que sigue abajo si no entra, encabezado por el perfil de modelos activo (`bk profile`);
+fuera de un proyecto, el panel lo dice.
 
 GitHub muestra hasta cinco PRs abiertos con enlaces al navegador, borrador,
 revisión y CI. Requiere `gh` autenticado (`gh auth status`) y un remoto GitHub;

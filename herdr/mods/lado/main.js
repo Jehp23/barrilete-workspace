@@ -152,7 +152,9 @@ export default class Lado extends View {
     if (d.profile?.length) {
       rows.push(h_flex().gap(8).items_start().min_h(18)
         .child(div().w(66).flex_none().text_color(t.dim).child("Perfil"))
-        .child(h_flex().flex_1().min_w(0).flex_wrap().gap_x(10).gap_y(3).children(d.profile.map((p) => h_flex().flex_none().gap(4)
+        .child(h_flex().flex_1().min_w(0).flex_wrap().gap_x(10).gap_y(3)
+          .when(Boolean(d.profile_name), (el) => el.child(div().flex_none().text_color(t.accent).child(d.profile_name)))
+          .children(d.profile.map((p) => h_flex().flex_none().gap(4)
           .child(div().text_color(t.dim).child(SHORT[p.role] ?? p.role))
           .child(div().text_color(t.muted).child(p.model))))));
     }

@@ -85,6 +85,8 @@ uso: bk [comando] [--dry-run]
   chat [--rama N]   otro chat del proyecto, como un workspace más (alt+N); con --rama, en su worktree y rama chat/N
   sound [on|off|test]  sonidos de los agentes: terminó (Glass), pregunta (Ping), permiso (Purr), error (Basso)
   mode <rol>        cómo lo lanza el orquestador: main, bk (ventana propia) o sub (subagente)
+  profile [nombre]  perfiles de modelos (normal, barato, a-fondo…): un provider/modelo por rol, para todos los
+                    proyectos. set <perfil> <rol> <provider>/<modelo> lo edita; new, rm, edit, off. En alt+k: «Perfil»
   sub [transcript]  ver en vivo un subagente (sin argumento: elegir de los vivos); clic en └ de la tira
   term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
@@ -150,14 +152,32 @@ project_root() {
   printf '%s' "$root"
 }
 
-# role_spec <rol> [root] -> "provider/modelo"
+# profile_spec <rol> -> "provider/modelo" del perfil activo (bk profile), o nada si no hay perfil o no nombra el rol.
+# Lee como lib/profiles.py (parse): un renglón sin sangría «nombre:» abre un perfil; los roles van con sangría.
+# En awk y no en Python porque corre una vez por rol (bk roles, el panel derecho).
+profile_spec() {
+  local role="$1" name f
+  name=$(cat "$HOME/.config/bk/profile" 2>/dev/null) || return 0
+  [ -n "$name" ] || return 0
+  f="$HOME/.config/bk/profiles.yml"; [ -f "$f" ] || f="$WS/profiles.yml"
+  [ -f "$f" ] || return 0
+  awk -v p="$name" -v r="$role" '
+    /^[^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { h = $0; sub(/:.*/, "", h); gsub(/^[[:space:]]+|[[:space:]]+$/, "", h); inb = (h == p); next }
+    /^[^[:space:]#]/ { inb = 0; next }
+    inb && match($0, /^[[:space:]]+[^[:space:]:#]+:[[:space:]]*[^[:space:]#]+/) {
+      s = substr($0, 1, RLENGTH); sub(/^[[:space:]]+/, "", s); k = s; sub(/:.*/, "", k)
+      if (k == r) { sub(/^[^:]*:[[:space:]]*/, "", s); print s; exit }
+    }' "$f"
+}
+
+# role_spec <rol> [root] -> "provider/modelo". Orden: el .barrilete/roles.yml del proyecto, el perfil activo
+# (bk profile) y roles.yml del workspace
 role_spec() {
-  local role="$1" root="${2:-}" f spec=""
-  for f in ${root:+"$root/.barrilete/roles.yml"} "$WS/roles.yml"; do
-    [ -f "$f" ] || continue
-    spec=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*([^#[:space:]]+).*/\1/p" "$f" | head -1)
-    [ -n "$spec" ] && break
-  done
+  local role="$1" root="${2:-}" spec=""
+  [ -n "$root" ] && [ -f "$root/.barrilete/roles.yml" ] &&
+    spec=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*([^#[:space:]]+).*/\1/p" "$root/.barrilete/roles.yml" | head -1)
+  [ -n "$spec" ] || spec=$(profile_spec "$role")
+  [ -n "$spec" ] || spec=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*([^#[:space:]]+).*/\1/p" "$WS/roles.yml" 2>/dev/null | head -1)
   [ -n "$spec" ] || die "el rol '$role' no está en roles.yml"
   printf '%s' "$spec"
 }
@@ -1458,7 +1478,9 @@ role_mode() {
 }
 
 roles() {
-  local root; root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  local root p; root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  p=$(cat "$HOME/.config/bk/profile" 2>/dev/null || true)
+  [ -z "$p" ] || printf 'perfil: %s (bk profile para cambiarlo)\n' "$p"
   for r in planner orchestrator implementer implementer-light reviewer; do
     printf '%-18s %-16s %s\n' "$r" "$(role_spec "$r" "$root")" "$(role_mode "$r" "$root")"
   done
@@ -1769,6 +1791,7 @@ case "${1:-}" in
   _prs)        cmd_prs ;;
   _drain)      task_drain "${2:?}" "${3:?}" ;;
   roles)       roles ;;
+  profile|perfil) shift; exec python3 "$WS/lib/profiles.py" "$@" ;;
   account|accounts) shift; cmd_account "$@" ;;
   mode)        shift; [ -n "${1:-}" ] || die "bk mode <rol>"
                role_mode "$1" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; echo ;;

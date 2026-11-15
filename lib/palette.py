@@ -19,6 +19,8 @@ ENTRIES = [
     ("Agentes", "Corregir un PR abierto", "fix", "PR y la instrucción", "run"),
     ("Agentes", "Planear una feature", "plan", "idea", "run"),
     ("Agentes", "Orquestar (hasta 3 issues)", "orchestrate", None, "run"),
+    ("Agentes", "Perfiles de modelos", "profile", None, "show"),
+    ("Agentes", "Usar un perfil de modelos", "profile", "perfil (normal, barato, a-fondo…)", "show"),
     ("Agentes", "Cerrar la ventana de un agente", "stop", "ventana", "run"),
     ("Vistas", "Agentes en vivo", "watch --all", None, "view"),
     ("Vistas", "Cambios sin commitear", "changes", None, "view"),

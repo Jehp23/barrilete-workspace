@@ -6,7 +6,7 @@
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { run, openOverlay, focused, notify } from "herdr";
-import { Panel, rank, bk, bin, launch, goto, termPopup, chips, keyOf, lit, cwd } from "./kit.js";
+import { Panel, rank, bk, bin, launch, goto, termPopup, chips, keyOf, lit, cwd, lastLine } from "./kit.js";
 
 const view = (name) => (p) => goto(`bk-${name}`);
 const herdr = (name, args) => (p) => { p.close(); run(name, args); };
@@ -20,6 +20,7 @@ const NATIVE = [
   ["orchestrate", "Agentes", "Orquestar (hasta 3 issues)", "bk orchestrate", null, "orchestrator repartir", (p) => { p.close(); launch("Orquestador", ["orchestrate"]); }],
   ["tasks", "Agentes", "Tareas y aprobaciones", "bk tasks · bk approve", "mod.open:bk-tasks", "te esperan checkpoints aprobar reviewer", view("tasks")],
   ["agents", "Agentes", "Agentes: ver, escribirles, cerrar", "bk ls · say · stop", "mod.open:bk-agents", "peek watch lista", view("agents")],
+  ["profiles", "Agentes", "Perfiles de modelos: editar…", "bk profile", null, "perfil modelos proveedor codex claude editar nuevo", view("profiles")],
   ["next", "Agentes", "Ir al que te espera", "bk go", "mod.open:bk-next", "saltar bloqueado terminó", view("next")],
   ["chat", "Chats", "Chat nuevo en este proyecto", "bk chat", "mod.open:bk-chat", "claude otro", view("chat")],
   ["new", "Chats", "Nuevo… (rama, suelto, otro proyecto)", "bk new", "mod.open:bk-new", "workspace abrir proyecto worktree", view("new")],
@@ -47,8 +48,8 @@ const NATIVE = [
 ];
 
 // Comandos de lib/palette.py que ya tienen entrada nativa arriba (no se repiten)
-const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|chat|song)\b/;
-const GROUPS = ["Recientes", "Agentes", "Chats", "Ver", "GitHub", "Sesión", "Barra", "Facultad", "Música", "Ventana"];
+const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|chat|song|profile)\b/;
+const GROUPS = ["Recientes", "Perfil", "Agentes", "Chats", "Ver", "GitHub", "Sesión", "Barra", "Facultad", "Música", "Ventana"];
 
 export default class Palette extends Panel {
   setup() {
@@ -60,6 +61,7 @@ export default class Palette extends Panel {
 
   async load() {
     const d = await bk(["_hub", "palette"], { json: true, timeout: 8000 });
+    this.profiles = d.profile ?? { active: null, profiles: [] };
     this.extra = (d.items ?? []).filter((e) => !COVERED.test(e.cmd)).map((e) => ({
       id: `bk:${e.cmd}`, group: GROUPS.includes(e.group) ? e.group : "Sesión", title: e.label, hint: `bk ${e.cmd}`, key: null, words: e.cmd,
       go: (p) => this.generic(p, e),
@@ -81,7 +83,23 @@ export default class Palette extends Panel {
 
   entries() {
     const native = NATIVE.map(([id, group, title, hint, action, words, go]) => ({ id, group, title, hint, key: action ? keyOf(action) : null, words, go }));
-    return [...native, ...this.extra];
+    return [...native, ...this.profileEntries(), ...this.extra];
+  }
+
+  // Un renglón por perfil de modelos (bk profile): escribir «barato» y enter lo cambia. El activo, marcado.
+  profileEntries() {
+    const { active, profiles = [] } = this.profiles ?? {};
+    return profiles.map(({ name, summary }) => ({
+      id: `profile:${name}`, group: "Perfil", title: name === active ? `Perfil ${name} · activo` : `Usar el perfil ${name}`,
+      hint: summary, key: null, words: `perfil modelos ${name}`,
+      go: (p) => {
+        p.close();
+        if (name === active) return goto("bk-profiles");
+        bk(["profile", name]).then((r) => notify(r.code === 0
+          ? { title: `Perfil ${name}`, body: lastLine(r.stdout).replace(/^perfil [^:]*: /, ""), level: "success", timeout: 5000 }
+          : { title: `No pude usar el perfil ${name}`, body: lastLine(r.stderr), level: "error" }));
+      },
+    }));
   }
 
   rows() {
