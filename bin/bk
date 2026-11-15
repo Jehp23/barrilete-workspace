@@ -87,6 +87,9 @@ uso: bk [comando] [--dry-run]
   mode <rol>        cómo lo lanza el orquestador: main, bk (ventana propia) o sub (subagente)
   profile [nombre]  perfiles de modelos (normal, barato, a-fondo…): un provider/modelo por rol, para todos los
                     proyectos. set <perfil> <rol> <provider>/<modelo> lo edita; new, rm, edit, off. En alt+k: «Perfil»
+  ask [tarea "…"]   un trabajo puntual al modelo de una tarea (imagenes → codex, investigar → gemini…): corre sin
+                    pantalla y devuelve la respuesta y los archivos. set <tarea> <provider>/<modelo> <para qué>, rm
+  models [provider] los modelos que se pueden elegir (codex sale de su CLI; claude y gemini de models.yml)
   sub [transcript]  ver en vivo un subagente (sin argumento: elegir de los vivos); clic en └ de la tira
   term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
@@ -1792,6 +1795,8 @@ case "${1:-}" in
   _drain)      task_drain "${2:?}" "${3:?}" ;;
   roles)       roles ;;
   profile|perfil) shift; exec python3 "$WS/lib/profiles.py" "$@" ;;
+  ask)         shift; exec python3 "$WS/lib/ask.py" "$@" ;;
+  models)      shift; exec python3 "$WS/lib/models.py" "$@" ;;
   account|accounts) shift; cmd_account "$@" ;;
   mode)        shift; [ -n "${1:-}" ] || die "bk mode <rol>"
                role_mode "$1" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; echo ;;

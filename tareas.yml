@@ -1,0 +1,11 @@
+# Tareas: un modelo de cualquier proveedor para un trabajo puntual que el orquestador (o cualquier chat) le
+# pasa con `bk ask <tarea> "<pedido>"`. Valen para todos los proyectos y no dependen del perfil de modelos.
+#
+#   <tarea>: <provider>/<modelo>   descripción (la lee el orquestador para saber cuándo usarla)
+#   provider: claude | codex | gemini
+#
+# Este archivo trae las de fábrica. Al editar (bk ask set, bk ask rm, el panel de alt+k) bk lo copia a
+# ~/.config/bk/tareas.yml y desde ahí lee y escribe.
+
+imagenes: codex/gpt-6.1-sol   generar imágenes (ilustraciones, íconos, mockups); deja los PNG en la carpeta de la respuesta
+investigar: gemini/gemini-3.5-flash   buscar información en la web (versiones, documentación, precios) y responder con las fuentes

@@ -20,7 +20,7 @@ const NATIVE = [
   ["orchestrate", "Agentes", "Orquestar (hasta 3 issues)", "bk orchestrate", null, "orchestrator repartir", (p) => { p.close(); launch("Orquestador", ["orchestrate"]); }],
   ["tasks", "Agentes", "Tareas y aprobaciones", "bk tasks · bk approve", "mod.open:bk-tasks", "te esperan checkpoints aprobar reviewer", view("tasks")],
   ["agents", "Agentes", "Agentes: ver, escribirles, cerrar", "bk ls · say · stop", "mod.open:bk-agents", "peek watch lista", view("agents")],
-  ["profiles", "Agentes", "Perfiles de modelos: editar…", "bk profile", null, "perfil modelos proveedor codex claude editar nuevo", view("profiles")],
+  ["profiles", "Agentes", "Perfiles de modelos y tareas…", "bk profile · bk ask", null, "perfil modelos proveedor codex claude gemini editar nuevo tarea imagenes investigar", view("profiles")],
   ["next", "Agentes", "Ir al que te espera", "bk go", "mod.open:bk-next", "saltar bloqueado terminó", view("next")],
   ["chat", "Chats", "Chat nuevo en este proyecto", "bk chat", "mod.open:bk-chat", "claude otro", view("chat")],
   ["new", "Chats", "Nuevo… (rama, suelto, otro proyecto)", "bk new", "mod.open:bk-new", "workspace abrir proyecto worktree", view("new")],
@@ -48,7 +48,7 @@ const NATIVE = [
 ];
 
 // Comandos de lib/palette.py que ya tienen entrada nativa arriba (no se repiten)
-const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|chat|song|profile)\b/;
+const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|chat|song|profile|ask|models)\b/;
 const GROUPS = ["Recientes", "Perfil", "Agentes", "Chats", "Ver", "GitHub", "Sesión", "Barra", "Facultad", "Música", "Ventana"];
 
 export default class Palette extends Panel {

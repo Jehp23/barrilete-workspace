@@ -1,8 +1,10 @@
-// Perfiles de modelos (bk profile): un provider/modelo por rol, para todos los proyectos. Tres niveles:
-//   perfiles   enter usa el perfil · → o tab lo edita · ctrl+n uno nuevo (copia del elegido) · ctrl+x dos veces lo borra
-//   roles      los cinco roles del perfil con su provider/modelo · enter elige otro
-//   modelos    los conocidos (claude y los que ya usan tus perfiles) y «Otro…» para escribir provider/modelo
-// Lo decide y lo guarda `bk profile` (lib/profiles.py); acá solo se elige. Desde alt+k: «Perfiles de modelos».
+// Perfiles de modelos y tareas (alt+k → «Perfiles de modelos y tareas»). Niveles:
+//   inicio    PERFILES (bk profile): enter usa · → o tab edita · ctrl+n nuevo (copia del elegido) · ctrl+x dos veces borra
+//             TAREAS (bk ask): enter elige el modelo · ctrl+e la descripción · ctrl+x dos veces borra · «Nueva tarea…»
+//   roles     los cinco roles del perfil con su provider/modelo · enter elige otro
+//   modelos   el catálogo (bk models) agrupado por proveedor, y «Otro…» para escribir provider/modelo. Para un rol solo
+//             claude y codex (los que bk sabe lanzar como agente); para una tarea, también gemini
+// Lo deciden y lo guardan `bk profile`, `bk ask` y `bk models` (lib/profiles.py, ask.py, models.py); acá solo se elige.
 
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
@@ -11,64 +13,99 @@ import { Panel, rank, bk, lit, pill, termPopup, bin, lastLine, cwd } from "./kit
 
 const SURE_MS = 4000;
 const OTHER = "\u0000otro";
+const NEW_TASK = "\u0000nueva";
 
 export default class Profiles extends Panel {
   setup() {
-    this.title = "Perfiles de modelos";
-    this.placeholder = "Perfil…";
-    this.data = { profiles: [], roles: [], suggest: [] };
+    this.title = "Perfiles de modelos y tareas";
+    this.placeholder = "Perfil, tarea o modelo…";
+    this.data = { profiles: [], roles: [], providers: [] };
+    this.tasks = { tasks: [], providers: [] };
+    this.models = [];
     this.editing = null;   // el perfil que se edita (nivel roles)
-    this.role = null;      // el rol al que se le elige modelo (nivel modelos)
+    this.role = null;      // el rol al que se le elige modelo
+    this.task = null;      // la tarea a la que se le elige modelo: { name, desc, spec }
     this.confirm = null;
   }
 
   async load() {
-    this.data = await bk(["profile", "--json"], { json: true, timeout: 8000 });
+    const [p, t, m] = await Promise.all([
+      bk(["profile", "--json"], { json: true, timeout: 8000 }),
+      bk(["ask", "--json"], { json: true, timeout: 8000 }),
+      bk(["models", "--json"], { json: true, timeout: 30000 }).catch(() => []),
+    ]);
+    this.data = p;
+    this.tasks = t;
+    this.models = m;
   }
 
   prof() { return this.data.profiles.find((p) => p.name === this.editing) ?? null; }
+  picking() { return Boolean(this.role || this.task); }
 
   subtitle() {
+    if (this.task) return `tarea ${this.task.name} › modelo`;
     if (this.role) return `${this.editing} › ${this.role}`;
     if (this.editing) return this.editing + (this.editing === this.data.active ? " · activo" : "");
-    return this.data.active ? `activo: ${this.data.active}` : "sin perfil: cada rol sale de roles.yml";
+    return this.data.active ? `perfil activo: ${this.data.active}` : "sin perfil: cada rol sale de roles.yml";
   }
 
   rows() {
     const q = this.query;
-    if (this.role) {
-      const cur = this.prof()?.roles?.[this.role];
-      const items = [...this.data.suggest.map((s) => ({ key: s, spec: s, cur: s === cur })), { key: OTHER, spec: "Otro… (provider/modelo)", other: true }];
-      return rank(items, q, (r) => r.spec).map(({ item, hits }) => ({ ...item, hits }));
+    const found = (items, text) => rank(items, q, text).map(({ item, hits }) => ({ ...item, hits }));
+    if (this.picking()) {
+      const cur = this.task ? this.task.spec : this.prof()?.roles?.[this.role];
+      const allowed = this.task ? this.tasks.providers : this.data.providers;
+      const out = [];
+      for (const prov of allowed) {
+        const items = this.models.filter((m) => m.provider === prov)
+          .map((m) => ({ key: `${prov}/${m.model}`, spec: `${prov}/${m.model}`, desc: m.desc, cur: `${prov}/${m.model}` === cur }));
+        const got = found(items, (r) => [r.spec, r.desc]);
+        if (got.length) out.push({ head: prov }, ...got);
+      }
+      out.push({ head: "otro" }, { key: OTHER, spec: "Otro… (escribir provider/modelo)", other: true, hits: [] });
+      return out;
     }
     if (this.editing) {
       const roles = this.prof()?.roles ?? {};
-      const items = this.data.roles.map((r) => ({ key: r, role: r, spec: roles[r] ?? null }));
-      return rank(items, q, (r) => [r.role, r.spec ?? ""]).map(({ item, hits }) => ({ ...item, hits }));
+      return found(this.data.roles.map((r) => ({ key: r, role: r, spec: roles[r] ?? null })), (r) => [r.role, r.spec ?? ""]);
     }
-    const items = this.data.profiles.map((p) => ({ key: p.name, p }));
-    return rank(items, q, (r) => [r.p.name, r.p.summary]).map(({ item, hits }) => ({ ...item, hits }));
+    const profs = found(this.data.profiles.map((p) => ({ key: `p:${p.name}`, p })), (r) => [r.p.name, r.p.summary]);
+    const tasks = found(this.tasks.tasks.map((t) => ({ key: `t:${t.name}`, t })), (r) => [r.t.name, `${r.t.spec} ${r.t.desc}`]);
+    const out = [];
+    if (profs.length) out.push({ head: "Perfiles", note: "los modelos de los roles" }, ...profs);
+    out.push({ head: "Tareas", note: "bk ask: el orquestador se las pasa a ese modelo" }, ...tasks,
+      { key: NEW_TASK, newTask: true, hits: [] });
+    return out;
   }
 
-  empty() {
-    if (this.editing) return "Nada coincide.";
-    return this.query.trim() ? "Ningún perfil coincide: ctrl+n crea uno con ese nombre." : "No hay perfiles.";
-  }
+  empty() { return "Nada coincide."; }
 
   draw(t, r, on) {
     const fg = on ? t.foreground : t.muted;
-    if (this.role) {
-      return h_flex().flex_1().min_w(0).gap(10).items_center()
-        .child(div().flex_1().min_w(0).child(lit(t, r.spec, r.hits, r.other ? t.dim : fg)))
+    const sure = this.confirm === r.key;
+    const row = () => h_flex().flex_1().min_w(0).gap(10).items_center();
+    if (this.picking()) {
+      return row()
+        .child(div().w(250).flex_none().child(lit(t, r.spec, r.hits, r.other ? t.dim : fg)))
+        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(r.desc ?? ""))
         .when(Boolean(r.cur), (el) => el.child(pill(t, "ahora", t.accent)));
     }
     if (this.editing) {
-      return h_flex().flex_1().min_w(0).gap(10).items_center()
+      return row()
         .child(div().w(150).flex_none().child(lit(t, r.role, r.hits, fg)))
         .child(div().flex_1().min_w(0).truncate().text_color(r.spec ? t.foreground : t.dim).child(r.spec ?? "de roles.yml"));
     }
-    const sure = this.confirm === r.key, act = r.p.name === this.data.active;
-    return h_flex().flex_1().min_w(0).gap(10).items_center()
+    if (r.newTask) return row().child(div().flex_1().text_color(t.dim).child("Nueva tarea…"));
+    if (r.t) {
+      return row()
+        .child(div().w(110).flex_none().child(lit(t, r.t.name, r.hits, fg)))
+        .child(div().w(210).flex_none().truncate().text_size(12).text_color(r.t.installed ? t.foreground : t.blocked).child(r.t.spec))
+        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(sure ? "" : r.t.desc))
+        .when(sure, (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).child("ctrl+x de nuevo para borrar")))
+        .when(!sure && !r.t.installed, (el) => el.child(pill(t, "falta la CLI", t.blocked)));
+    }
+    const act = r.p.name === this.data.active;
+    return row()
       .child(div().w(110).flex_none().child(lit(t, r.p.name, r.hits, act ? t.accent : fg)))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(r.p.summary))
       .when(sure, (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).child("ctrl+x de nuevo para borrar")))
@@ -76,99 +113,132 @@ export default class Profiles extends Panel {
   }
 
   hints(row) {
-    if (this.role) return [["enter", "usar este"], ["left", "volver"], ["escape", "cerrar"]];
+    const tail = [["ctrl-o", "archivo"], ["escape", "cerrar"]];
+    if (this.picking()) return [["enter", "usar este"], ["left", "volver"], ["escape", "cerrar"]];
     if (this.editing) return [["enter", "cambiar el modelo"], ["left", "volver"], ["ctrl-u", "usar este perfil"], ["escape", "cerrar"]];
+    if (row?.newTask) return [["enter", "crear una tarea"], ...tail];
+    if (row?.t) return [["enter", "cambiar el modelo"], ["ctrl-e", "descripción"], ["ctrl-x", this.confirm === row.key ? "de nuevo para borrar" : "borrar"], ...tail];
     const h = [["enter", "usar"], ["right", "editar"], ["ctrl-n", "nuevo"]];
     if (row?.p && row.p.name !== this.data.active) h.push(["ctrl-x", this.confirm === row.key ? "de nuevo para borrar" : "borrar"]);
-    return [...h, ["ctrl-o", "archivo"], ["escape", "cerrar"]];
+    return [...h, ...tail];
   }
 
   moved() {
     if (this.confirm && this.confirm !== this.current()?.key) this.confirm = null;
   }
 
-  go(cx, editing, role) {
-    this.editing = editing;
-    this.role = role;
-    this.query = "";
+  go(cx, { editing = null, role = null, task = null } = {}) {
+    Object.assign(this, { editing, role, task, query: "", at: 0, scroll: 0 });
     this.input.set_value("");
-    this.at = 0;
-    this.scroll = 0;
     cx.notify();
   }
 
   back(cx) {
-    if (this.role) this.go(cx, this.editing, null);
-    else if (this.editing) this.go(cx, null, null);
+    if (this.role) this.go(cx, { editing: this.editing });
+    else if (this.task || this.editing) this.go(cx);
     else return false;
     return true;
   }
 
-  // bk profile <args>: corre, avisa si falla y relee
+  // bk <profile|ask> <args>: corre, avisa si falla y relee
   change(cx, label, args, ok) {
     return this.work(cx, label, async (cx) => {
-      const r = await bk(["profile", ...args], { timeout: 10000 });
-      if (r.code !== 0) throw new Error(lastLine(r.stderr) || `bk profile salió con ${r.code}`);
+      const r = await bk(args, { timeout: 10000 });
+      if (r.code !== 0) throw new Error(lastLine(r.stderr) || `bk ${args[0]} salió con ${r.code}`);
       await this.load();
       ok?.(r, cx);
     });
   }
 
   use(cx, name) {
-    this.change(cx, "cambiando…", [name], (r) => {
+    this.change(cx, "cambiando…", ["profile", name], (r) => {
       notify({ title: `Perfil ${name}`, body: lastLine(r.stdout).replace(/^perfil [^:]*: /, ""), level: "success", timeout: 5000 });
       this.close();
     });
   }
 
   setSpec(cx, spec) {
+    if (this.task) {
+      const { name, desc } = this.task;
+      return this.change(cx, "guardando…", ["ask", "set", name, spec, ...(desc ? [desc] : [])], (_r, cx) => {
+        notify({ title: `Tarea ${name}`, body: spec, level: "success", timeout: 4000 });
+        this.go(cx);
+      });
+    }
     const { editing, role } = this;
-    this.change(cx, "guardando…", ["set", editing, role, spec], (_r, cx) => {
+    this.change(cx, "guardando…", ["profile", "set", editing, role, spec], (_r, cx) => {
       notify({ title: `${editing}: ${role}`, body: spec, level: "success", timeout: 4000 });
-      this.go(cx, editing, null);
+      this.go(cx, { editing });
     });
   }
 
+  // Nueva tarea: el nombre, para qué sirve (lo lee el orquestador) y después el modelo
+  newTask(cx) {
+    this.askFor({ label: "tarea", title: "Nueva tarea", help: "Un nombre corto: imagenes, investigar, traducir… (minúsculas, números y guiones).",
+      verb: "seguir", run: (name) => {
+        name = name.toLowerCase().replace(/\s+/g, "-");
+        this.askFor({ label: name, title: `¿Para qué sirve ${name}?`, help: "El orquestador lo lee para saber cuándo usarla. Ej.: buscar información en la web y responder con las fuentes.",
+          verb: "elegir el modelo", run: (desc) => this.go(cx, { task: { name, desc, spec: null } }) });
+      } });
+  }
+
   enter(r, cx) {
-    if (this.role) {
+    if (this.picking()) {
       if (!r.other) return this.setSpec(cx, r.spec);
-      return this.askFor({ label: this.role, title: `Modelo para ${this.role} en ${this.editing}`,
-        help: "<provider>/<modelo>: claude/opus, claude/claude-opus-5-5, codex/gpt-5… Providers: " + (this.data.providers ?? []).join(", "),
+      const allowed = (this.task ? this.tasks.providers : this.data.providers).join(", ");
+      return this.askFor({ label: this.task?.name ?? this.role, title: "Otro modelo",
+        help: `<provider>/<modelo>, por ejemplo codex/gpt-6.1-sol o gemini/gemini-3.5-flash. Providers: ${allowed}`,
         verb: "guardar", run: (text) => this.setSpec(cx, text) });
     }
-    if (this.editing) return this.go(cx, this.editing, r.role);
+    if (this.editing) return this.go(cx, { editing: this.editing, role: r.role });
+    if (r.newTask) return this.newTask(cx);
+    if (r.t) return this.go(cx, { task: { name: r.t.name, desc: "", spec: r.t.spec } });
     this.use(cx, r.p.name);
+  }
+
+  // El primer ctrl+x pregunta (en la fila y en el pie); el segundo, sobre la misma fila, borra
+  sure(row, cx) {
+    if (this.confirm === row.key) { this.confirm = null; return true; }
+    this.confirm = row.key;
+    const n = (this.asked = (this.asked ?? 0) + 1);
+    cx.timer.after(SURE_MS, (cx) => { if (this.asked === n && this.confirm) { this.confirm = null; cx.notify(); } });
+    return false;
   }
 
   key(e, row, cx) {
     const k = e.key, ctrl = e.modifiers.control;
     // ← y → mueven el cursor mientras hay algo escrito; con el buscador vacío, cambian de nivel
     if (k === "left" && !ctrl && !this.query) return this.back(cx);
-    if (((k === "right" && !this.query) || k === "tab") && !this.editing && row?.p) { this.go(cx, row.p.name, null); return true; }
+    if (((k === "right" && !this.query) || k === "tab") && !this.editing && !this.picking() && row?.p) { this.go(cx, { editing: row.p.name }); return true; }
     if (ctrl && k === "u" && this.editing && !this.role) { this.use(cx, this.editing); return true; }
     if (ctrl && k === "o") {
+      const cmd = row?.t || row?.newTask ? "ask" : "profile";
       this.close();
-      termPopup("profiles", `'${bin()}' profile edit`, cwd()).catch((err) => notify({ title: "bk profile", body: String(err?.message ?? err), level: "error" }));
+      termPopup("profiles", `'${bin()}' ${cmd} edit`, cwd()).catch((err) => notify({ title: "bk", body: String(err?.message ?? err), level: "error" }));
       return true;
     }
-    if (this.editing) return false;
+    if (this.editing || this.picking()) return false;
     if (ctrl && k === "n") {
+      if (row?.t || row?.newTask) { this.newTask(cx); return true; }
       const from = row?.p?.name ?? this.data.active ?? "normal";
       const typed = this.query.trim().toLowerCase().replace(/\s+/g, "-");
       this.askFor({ label: "nuevo", title: `Perfil nuevo, copia de ${from}`, help: "Minúsculas, números y guiones. Después elegí el modelo de cada rol.",
-        value: typed, verb: "crear", run: (name) => this.change(cx, "creando…", ["new", name, from], (_r, cx) => this.go(cx, name, null)) });
+        value: typed, verb: "crear", run: (name) => this.change(cx, "creando…", ["profile", "new", name, from], (_r, cx) => this.go(cx, { editing: name })) });
+      return true;
+    }
+    if (ctrl && k === "e" && row?.t) {
+      const t = row.t;
+      this.askFor({ label: t.name, title: `¿Para qué sirve ${t.name}?`, help: "El orquestador lo lee para saber cuándo usarla.", value: t.desc,
+        verb: "guardar", run: (desc) => this.change(cx, "guardando…", ["ask", "set", t.name, t.spec, desc]) });
+      return true;
+    }
+    if (ctrl && k === "x" && row?.t) {
+      if (this.sure(row, cx)) this.change(cx, "borrando…", ["ask", "rm", row.t.name]);
       return true;
     }
     if (ctrl && k === "x" && row?.p) {
       if (row.p.name === this.data.active) { notify({ title: "No borro el activo", body: "Elegí otro perfil antes.", level: "warning" }); return true; }
-      if (this.confirm !== row.key) {
-        this.confirm = row.key;
-        const n = (this.asked = (this.asked ?? 0) + 1);
-        cx.timer.after(SURE_MS, (cx) => { if (this.asked === n && this.confirm) { this.confirm = null; cx.notify(); } });
-        return true;
-      }
-      this.confirm = null;
-      this.change(cx, "borrando…", ["rm", row.p.name]);
+      if (this.sure(row, cx)) this.change(cx, "borrando…", ["profile", "rm", row.p.name]);
       return true;
     }
     return false;

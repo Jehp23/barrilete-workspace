@@ -11,6 +11,7 @@ bk peek [ventana]  bk say <ventana> "…"   bk watch [ventana|--all]
 bk monitor         bk checkpoints   bk tasks         bk done <resultado>   bk approve <tarea>
 bk account         bk account use <cuenta> [--relaunch]   bk run … --account <cuenta>
 bk roles           bk mode <rol>    bk profile [perfil]  bk song [estación]   bk theme [day|night|auto]
+bk ask [tarea "…"] bk models [provider]
 ```
 
 ## Workspace (`bk`)
@@ -151,7 +152,7 @@ pisan con los del repo (se editan acá).
 
   Las catorce primeras abren un panel; las siete que siguen son acciones sin panel; las dos últimas, comandos de Herdr.
   Sin tecla: `bk-out` (la salida de un comando que solo imprime: tokens, roles, cuentas…; lo abre `alt+k`),
-  `bk-profiles` (los perfiles de modelos; lo abre «Perfiles de modelos: editar…» de `alt+k`),
+  `bk-profiles` (perfiles de modelos y tareas; lo abre «Perfiles de modelos y tareas…» de `alt+k`),
   `bk-aviso` (muestra los avisos que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic del aviso «Resumen
   listo»). El rastro de `alt+0` y la adopción los lleva el mod `bk-barra`, que está en `bk-lavanda`: en un layout
   que no lo tenga, `alt+0` no tiene a dónde volver y adoptar queda para `bk _adopt <terminal>` o `bk handoff --term`.
@@ -219,11 +220,21 @@ en zsh, que expande el `=`).
 - `roles.yml` dice qué provider/modelo corre cada rol; un proyecto lo pisa con `.barrilete/roles.yml`.
 - Perfiles de modelos (`bk profile`, `profiles.yml`): un juego de provider/modelo por rol (`normal`, `barato`, `a-fondo`)
   que se cambia de una vez y vale para todos los proyectos. `bk profile barato` lo elige y `bk profile off` vuelve a
-  `roles.yml`; en `alt+k` hay un renglón «Usar el perfil …» por perfil y «Perfiles de modelos: editar…» abre el panel
+  `roles.yml`; en `alt+k` hay un renglón «Usar el perfil …» por perfil y «Perfiles de modelos y tareas…» abre el panel
   (→ edita un perfil, enter en un rol elige el modelo, «Otro…» acepta cualquier `provider/modelo`, así un perfil mezcla
   `claude/…` y `codex/…`). Editar copia los de fábrica a `~/.config/bk/profiles.yml`, que desde ahí manda.
   Solo cambia modelos: el modo sale de `roles.yml`. Orden: `.barrilete/roles.yml` del proyecto, el perfil y `roles.yml`.
   Los agentes que ya corren siguen con el modelo con el que arrancaron.
+- Tareas (`bk ask`, `tareas.yml`): un modelo de cualquier proveedor (claude, codex, gemini) para un trabajo puntual,
+  con una descripción que lee el orquestador para saber cuándo usarla. De fábrica: `imagenes` → `codex/gpt-6.1-sol`
+  y `investigar` → `gemini/gemini-3.5-flash`. `bk ask imagenes "…"` corre sin pantalla en
+  `~/.cache/bk/ask/<fecha>-<tarea>/` (codex escribe solo ahí; gemini sin `--yolo`; claude solo texto), imprime la
+  respuesta y los archivos que dejó, y corta a los 10 min (`--timeout`); si el proveedor se quedó sin cuota (429) lo
+  dice. `bk ask set <tarea> <provider>/<modelo> <para qué>` y `bk ask rm` las editan (en `~/.config/bk/tareas.yml`).
+  Gemini es solo para tareas: no puede ocupar un rol (no tiene las barandas de Claude Code).
+- `bk models [provider]`: los modelos para elegir. Codex sale de su CLI (`codex debug models`, guardado un día);
+  Claude Code y Gemini no listan los suyos, así que salen de `models.yml` más `~/.config/bk/models.yml`.
+  El panel «Perfiles de modelos y tareas» de `alt+k` los muestra agrupados por proveedor.
 - `--dry-run` en cualquier comando de agentes, y en `bk ws` y `bk chat` (también `--rama`, `--suelto` y `--desde`), muestra qué haría sin lanzar ni abrir nada.
 - Provider `codex`: preparado pero sin probar. Las barandas y los eventos de las tareas le llegan por el `.codex/hooks.json`
   del proyecto (los trae el kit), pero no está verificado que Codex los dispare igual que Claude Code.

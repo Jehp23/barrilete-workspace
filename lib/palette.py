@@ -21,6 +21,8 @@ ENTRIES = [
     ("Agentes", "Orquestar (hasta 3 issues)", "orchestrate", None, "run"),
     ("Agentes", "Perfiles de modelos", "profile", None, "show"),
     ("Agentes", "Usar un perfil de modelos", "profile", "perfil (normal, barato, a-fondo…)", "show"),
+    ("Agentes", "Tareas por modelo (bk ask)", "ask", None, "show"),
+    ("Agentes", "Modelos de cada proveedor", "models", None, "show"),
     ("Agentes", "Cerrar la ventana de un agente", "stop", "ventana", "run"),
     ("Vistas", "Agentes en vivo", "watch --all", None, "view"),
     ("Vistas", "Cambios sin commitear", "changes", None, "view"),
