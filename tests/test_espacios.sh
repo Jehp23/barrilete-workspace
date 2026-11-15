@@ -140,6 +140,146 @@ assert.deepEqual([E.keyOf(sp('a', 'x')), E.keyOf(sp('a', 'x', { machine: 'pc' })
 ok('colores: las muestras son nombres del tema; además vale #rrggbb, y null es "sin color"');
 JS
 
+# La lista y el diálogo (herdr/mods/agentes/lista.js y editar.js) con un Herdr falso: cada elemento anota sus
+# manejadores por id, y el test hace lo que haría el mouse (apretar en una fila, soltar en otra).
+node --input-type=module - "$ROOT" "$TMP/espacios.mjs" <<'JS'
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const [root, model] = process.argv.slice(2);
+const E = await import(model);
+let n = 0;
+const ok = (what) => console.log(`ok ui ${++n} - ${what}`);
+const src = (f) => fs.readFileSync(`${root}/herdr/mods/agentes/${f}.js`, 'utf8').replace(/^import .*;$/gm, '').replace(/^export /gm, '');
+let reg = {}, ran = [], execd = [], opened = [], store = {}, live = [], P = {};
+const el = () => {
+  const me = { h: {} };
+  const p = new Proxy(me, { get: (_, key) => (...a) => {
+    if (key === 'id') { me.id = a[0]; reg[a[0]] = me.h; }
+    else if (key === 'on_mouse_down' || key === 'on_mouse_up') me.h[`${key}:${a[0]}`] = a[1];
+    else if (String(key).startsWith('on_')) me.h[key] = a[0];
+    else if (key === 'when' && a[0]) a[1](p);
+    return p;
+  } });
+  return p;
+};
+globalThis.localStorage = { d: {}, getItem(k) { return this.d[k] ?? null; }, setItem(k, v) { this.d[k] = v; } };
+const cx = { notify() {}, stop_propagation() {}, timer: { after() {} }, spawn: (f) => f(cx) };
+const shared = (k) => store[k] ?? null, setShared = (k, v) => { store[k] = v; };
+const iconButton = (_t, id, _i, action) => el().id(id).on_click(action);
+const L = new Function('div', 'svg', 'image', 'v_flex', 'h_flex', 'spaces', 'agents', 'terminals', 'run', 'shared', 'setShared', 'openOverlay',
+  'exec', 'notify', 'home', 'checking', 'ICONS', 'RANK', 'al', 'mark', 'iconButton', 'rule', 'E', src('lista') + '\nreturn { Lista, avatar, paint, menu, edit };')(
+  el, el, el, el, el, () => live, () => [], () => [], (name, args) => ran.push([name, args]), shared, setShared, (o) => opened.push(o),
+  async (...a) => { execd.push(a); return { code: 0, stdout: '', stderr: '' }; }, () => {}, () => '/home/yo', () => false, 'i/', { blocked: 4, done: 3, working: 2, idle: 1 },
+  (c) => c, el, iconButton, el, E);
+const t = new Proxy({}, { get: (_, k) => `#${String(k)}` });
+const sp = (id, name, extra = {}) => ({ id, name, folder: `/p/${name}`, machine: null, branch: null, status: 'idle', active: false, ...extra });
+live = [sp('s1', 'abra', { active: true }), sp('s2', 'bk', { status: 'blocked' }), sp('s3', 'chats')];
+let st = E.sync(E.clean(null), [...live, sp('s0', 'viejo')]);
+st = E.move(E.move(E.createFolder(st, 'c1', 'Trabajo'), 'e:abra', { dentro: 'c1' }), 'e:viejo', { dentro: 'c1' });
+store[E.KEY] = st;
+const lista = new L.Lista();
+const draw = () => { reg = {}; lista.section(t); return E.view(E.clean(store[E.KEY]), live).map((r) => (r.kind === 'carpeta'
+  ? `${r.c.nombre}[${r.filas.map((f) => (f.s ? '' : '~') + f.key).join(' ')}]` : r.key)).join(' '); };
+const dragTo = (a, b) => { reg[a]['on_mouse_down:left'](); if (a !== b) reg[b].on_mouse_move({}, cx); reg[b]['on_mouse_up:left']({}, cx); };
+
+assert.equal(draw(), 'bk chats Trabajo[abra ~viejo]');
+assert.deepEqual(Object.keys(reg).filter((k) => /^(sp|fo)-/.test(k)).sort(), ['fo-c1', 'sp-list', 'sp-s1', 'sp-s2', 'sp-s3', 'sp-x-viejo']);
+assert.deepEqual(ran.map((r) => [r[0], r[1].id]), [['space.move', 's2'], ['space.move', 's3']], 'Herdr queda en el orden de la lista');
+ok('dibuja los sueltos, la carpeta y, apagado, el cerrado que quedó en ella; y ordena Herdr como la lista');
+
+ran = [];
+dragTo('sp-s2', 'fo-c1');
+assert.equal(draw(), 'chats Trabajo[abra ~viejo bk]');
+dragTo('sp-s3', 'sp-s1');
+assert.equal(draw(), 'Trabajo[abra chats ~viejo bk]', 'venía de arriba: queda después de la fila');
+assert.ok(!ran.some((r) => r[0] === 'space.select'), 'soltar no es un clic');
+dragTo('sp-s1', 'fo-c1');
+assert.equal(draw(), 'abra Trabajo[chats ~viejo bk]');
+dragTo('fo-c1', 'sp-s1');
+assert.equal(draw(), 'Trabajo[chats ~viejo bk] abra');
+dragTo('sp-s1', 'sp-s2');
+assert.equal(draw(), 'Trabajo[chats ~viejo abra bk]', 'venía de abajo: queda antes de la fila');
+ok('arrastrar: a una carpeta, a un lugar dentro de ella, afuera (soltado sobre la suya), y la carpeta entera');
+
+reg['sp-s2']['on_mouse_down:left']();
+reg['sp-s1'].on_mouse_move({}, cx);
+reg['sp-list']['on_mouse_up:left']({}, cx);
+assert.deepEqual([draw(), lista.drag], ['Trabajo[chats ~viejo abra bk]', null]);
+ok('soltar fuera de una fila no mueve nada');
+
+ran = [];
+dragTo('sp-s3', 'sp-s3');
+assert.deepEqual(ran.filter((r) => r[0] === 'space.select'), [['space.select', { id: 's3' }]]);
+dragTo('sp-x-viejo', 'sp-x-viejo');
+assert.deepEqual(execd[0].slice(0, 2), ['bk', ['_do', '--cwd', '/p/viejo', '--title', 'Abrir viejo', '--', 'open', '/p/viejo']]);
+ok('un clic muestra el espacio; en uno cerrado, lo reabre con bk open en su carpeta');
+
+dragTo('fo-c1', 'fo-c1');
+draw();
+assert.deepEqual(Object.keys(reg).filter((k) => k.startsWith('sp-') && k !== 'sp-list'), ['sp-s1'], 'plegada, queda a la vista solo el espacio que mirás');
+assert.equal(JSON.parse(localStorage.getItem('carpetas.plegadas'))[0], 'c1');
+reg = {}; lista.railSection(t);
+assert.deepEqual(Object.keys(reg).sort(), ['fo-c1', 'sp-s1']);
+ok('un clic en la carpeta la pliega (y se recuerda); el riel muestra la carpeta y el espacio que mirás');
+
+opened = [];
+reg = {}; lista.section(t);
+reg['folder-new'].on_click({}, cx);
+const made = Object.keys(store[E.KEY].carpetas).find((k) => k !== 'c1');
+assert.deepEqual([store[E.KEY].carpetas[made].nombre, opened[0].mod, opened[0].props], ['Carpeta nueva', 'bk-agentes', { editar: `c:${made}` }]);
+reg['sp-s1']['on_mouse_down:right']({}, cx);
+reg['fo-c1']['on_mouse_down:right']({}, cx);
+assert.deepEqual(opened.slice(1).map((o) => [o.mod, o.props]), [['bk-menu', { tab: 'space', target: { id: 's1' } }], ['bk-menu', { tab: 'folder', target: { id: 'c1' } }]]);
+ok('el botón de carpeta nueva la crea y abre su diálogo; el clic derecho abre el menú de bk');
+
+// El diálogo: nombre, color e imagen, aplicados al momento
+const inputs = [];
+const InputState = { new: (o = {}) => { const i = { v: o.value ?? '', h: {}, on(e, f) { this.h[e] = f; }, value() { return this.v; }, set_value(v) { this.v = v; }, focus() {} }; inputs.push(i); return i; } };
+const closed = [];
+const Editar = new Function('div', 'svg', 'v_flex', 'h_flex', 'InputState', 'Input', 'shared', 'setShared', 'props', 'closeOverlay', 'exec', 'ICONS', 'E', 'avatar', 'paint',
+  src('editar') + '\nreturn Editar;')(el, el, el, el, InputState, { new: el }, shared, setShared, () => P, (o) => closed.push(o),
+  async (cmd, args) => (args[1] === '/mal.txt' ? { code: 1, stdout: '', stderr: 'no es una imagen (png, jpg, webp o svg): mal.txt\n' } : { code: 0, stdout: 'mods/bk-agentes/logos/x.png\n', stderr: '' }),
+  'i/', E, L.avatar, L.paint);
+P = { editar: 'c:c1', overlay: 'o1' };
+let d = new Editar(cx);
+reg = {}; d.render(t);
+const [name, hex, path] = inputs;
+assert.equal(name.value(), 'Trabajo');
+name.set_value('Laburo'); name.h.change({}, cx);
+reg['color-ansi4'].on_click({}, cx);
+assert.deepEqual([store[E.KEY].carpetas.c1.nombre, store[E.KEY].carpetas.c1.color], ['Laburo', 'ansi4']);
+hex.set_value('#12'); hex.h.change({}, cx);
+assert.equal(store[E.KEY].carpetas.c1.color, 'ansi4', 'un hex a medias no cambia nada');
+hex.set_value('#8b5cf6'); hex.h.change({}, cx);
+assert.equal(store[E.KEY].carpetas.c1.color, '#8b5cf6');
+reg['color-none'].on_click({}, cx);
+assert.equal(store[E.KEY].carpetas.c1.color, null);
+ok('diálogo de una carpeta: el nombre, una muestra, un color exacto y "sin color" se aplican al momento');
+path.set_value('/mal.txt'); path.h.submit({}, cx);
+await new Promise((r) => setTimeout(r, 5));
+assert.deepEqual([d.error, store[E.KEY].carpetas.c1.imagen], ['no es una imagen (png, jpg, webp o svg): mal.txt', null]);
+reg = {}; d.render(t);
+reg['bk-editar'].on_drop({ paths: ['/tmp/logo.png'] }, cx);
+await new Promise((r) => setTimeout(r, 5));
+assert.deepEqual([d.error, store[E.KEY].carpetas.c1.imagen], [null, 'mods/bk-agentes/logos/x.png']);
+reg = {}; d.render(t);
+reg['img-off'].on_click({}, cx);
+assert.equal(store[E.KEY].carpetas.c1.imagen, null);
+name.h.submit();
+assert.deepEqual(closed, ['o1']);
+ok('diálogo: la imagen entra por la ruta o soltando el archivo (bk _logo), su error se muestra, y se puede quitar');
+inputs.length = 0;
+P = { editar: 'e:abra', overlay: 'o2' };
+d = new Editar(cx);
+reg = {}; d.render(t);
+assert.equal(inputs.length, 2, 'un espacio no lleva campo de nombre (se renombra con su menú)');
+reg['color-ansi3'].on_click({}, cx);
+assert.deepEqual([store[E.KEY].espacios.abra.color, store[E.KEY].espacios.abra.fijo], ['ansi3', true]);
+P = { editar: 'e:nadie', overlay: 'o3' };
+new Editar(cx).render(t);
+ok('diálogo de un espacio: color e imagen; de algo que ya no está, no falla');
+JS
+
 # bk _logo: la imagen va a mods/bk-agentes/logos/<hash>.<ext> de la carpeta de Herdr y dice la ruta relativa
 N=0; FAILED=0
 check_eq() { N=$((N+1)); if [ "$1" = "$2" ]; then echo "ok logo $N - $3"; else echo "not ok logo $N - $3 (got '$1', want '$2')"; FAILED=$((FAILED+1)); fi; }
