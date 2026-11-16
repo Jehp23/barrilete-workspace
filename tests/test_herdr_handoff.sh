@@ -14,7 +14,7 @@ class Panel {
   close() { calls.push(['close']); }
   async work(cx, label, fn) { try { await fn(cx); this.error = null; } catch (e) { this.error = String(e?.message ?? e); } }
 }
-let calls = [], focus = null, live = [], ctx = { limit: 200000, warn: 150000, default: 200000, custom: false }, setCode = 0;
+let calls = [], focus = null, live = [], hprops = {}, ctx = { limit: 200000, warn: 150000, default: 200000, custom: false }, setCode = 0;
 const bk = async (args, opts = {}) => {
   calls.push(['bk', ...args]);
   if (args[0] === '_hub') return { items: [] };
@@ -22,9 +22,9 @@ const bk = async (args, opts = {}) => {
   if (args[0] === 'context') return setCode ? { code: 1, stdout: '', stderr: 'no es un umbral' } : { code: 0, stdout: `umbral de contexto: ${args[1]}`, stderr: '' };
   return { code: 0, stdout: '', stderr: '' };
 };
-const Handoff = new Function('div', 'h_flex', 'v_flex', 'focused', 'agents', 'notify', 'Panel', 'rank', 'bk', 'launch',
+const Handoff = new Function('div', 'h_flex', 'v_flex', 'focused', 'agents', 'notify', 'props', 'Panel', 'rank', 'bk', 'launch',
   'lastLine', 'ago', 'pill', src + '\nreturn Handoff;')(
-  el, el, el, () => focus, () => live, (...a) => calls.push(['notify', ...a]), Panel,
+  el, el, el, () => focus, () => live, (...a) => calls.push(['notify', ...a]), () => hprops, Panel,
   (items) => items.map((item) => ({ item, hits: [] })), bk, (...a) => calls.push(['launch', ...a]),
   (s) => (s ?? '').trim().split('\n').pop(), () => '1d', el);
 const limits = (h) => h.rows().filter((r) => r.kind === 'limit');
@@ -65,5 +65,30 @@ ctx = { limit: 200000, warn: 150000, default: 200000, custom: false };
 focus = { terminal: 't9' }; live = [{ address: 't9', space_name: 'p', tab_name: 'x' }];
 h = new Handoff(); await h.load();
 assert.deepEqual(h.rows().filter((r) => !r.head).slice(0, 2).map((r) => r.key), ['seguir', 'cerrar'], 'en un chat, primero pedir el resumen');
-console.log('ok - alt+h: el umbral de contexto (11 casos)');
+assert.equal(h.at, 0, 'abierto con alt+h: el cursor en la primera fila');
+
+// Desde la paleta (props section: limit): el cursor en el umbral en uso, aunque esté en un chat
+hprops = { section: 'limit' };
+h = new Handoff(); await h.load();
+assert.deepEqual([h.rows().filter((r) => !r.head)[h.at].kind, h.rows().filter((r) => !r.head)[h.at].on], ['limit', true], 'desde la paleta: parado en el umbral en uso');
+ctx = { limit: 400000, warn: 300000, default: 200000, custom: true }; focus = null;
+h = new Handoff(); await h.load();
+assert.equal(h.rows().filter((r) => !r.head)[h.at].n, 400000, 'desde la paleta, fuera de un chat: en el umbral en uso (400k)');
+console.log('ok - alt+h: el umbral de contexto (14 casos)');
+
+// alt+k: la entrada «Umbral de contexto» abre alt+h con section: limit y la forma de su popup (views.json)
+const psrc = fs.readFileSync(`${process.argv[2]}/herdr/mods/hub/palette.js`, 'utf8')
+  .replace(/^import .*;$/gm, '').replace(/export default class[\s\S]*$/, '');
+const gotos = [];
+const NATIVE = new Function('div', 'h_flex', 'run', 'openOverlay', 'focused', 'notify', 'Panel', 'rank', 'bk', 'bin', 'launch',
+  'goto', 'termPopup', 'chips', 'keyOf', 'lit', 'cwd', 'lastLine', psrc + '\nreturn NATIVE;')(
+  el, el, () => {}, () => {}, () => null, () => {}, class {}, () => [], async () => ({}), () => 'bk', () => {},
+  (...a) => gotos.push(a), () => {}, () => {}, () => {}, el, () => '/h', (s) => s);
+const entry = NATIVE.find((e) => e[0] === 'context');
+assert.ok(entry, 'la paleta tiene la entrada context');
+assert.equal(entry[4], 'mod.open:bk-handoff', 'muestra la tecla de alt+h');
+entry[6]({ close() {} });
+const views = JSON.parse(fs.readFileSync(`${process.argv[2]}/herdr/mods/hub/views.json`, 'utf8'));
+assert.deepEqual(gotos, [['bk-handoff', { props: { section: 'limit' }, overlay: views.handoff.overlay }]], 'abre alt+h en el umbral, con la forma de su popup');
+console.log('ok - alt+k: la entrada del umbral (3 casos)');
 JS

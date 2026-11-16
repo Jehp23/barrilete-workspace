@@ -26,6 +26,9 @@ const NATIVE = [
   ["new", "Chats", "Nuevo… (rama, suelto, otro proyecto)", "bk new", "mod.open:bk-new", "workspace abrir proyecto worktree", view("new")],
   ["sessions", "Chats", "Sesiones: saltar o retomar", "bk s", "mod.open:bk-sessions", "resume recientes orca", view("sessions")],
   ["handoff", "Chats", "Pedir el resumen y seguir en un chat nuevo", "bk handoff", "mod.open:bk-handoff", "contexto clear", view("handoff")],
+  ["context", "Chats", "Umbral de contexto: con cuánto seguir en un chat nuevo…", "bk context", "mod.open:bk-handoff", "contexto ventana tokens umbral límite 200k handoff resumen",
+    // alt+h ya parado en el umbral en uso; la forma del popup es la de "handoff" en views.json
+    (p) => goto("bk-handoff", { props: { section: "limit" }, overlay: { kind: "popup", at: "top", offset: 64, width: 640, height: 0.7 } })],
   ["back", "Chats", "Volver al chat de este espacio", "", "mod.open:bk-back", "orquestador", view("back")],
   ["last", "Chats", "Volver a donde estabas", "", "mod.open:bk-last", "anterior atrás", view("last")],
   ["changes", "Ver", "Cambios sin commitear", "bk changes", "mod.open:bk-changes", "diff git", view("changes")],
@@ -48,7 +51,7 @@ const NATIVE = [
 ];
 
 // Comandos de lib/palette.py que ya tienen entrada nativa arriba (no se repiten)
-const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|chat|song|profile|ask|models)\b/;
+const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|context|chat|song|profile|ask|models)\b/;
 const GROUPS = ["Recientes", "Perfil", "Agentes", "Chats", "Ver", "GitHub", "Sesión", "Barra", "Facultad", "Música", "Ventana"];
 
 export default class Palette extends Panel {

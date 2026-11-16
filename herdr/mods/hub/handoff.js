@@ -5,7 +5,7 @@
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { focused, agents, notify } from "herdr";
+import { focused, agents, notify, props } from "herdr";
 import { Panel, rank, bk, launch, lastLine, ago, pill } from "./kit.js";
 
 export default class Handoff extends Panel {
@@ -27,6 +27,11 @@ export default class Handoff extends Panel {
       bk(["context", "--json"], { json: true, timeout: 8000 }).catch(() => null)]);
     this.ready = h.items ?? [];
     this.ctx = c?.limit ? c : null;
+    // Desde la paleta (alt+k → «Umbral de contexto»): el cursor en el umbral en uso
+    if ((props() ?? {}).section === "limit") {
+      const i = this.rows().filter((r) => !r.head).findIndex((r) => r.kind === "limit" && r.on);
+      if (i >= 0) this.at = i;
+    }
   }
 
   // Las opciones del umbral: las fijas y la elegida (si es otra, de bk context <n>)

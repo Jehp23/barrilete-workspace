@@ -75,9 +75,10 @@ export async function launch(title, args, dir) {
 }
 
 // Otra vista de bk (issues, prs…) o un mod de Herdr, en lugar de esta.
+// Con props abre un overlay (dialog, salvo que extra.overlay diga otra forma: la de views.json de ese panel).
 export function goto(name, extra = {}) {
   closeOverlay(props().overlay);
-  if (extra.props) openOverlay({ mod: name, props: extra.props, kind: "dialog", width: extra.width ?? 0.86, height: extra.height ?? 0.82 });
+  if (extra.props) openOverlay({ mod: name, props: extra.props, kind: "dialog", width: extra.width ?? 0.86, height: extra.height ?? 0.82, ...(extra.overlay ?? {}) });
   else run("mod.open", { name });
 }
 

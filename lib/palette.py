@@ -44,6 +44,8 @@ ENTRIES = [
     ("Sesión", "Pedir el resumen para seguir en un chat nuevo", "handoff", "número de workspace", "show"),
     ("Sesión", "Resúmenes listos para seguir", "handoff --listos", None, "show"),
     ("Sesión", "Seguir en un chat nuevo desde un resumen", "chat --desde", "número de workspace", "view"),
+    ("Sesión", "Umbral de contexto: con cuánto seguir en un chat nuevo", "context", None, "show"),
+    ("Sesión", "Cambiar el umbral de contexto", "context", "tokens (300k, 1m o default)", "show"),
     ("Sesión", "Lecciones por revisar", "lessons", None, "show"),
     ("Sesión", "Registrar desvíos (learn)", "learn", None, "show"),
     ("Apariencia","Tema de día", "theme day", None, "show"),
