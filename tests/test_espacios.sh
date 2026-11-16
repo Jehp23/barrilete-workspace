@@ -316,6 +316,30 @@ ran = [];
 new L.Lista().section(t);
 assert.deepEqual(ran.filter((r) => r[0] === 'space.move').map((r) => r[1]), [{ id: 's2', index: 1 }], 'los de otra máquina no se tocan');
 ok('orden: solo se mueven en Herdr los espacios de esta máquina');
+
+// Otra pantalla (con otra lista) devuelve el orden cada vez que Herdr lo toma: tampoco ahí se insiste sin fin
+const base = [sp('s1', 'abra'), sp('s2', 'bk'), sp('s3', 'chats')];
+live = [...base];
+store[E.KEY] = E.move(E.sync(E.clean(null), live), 'e:chats', { antes: 'e:abra' });
+const pelea = new L.Lista();
+let vueltas = 0;
+clock = 2e6; Date.now = () => clock;
+for (let i = 0; i < 10; i++) {
+  ran = [];
+  pelea.section(t);
+  const plan = ran.filter((r) => r[0] === 'space.move');
+  if (plan.length) vueltas++;
+  for (const [, m] of plan) { const at = live.findIndex((x) => x.id === m.id); live.splice(m.index - 1, 0, live.splice(at, 1)[0]); }
+  clock += 5000; pelea.section(t);          // Herdr lo tomó, la barra lo ve aplicado…
+  live = [...base]; clock += 5000;          // …y la otra pantalla lo devuelve
+}
+assert.ok(vueltas >= 1 && vueltas <= 3, `peleó ${vueltas} vueltas`);
+// Si la lista cambia (la persona mueve algo), se vuelve a pedir
+store[E.KEY] = E.move(E.clean(store[E.KEY]), 'e:bk', { antes: 'e:chats' });
+ran = []; pelea.section(t);
+Date.now = now;
+assert.ok(ran.some((r) => r[0] === 'space.move'), 'un orden nuevo sí se pide');
+ok('orden que otra pantalla devuelve: se pide unas pocas veces y se deja, hasta que la lista cambie');
 JS
 
 # bk _logo: la imagen va a mods/bk-agentes/logos/<hash>.<ext> de la carpeta de Herdr y dice la ruta relativa
