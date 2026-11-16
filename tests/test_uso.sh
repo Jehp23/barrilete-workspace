@@ -42,6 +42,8 @@ assert.deepEqual(U.rows([null, 'pc', 'vps', 'nueva'], read, now), [
 ], 'una lectura vieja o que nunca llegó no se muestra');
 assert.equal(U.rows([null], { '': { cpu: 10, mem: U.HIGH, host: null, at: now } }, now)[0].high, true);
 assert.equal(U.rows([null], { '': { cpu: 10, mem: 10, host: null, at: now } }, now)[0].name, 'esta', 'sin nombre: "esta"');
+assert.deepEqual(['MacBook-Pro-de-Luciano', 'omarchy', 'pc-del-living', 'servidor.casa.lan', 'unnombrelarguisimosincortes'].map(U.short),
+  ['MacBook', 'omarchy', 'pc-del-living', 'servidor', 'unnombrelarg…'], 'un nombre largo queda en su primera parte');
 ok('filas: esta máquina con su nombre, las otras con el de Herdr, y en rojo la que está al límite');
 JS
 
