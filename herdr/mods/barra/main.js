@@ -163,7 +163,7 @@ export default class Barra extends View {
       .when(esperan + done + working === 0, (el) => el.child(seg("b-quiet", "bk-agents", "Agentes").child(mark(t, "idle")).child(list.length + (list.length === 1 ? " agente" : " agentes"))))
       .when(d?.cost_today != null, (el) => el.child(seg("b-cost", "bk-stats", "Uso de hoy").child(div().text_color(t.dim).child("hoy")).child(human(d?.tokens_today ?? 0) + " · $" + (d?.cost_today ?? 0).toFixed(2))))
       .children(U.rows(U.targets(machines()), this.uso, Date.now()).map((u) => seg("b-uso-" + u.key, null, `${u.name}: CPU ${u.cpu}% · memoria ${u.mem}%`)
-        .child(div().max_w(120).truncate().text_color(t.dim).child(u.name))
+        .child(div().text_color(t.dim).child(U.short(u.name)))
         .child(div().text_color(u.cpu >= U.HIGH ? t.blocked : t.muted).child(u.cpu + "%"))
         .child(div().text_color(t.dim).child("·"))
         .child(div().text_color(u.mem >= U.HIGH ? t.blocked : t.muted).child(u.mem + "%"))))

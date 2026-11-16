@@ -35,6 +35,14 @@ export function parse(out) {
   return { cpu: pct(n[0] / n[1]), mem: pct((100 * n[3]) / n[2]), host: host || null };
 }
 
+// El nombre para la barra: uno largo (MacBook-Pro-de-Luciano) queda en su primera parte; el completo va en el tooltip
+export const LONG = 14;
+export function short(name) {
+  if (name.length <= LONG) return name;
+  const head = name.split(/[-._ ]/)[0];
+  return head.length >= 3 && head.length <= LONG ? head : name.slice(0, LONG - 2) + "…";
+}
+
 // A quién se le pregunta: esta máquina (null) y las conectadas que están o pueden estar
 export function targets(machines) {
   return [...new Set([null, ...machines.filter((m) => m.name && m.layout !== "unavailable").map((m) => m.name)])];
