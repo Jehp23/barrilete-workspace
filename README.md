@@ -231,7 +231,8 @@ en zsh, que expande el `=`).
   Los agentes que ya corren siguen con el modelo con el que arrancaron.
 - Tareas (`bk ask`, `tareas.yml`): un modelo de cualquier proveedor (claude, codex, gemini) para un trabajo puntual,
   con una descripción que lee el orquestador para saber cuándo usarla. De fábrica: `imagenes` → `codex/gpt-6.1-sol`
-  y `investigar` → `gemini/gemini-3.5-flash`. `bk ask imagenes "…"` corre sin pantalla en
+  y `investigar` → `codex/gpt-6.1-sol` (codex corre con `--search`: búsqueda web). Antes era Gemini, pero su CLI
+  busca siempre con `gemini-3.5-flash`, sea cual sea el modelo, y con la cuota gratis da 429. `bk ask imagenes "…"` corre sin pantalla en
   `~/.cache/bk/ask/<fecha>-<tarea>/` (codex escribe solo ahí; gemini sin `--yolo`; claude solo texto), imprime la
   respuesta y los archivos que dejó, y corta a los 10 min (`--timeout`); si el proveedor se quedó sin cuota (429) lo
   dice. `bk ask set <tarea> <provider>/<modelo> <para qué>` y `bk ask rm` las editan (en `~/.config/bk/tareas.yml`).

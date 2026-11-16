@@ -204,7 +204,7 @@ export default class Profiles extends Panel {
       if (!r.other) return this.setSpec(cx, r.spec);
       const allowed = this.offered().map((s) => s.provider).join(", ") || "ninguno con sesión";
       return this.askFor({ label: this.task?.name ?? this.role, title: "Otro modelo",
-        help: `<provider>/<modelo>, por ejemplo codex/gpt-6.1-sol o gemini/gemini-3.5-flash. Providers: ${allowed}`,
+        help: `<provider>/<modelo>, por ejemplo codex/gpt-6.1-sol o gemini/gemini-2.5-flash. Providers: ${allowed}`,
         verb: "guardar", run: (text, cx) => this.setSpec(cx, text) });
     }
     if (this.editing) return this.go(cx, { editing: this.editing, role: r.role });

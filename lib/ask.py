@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bk ask: pasarle un trabajo puntual al modelo de una tarea (imágenes → Codex, investigar → Gemini…).
+"""bk ask: pasarle un trabajo puntual al modelo de una tarea (imágenes e investigar → Codex…).
 
   bk ask                                   las tareas, con su modelo y para qué sirven
   bk ask <tarea> "<pedido>" [--timeout S]  correrlo sin pantalla; imprime la respuesta y, si dejó archivos, dónde
@@ -12,7 +12,8 @@ Cada pedido corre en su carpeta, ~/.cache/bk/ask/<fecha>-<tarea>/, con la respue
 (log.txt) y lo que haya generado (imágenes…). El orquestador copia de ahí lo que necesite al worktree.
 
   claude   claude -p --model M                      solo texto (sin permisos para escribir)
-  codex    codex exec -m M -s workspace-write -C <carpeta> --ephemeral   escribe solo en su carpeta (imágenes)
+  codex    codex --search exec -m M -s workspace-write -C <carpeta> --ephemeral   escribe solo en su carpeta
+                                                    (imágenes) y busca en la web (investigar)
   gemini   gemini -m M -p                           con la búsqueda web de Gemini; sin aprobación, lo que pide
                                                     permiso (shell, escribir) no corre
 
@@ -84,7 +85,7 @@ def editable():
 def check_spec(spec):
     m = SPEC_RE.match(spec or "")
     if not m:
-        die(f"«{spec}» no es <provider>/<modelo> (por ejemplo codex/gpt-6.1-sol o gemini/gemini-3.5-flash)")
+        die(f"«{spec}» no es <provider>/<modelo> (por ejemplo codex/gpt-6.1-sol o gemini/gemini-2.5-flash)")
     if m.group(1) not in PROVIDERS:
         die(f"provider desconocido: {m.group(1)} ({' | '.join(PROVIDERS)})")
     if not shutil.which(m.group(1)):
@@ -142,7 +143,7 @@ def command(provider, model, prompt, folder):
     if provider == "claude":
         return ["claude", "-p", "--model", model, prompt]
     if provider == "codex":
-        return ["codex", "exec", "-m", model, "--skip-git-repo-check", "--ephemeral", "-s", "workspace-write",
+        return ["codex", "--search", "exec", "-m", model, "--skip-git-repo-check", "--ephemeral", "-s", "workspace-write",
                 "-C", folder, "-o", os.path.join(folder, "respuesta.md"), prompt]
     if provider == "gemini":
         return ["gemini", "-m", model, "--skip-trust", "-o", "text", "-p", prompt]

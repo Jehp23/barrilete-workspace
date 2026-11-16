@@ -52,7 +52,7 @@ check_eq "$("$B" models gemini --json | "$JQ" -c 'map(select(.model == "gemini-9
 "$B" models nadie >/dev/null 2>&1; check_eq "$?" "1" "models <provider> desconocido: error"
 
 # ---------- bk ask: listar y editar ----------
-check_eq "$("$B" ask --json | "$JQ" -c '[.tasks[] | [.name, .spec]]')" '[["imagenes","codex/gpt-6.1-sol"],["investigar","gemini/gemini-3.5-flash"]]' "ask: las de fábrica (imágenes con codex, investigar con gemini)"
+check_eq "$("$B" ask --json | "$JQ" -c '[.tasks[] | [.name, .spec]]')" '[["imagenes","codex/gpt-6.1-sol"],["investigar","codex/gpt-6.1-sol"]]' "ask: las de fábrica (imágenes e investigar con codex)"
 "$B" ask set resumir claude/haiku resumir textos largos >/dev/null
 check_eq "$("$B" ask --json | "$JQ" -c '.tasks[] | select(.name == "resumir") | [.spec, .desc]')" '["claude/haiku","resumir textos largos"]' "ask set: una tarea nueva con su descripción"
 "$B" ask set imagenes codex/gpt-6-luna >/dev/null
@@ -75,12 +75,14 @@ check_eq "$rc $(head -1 <<<"$out") $(grep -c "^  $dir/barrilete.png$" <<<"$out")
 en_cache() { case "$1" in "$HOME/.cache/bk/ask/"*-imagenes-*) echo bien;; *) echo "$1";; esac; }
 check_eq "$(en_cache "$dir") $(head -c 12 "$dir/pedido.txt")" "bien un barrilete" "cada pedido en su carpeta de ~/.cache/bk/ask, con el pedido guardado"
 check_eq "$(grep -cx -- '-s' "$HOME/codex.args") $(grep -x -A1 -- '-s' "$HOME/codex.args" | tail -1) $(grep -x -A1 -- '-C' "$HOME/codex.args" | tail -1 | sed "s|$dir|DIR|") $(grep -c -- '--ephemeral' "$HOME/codex.args") $(grep -c 'dangerously' "$HOME/codex.args")" "1 workspace-write DIR 1 0" "codex: escribe solo en su carpeta, sin guardar sesión ni saltear el sandbox"
+check_eq "$(sed -n 1,2p "$HOME/codex.args" | tr '\n' ' ')" "--search exec " "codex: con búsqueda web (--search va antes de exec)"
 check_eq "$([ -e "$TMP/pwned" ] && echo corrió || echo literal) $(grep -c 'touch' "$HOME/codex.args")" "literal 1" "el pedido llega como texto: \$(…) y backticks no se ejecutan"
 out=$("$B" ask set resumir claude/haiku resumir >/dev/null; "$B" ask resumir "hola"); rc=$?
 check_eq "$rc $(head -1 <<<"$out") $(sed -n 2,3p "$HOME/claude.args" | tr '\n' ' ')" "0 respuesta de claude --model haiku " "claude: claude -p --model y la respuesta"
 check_eq "$(grep -c -- 'dangerously\|--permission-mode' "$HOME/claude.args")" "0" "claude: sin saltear permisos"
 
-start=$(date +%s); err=$("$B" ask investigar "algo" --timeout 2 2>&1 >/dev/null); rc=$?; took=$(( $(date +%s) - start ))
+"$B" ask set buscar gemini/gemini-2.5-flash buscar en la web >/dev/null   # una tarea de gemini (las de fábrica son de codex)
+start=$(date +%s); err=$("$B" ask buscar "algo" --timeout 2 2>&1 >/dev/null); rc=$?; took=$(( $(date +%s) - start ))
 check_eq "$rc $(grep -c 'pasaron 2 s' <<<"$err") $(grep -c '429' <<<"$err") $([ "$took" -lt 15 ] && echo rápido || echo "$took s")" "2 1 1 rápido" "gemini sin cuota que reintenta: corta a los --timeout segundos y dice que es la cuota (429)"
 sleep 1; check_eq "$(kill -0 "$(cat "$HOME/gemini-hijo.pid")" 2>/dev/null && echo vivo || echo muerto)" "muerto" "al cortar mata también los procesos hijos de la CLI"
 check_eq "$(grep -cx -- '-p' "$HOME/gemini.args") $(grep -cx -- '--yolo' "$HOME/gemini.args") $(grep -c 'approval-mode' "$HOME/gemini.args")" "1 0 0" "gemini: -p sin --yolo (lo que pide permiso no corre)"
@@ -90,7 +92,7 @@ check_eq "$(grep -cx -- '-p' "$HOME/gemini.args") $(grep -cx -- '--yolo' "$HOME/
 "$B" ask imagenes "x" --timeout >/dev/null 2>&1; r3=$?
 check_eq "$r1$r2$r3" "111" "tarea que no existe, sin pedido o --timeout sin número: error"
 PY=$(command -v python3); mkdir -p "$TMP/solo"; ln -s "$PY" "$TMP/solo/python3"
-err=$(PATH="$TMP/solo:/usr/bin:/bin" "$B" ask investigar "x" 2>&1); rc=$?
+err=$(PATH="$TMP/solo:/usr/bin:/bin" "$B" ask buscar "x" 2>&1); rc=$?
 check_eq "$rc $(grep -c 'no está instalada' <<<"$err")" "1 1" "sin la CLI del provider: lo dice y no corre"
 check_eq "$(PATH="$TMP/solo:/usr/bin:/bin" "$B" ask --json | "$JQ" -c '[.tasks[] | .installed] | unique')" '[false]' "ask --json dice si falta la CLI"
 

@@ -89,7 +89,7 @@ uso: bk [comando] [--dry-run]
   mode <rol>        cómo lo lanza el orquestador: main, bk (ventana propia) o sub (subagente)
   profile [nombre]  perfiles de modelos (normal, barato, a-fondo…): un provider/modelo por rol, para todos los
                     proyectos. set <perfil> <rol> <provider>/<modelo> lo edita; new, rm, edit, off. En alt+k: «Perfil»
-  ask [tarea "…"]   un trabajo puntual al modelo de una tarea (imagenes → codex, investigar → gemini…): corre sin
+  ask [tarea "…"]   un trabajo puntual al modelo de una tarea (imagenes e investigar → codex…): corre sin
                     pantalla y devuelve la respuesta y los archivos. set <tarea> <provider>/<modelo> <para qué>, rm
   models [provider] los modelos que se pueden elegir (codex sale de su CLI; claude y gemini de models.yml)
   sub [transcript]  ver en vivo un subagente (sin argumento: elegir de los vivos); clic en └ de la tira

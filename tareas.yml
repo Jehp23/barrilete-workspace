@@ -8,4 +8,4 @@
 # ~/.config/bk/tareas.yml y desde ahí lee y escribe.
 
 imagenes: codex/gpt-6.1-sol   generar imágenes (ilustraciones, íconos, mockups); deja los PNG en la carpeta de la respuesta
-investigar: gemini/gemini-3.5-flash   buscar información en la web (versiones, documentación, precios) y responder con las fuentes
+investigar: codex/gpt-6.1-sol   buscar información en la web (versiones, documentación, precios) y responder con las fuentes
