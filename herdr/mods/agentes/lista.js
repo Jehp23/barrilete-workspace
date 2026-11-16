@@ -14,7 +14,7 @@ const TINTS = ["ansi4", "ansi5", "ansi6", "ansi13", "ansi3", "ansi2"];
 const hash = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 const bin = () => shared("bk.bin") || "bk";
 const ROWS = 10;      // hasta tantas filas la lista mide lo que ocupa; con más, se desplaza dentro de ese alto
-const TRIES = 3;       // y si Herdr no lo toma (otra pantalla, un espacio que no se mueve), no se insiste sin fin
+const TRIES = 3;       // y si Herdr no lo toma o otra pantalla lo devuelve, no se insiste sin fin
 const SETTLE = 2000;  // un space.move puede perder contra otro cambio: no se repite el mismo pedido antes de esto
 
 // El menú del clic derecho (mods/bk-menu), del alto de sus opciones (6 px arriba y abajo, 32 por opción, 9 por raya)
@@ -54,15 +54,21 @@ export class Lista {
     return st;
   }
 
-  // Herdr en el orden de la lista: space.next/prev y los agentes "por espacio" siguen lo que se ve
+  // Herdr en el orden de la lista: space.next/prev y los agentes "por espacio" siguen lo que se ve. Solo los
+  // espacios de esta máquina (van primero): las pantallas conectadas comparten el orden y cada una tiene su
+  // lista, así que si todas lo impusieran entero se pisarían sin fin.
   order(st, sp) {
-    const have = sp.map((s) => s.id), want = E.target(st, sp);
+    const mine = new Set(sp.filter((s) => !s.machine).map((s) => s.id));
+    const have = sp.map((s) => s.id).filter((id) => mine.has(id)), want = E.target(st, sp).filter((id) => mine.has(id));
     const plan = E.moves(have, want);
-    if (!plan.length || checking()) { this.ordering = null; return; }
-    const key = JSON.stringify([have, want]);
-    const tries = this.ordering?.key === key ? this.ordering.tries : 0;
-    if (tries && (tries >= TRIES || Date.now() - this.ordering.at < SETTLE)) return;
-    this.ordering = { key, at: Date.now(), tries: tries + 1 };
+    // La cuenta es por orden pedido y no se borra cuando Herdr lo toma: si otra pantalla lo devuelve, vuelve a
+    // faltar lo mismo. Empieza de nuevo cuando cambia lo que se quiere (moviste algo, se abrió o cerró un espacio).
+    const key = JSON.stringify(want);
+    if (this.ordering?.key !== key) this.ordering = { key, at: 0, tries: 0 };
+    if (!plan.length || checking()) return;
+    if (this.ordering.tries >= TRIES || Date.now() - this.ordering.at < SETTLE) return;
+    this.ordering.at = Date.now();
+    this.ordering.tries++;
     for (const m of plan) run("space.move", m);
   }
 
