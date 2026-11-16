@@ -7,7 +7,8 @@
             lanzó el workspace 3 (←f268: otro agente; ←?: esa ventana ya se cerró). bk lo anota (@bk_parent).
     ─       ⠋ trabajando · ! te espera o pide permiso · ? te pregunta · ⚠ ¿trabado? · ✓ listo · ○ libre ·
             · sin claude (glifo y color de cada estado: gentle.STATES, la misma tabla que el riel y el monitor)
-    1 ●▪    ▪ a la derecha: la sesión ya tiene mucho contexto (ámbar desde 200k, rojo desde 400k; cada
+    1 ●▪    ▪ a la derecha: la sesión ya tiene mucho contexto (rojo desde el umbral de bk context, 200k por defecto;
+            ámbar desde 3/4; cada
             llamada lo vuelve a leer y a pagar). El número exacto, en el tooltip.
     1 ○↪    ↪ a la derecha (en lugar del ▪): ese chat dejó el resumen para seguir en uno nuevo (lib/handoff.py);
             bk chat --desde N o «Seguir desde ws N» en alt+n lo toma.

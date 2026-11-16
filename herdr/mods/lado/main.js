@@ -15,7 +15,9 @@ const ICONS_LADO = "mods/bk-lado/";   // los iconos propios del panel (cuenta.sv
 
 const EVERY = 4000;        // git es barato: el panel sigue lo que pasa
 const SLOW = 60000;        // el uso lee los transcripts y gh sale a la red: una vez por minuto
-const CTX_FULL = 500000;   // el largo de la barra de contexto (ámbar desde 200k, rojo desde 400k: lib/usage.py)
+// El largo de la barra de contexto: 1,25 veces el umbral (bk context; 200k por defecto), así el rojo cae al 80%.
+// El ámbar sale en 3/4 del umbral (lib/usage.py). Sin umbral en el dato (un bk viejo), 400k como antes.
+const ctxFull = (c) => (c.limit || 400000) * 1.25;
 const MAX_FILES = 14;      // archivos a la vista por worktree; el resto se cuenta
 const SHORT = { implementer: "impl", "implementer-light": "light", reviewer: "review", planner: "plan", orchestrator: "orq" };
 const BAD = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"];
@@ -138,14 +140,14 @@ export default class Lado extends View {
         .when(Boolean(account), (x) => x.child(div().flex_none().font_medium().text_color(t.working).child(account)))
         .child(div().flex_1().min_w(0).truncate().text_color(d.email ? t.foreground : t.muted).child(d.email || (account ? "" : "la de siempre")))),
     ];
-    // El contexto de la sesión de Claude de esta carpeta: una barra que se llena, ámbar desde 200k, rojo desde 400k.
+    // El contexto de la sesión de Claude de esta carpeta: una barra que se llena, ámbar desde 3/4 del umbral, rojo desde el umbral.
     const c = d.context;
     if (c) {
       const color = c.level === "high" ? t.ansi1 : c.level === "warn" ? t.blocked : t.done;
       const hint = c.level === "high" ? "sesión muy larga: conviene cortarla (/clear o chat nuevo)" : c.level === "warn" ? "sesión larga" : "contexto de la sesión de Claude de esta carpeta";
       rows.push(h_flex().id("lado-contexto").gap(8).items_center().min_h(18).tooltip(`${c.tokens.toLocaleString("es-AR")} tokens · ${hint}`)
         .child(div().w(66).flex_none().text_color(t.dim).child("Contexto"))
-        .child(div().flex_1().h(5).rounded_full().bg(t.raised).child(div().h(5).rounded_full().bg(color).w(`${Math.max(4, Math.min(100, Math.round((c.tokens / CTX_FULL) * 100)))}%`)))
+        .child(div().flex_1().h(5).rounded_full().bg(t.raised).child(div().h(5).rounded_full().bg(color).w(`${Math.max(4, Math.min(100, Math.round((c.tokens / ctxFull(c)) * 100)))}%`)))
         .child(div().flex_none().w(38).text_right().text_color(c.level ? color : t.foreground).child(`${Math.round(c.tokens / 1000)}k`)));
     }
     rows.push(...this.uso(t, d));

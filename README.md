@@ -50,15 +50,18 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   espera o pide permiso · `?` te pregunta · `⚠` ¿trabado? · `✓` listo · `○` libre. La tira, el riel, el monitor,
   `bk ls` y los overlays dicen lo mismo.
 - **Contexto de cada sesión**: cada llamada vuelve a leer todo el contexto, así que una sesión larga sale cara.
-  La tira marca `▪` (ámbar desde 200k, rojo desde 400k; el número en el tooltip), el riel lo muestra por agente y
+  La tira marca `▪` (rojo desde el umbral, 200k por defecto; ámbar desde 3/4 del umbral; el número en el tooltip), el riel lo muestra por agente y
   para este chat, `bk monitor` en la columna CTX, y `bk land` sugiere `/clear` o un chat nuevo si el chat que lo
-  corrió pasa los 200k. Sale del último turno del transcript (`usage.context_of`), sin llamar a ningún modelo.
+  corrió pasa el ámbar. Sale del último turno del transcript (`usage.context_of`), sin llamar a ningún modelo.
   Al agente se lo dice un hook de Claude Code (`lib/context_hook.py`, en `UserPromptSubmit` y `PostToolUse`): un mensaje
-  en su contexto al cruzar 200k (recomendar `/clear` o un chat nuevo: con Herdr, `alt+h`, que pide el resumen; con tmux, `alt+n`), al cruzar 400k (cerrar en un punto estable y dejar
+  en su contexto al cruzar el ámbar (recomendar `/clear` o un chat nuevo: con Herdr, `alt+h`, que pide el resumen; con tmux, `alt+n`), al cruzar el umbral (cerrar en un punto estable y dejar
   el resumen para seguir, abajo; un agente de bk termina con su `bk done`) y después cada +100k. No repite (estado en `~/.cache/bk/context_hook/`),
   no corre en subagentes y ante cualquier error no dice nada. Se instala en `~/.claude/settings.json`, en `hooks`:
   `{"type": "command", "command": "python3 ~/barrilete-workspace/lib/context_hook.py", "timeout": 5}` en
   `UserPromptSubmit` y en `PostToolUse` (con `"matcher": "*"`).
+  **El umbral lo elegís vos**: `bk context 300k` (o en `alt+h`, «Con cuánto contexto seguir en un chat nuevo») lo
+  guarda en `~/.config/bk/context` para todos los chats; `bk context default` vuelve a 200k, la ventana estándar de
+  contexto de Claude. El ámbar va en 3/4 del umbral.
 - **Seguir en un chat nuevo (handoff)**: el resumen tiene siempre el mismo formato (`lib/handoff.py`): de dónde viene
   (sesión, workspace y número, rama, cuenta: lo completa bk, no el agente), hecho, falta (empezando por el primer paso),
   te espera a vos, no tocar y archivos y comandos; como mucho 40 líneas. Queda en

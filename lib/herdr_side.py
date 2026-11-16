@@ -10,8 +10,8 @@
   profile_name    el perfil de modelos activo (bk profile), o ""
   changes         [{name, branch, path, files: [{code, path, add, del}], more}] por cada worktree del proyecto con
                   algo sin commitear (hasta MAX_FILES archivos; `more` dice cuántos quedaron afuera)
-  context         {tokens, level} de la sesión de Claude más reciente de esa carpeta (level: "", "warn" desde
-                  200k, "high" desde 400k), o null si no tiene ninguna
+  context         {tokens, level, limit} de la sesión de Claude más reciente de esa carpeta (level: "", "warn"
+                  desde 3/4 del umbral, "high" desde el umbral; limit: el umbral de bk context), o null si no tiene
   usage           solo con --usage (lee los transcripts, tarda más): tokens y costo de hoy, acá y en total
   email           el mail de la cuenta de Claude de esa terminal (--account, la etiqueta bk.account; sin ella, la
                   de siempre), o null si no tiene sesión iniciada

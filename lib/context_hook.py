@@ -3,11 +3,12 @@
 
 Cada llamada vuelve a leer todo el contexto, así que una sesión larga sale cara. La tira, el riel y bk monitor
 se lo muestran a la persona; esto se lo dice al agente, con un mensaje en `additionalContext`:
-  - ámbar (desde 200k): cuando termine lo que está haciendo, que recomiende /clear o un chat nuevo.
-  - rojo (desde 400k): que cierre en un punto estable y deje el resumen para seguir en un chat nuevo, con la
+  - ámbar (desde 3/4 del umbral, 150k por defecto): cuando termine lo que está haciendo, que recomiende /clear o
+    un chat nuevo.
+  - rojo (desde el umbral, 200k por defecto; `bk context <n>` lo cambia): que cierre en un punto estable y deje el resumen para seguir en un chat nuevo, con la
     plantilla de handoff.py, en ~/.local/state/bk/handoffs/<session_id>.md (bk chat --desde lo toma).
 
-Sin repetir: avisa una vez al cruzar 200k, una al cruzar 400k y después cada +100k. Lo último avisado queda por
+Sin repetir: avisa una vez al cruzar el ámbar, una al cruzar el rojo y después cada +100k. Lo último avisado queda por
 sesión en ~/.cache/bk/context_hook/<session_id> (BK_CONTEXT_HOOK_STATE lo cambia, para los tests). Si el
 contexto baja (/compact), vuelve a avisar al cruzar de nuevo.
 
@@ -15,7 +16,7 @@ Además, en PostToolUse: si el agente acaba de guardar (Write) el resumen de su 
 <session_id>` suelto, sin esperarlo: bk abre el chat nuevo o avisa (lib/handoff.py). BK_HANDOFF_BK cambia el bk
 que corre (los tests).
 
-Por debajo de 200k, dentro de un subagente (trae agent_id) o ante cualquier error: no imprime nada y sale 0.
+Por debajo del ámbar, dentro de un subagente (trae agent_id) o ante cualquier error: no imprime nada y sale 0.
 Nunca bloquea. El contexto sale de usage.context_of (el último turno del transcript), sin otro parser.
 """
 import json
@@ -26,12 +27,13 @@ STEP = 100_000   # después del rojo, cada cuánto vuelve a avisar
 
 
 def bucket(tokens, U):
-    """0 abajo de 200k · 1 ámbar · 2 rojo (400k) · 3 desde 500k · 4 desde 600k …"""
-    if not tokens or tokens < U.CTX_WARN:
+    """0 abajo del ámbar · 1 ámbar · 2 rojo (el umbral) · 3 desde umbral+100k · 4 desde umbral+200k …"""
+    warn, high = U.ctx_limits()
+    if not tokens or tokens < warn:
         return 0
-    if tokens < U.CTX_HIGH:
+    if tokens < high:
         return 1
-    return 2 + (tokens - U.CTX_HIGH) // STEP
+    return 2 + (tokens - high) // STEP
 
 
 def next_chat():

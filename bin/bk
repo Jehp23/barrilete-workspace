@@ -58,6 +58,8 @@ uso: bk [comando] [--dry-run]
   chat --carpeta D  un chat en esa carpeta (el worktree de una rama: Enter en alt+b), en su propio espacio
   chat --desde N    seguir en un chat nuevo desde el resumen del workspace N (misma carpeta y cuenta; alt+n también)
   handoff [N]       pedirle al chat del workspace N (o de este) el resumen para seguir; --listos: los que hay
+  context [n|default]  con cuánto contexto un chat deja su resumen y sigue en uno nuevo (200k por defecto; el
+                    aviso ámbar sale en 3/4). bk context 300k lo cambia para todos los chats. En alt+h: «Umbral»
                     cuando el chat lo guarda, el chat nuevo se abre solo (si lo pidió el aviso de contexto: un
                     aviso de Herdr con clic; --seguir abre el más nuevo)
                     Con Herdr, N es el número fijo de la ventana (o el nombre del chat). --term <terminal> se lo
@@ -1468,6 +1470,45 @@ cmd_sound() {
   esac
 }
 
+# bk context [n|default|--json]: el umbral de contexto (lib/usage.py, ~/.config/bk/context). Desde ahí el aviso
+# rojo pide el resumen y bk abre el chat nuevo; el ámbar sale en 3/4. Vale para todos los chats, desde el próximo turno.
+cmd_context() {
+  python3 - "$WS/lib" "$@" <<'PY'
+import json, os, sys
+sys.path.insert(0, sys.argv[1]); import usage as U
+args = sys.argv[2:]
+k = lambda n: U.human_ctx(n)
+f = U.ctx_file()
+if not args or args[0] == "--json":
+    warn, high = U.ctx_limits()
+    custom = os.path.exists(f) and U.parse_ctx(open(f).read()) is not None
+    if args:
+        print(json.dumps({"limit": high, "warn": warn, "default": U.CTX_DEFAULT, "custom": custom}))
+    else:
+        print(f"{k(high)}{'' if custom else ' (por defecto)'}: ahí el chat deja su resumen y sigue en uno nuevo; "
+              f"aviso ámbar desde {k(warn)}")
+    sys.exit(0)
+if len(args) != 1:
+    sys.exit("bk context [<n>|default]   (por ejemplo: bk context 300k)")
+if args[0] in ("default", "reset"):
+    try:
+        os.remove(f)
+    except FileNotFoundError:
+        pass
+    print(f"umbral de contexto: {k(U.CTX_DEFAULT)} (por defecto)")
+    sys.exit(0)
+n = U.parse_ctx(args[0])
+if n is None:
+    sys.exit(f"«{args[0]}» no es un umbral: un número de tokens entre {k(U.CTX_MIN)} y {k(U.CTX_MAX)} (200k, 350000, 1m)")
+os.makedirs(os.path.dirname(f), exist_ok=True)
+with open(f + ".tmp", "w") as fh:
+    fh.write(f"{n}\n")
+os.replace(f + ".tmp", f)
+warn, high = U.ctx_limits()
+print(f"umbral de contexto: {k(high)} (aviso ámbar desde {k(warn)}); vale desde el próximo turno de cada chat")
+PY
+}
+
 # role_mode <rol> [raíz]: cómo lo lanza el orquestador (main | bk | sub), la 3.ª columna de roles.yml
 role_mode() {
   local role="$1" root="${2:-}" f mode=""
@@ -1833,6 +1874,7 @@ case "${1:-}" in
   sub)         shift; exec python3 "$WS/lib/subwatch.py" "$@" ;;
   _botenv)     shift; env=(); bot_env "${1:?}" >/dev/null 2>&1; for kv in "${env[@]+"${env[@]}"}"; do [ "$kv" = -e ] || printf '%s\n' "$kv"; done ;;
   sound)       shift; cmd_sound "${1:-status}" ;;
+  context)     shift; cmd_context "$@" ;;
   name)        shift; cmd_name "$@" ;;
   _nth)        tmux_only _nth "los espacios de Herdr"; ws_ids | awk -F'\t' -v n="${2:-1}" '$1 == n {print $2}' ;;   # alt+N: el workspace con ese número
   _ids)        tmux_only _ids "los espacios de Herdr"; ws_ids ;;
