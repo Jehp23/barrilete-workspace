@@ -121,8 +121,8 @@ export default class Menu extends View {
     const t = theme();
     const list = items(props(), this.git);
     const danger = (it) => it[1].endsWith(".close") || it[2]?.action === "remove";
-    // Si Herdr lo abre más bajo que height() (lee el alto de mod.json al arrancar), se desplaza: Cerrar no se pierde
-    return v_flex().id("bk-menu").track_focus(this.handle).size_full().min_h(0).overflow_y_scrollbar().p(PAD).bg(t.popover).text_size(12.5)
+    // Sin barra de desplazamiento: en el popup el menú queda en una raya de 1 px. El alto lo da quien lo abre (height())
+    return v_flex().id("bk-menu").track_focus(this.handle).size_full().min_h(0).p(PAD).bg(t.popover).text_size(12.5)
       .on_key_down((e, cx) => {
         if (e.key === "down") this.at = (this.at + 1) % list.length;
         else if (e.key === "up") this.at = (this.at + list.length - 1) % list.length;

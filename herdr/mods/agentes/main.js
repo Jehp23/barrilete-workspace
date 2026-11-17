@@ -39,7 +39,8 @@ const TINTS = ["ansi4", "ansi5", "ansi6", "ansi13", "ansi3", "ansi2"];
 const hash = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 // El menú del clic derecho de bk (mods/bk-menu): ancho para el texto y las teclas, del alto justo
 // (alto: 6 px arriba y abajo, 32 por opción y 9 por raya; el de un espacio cuenta los tres de worktree)
-const MENU_H = { space: 12 + 5 * 32 + 9, pane: 12 + 5 * 32 + 2 * 9 };
+// El alto de bk-menu para el más largo de cada tipo (tests/test_herdr_mods.sh lo compara con height() de bk-menu)
+const MENU_H = { space: 12 + 5 * 32 + 9, pane: 12 + 6 * 32 + 2 * 9 };
 const menu = (tab, target) => openOverlay({ mod: "bk-menu", kind: "popup", width: 300, height: MENU_H[tab], props: { tab, target } });
 // La marca de un sub-agente. tests/test_herdr_subagents.sh evalúa tree() y subRow() de este archivo sin sus
 // imports (solo les pasa View, div, svg, h_flex, v_flex, agents, run y home): por eso subRow no usa del kit
