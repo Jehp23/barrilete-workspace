@@ -197,7 +197,7 @@ pisan con los del repo (se editan acá).
   Gentleman-Sexy de pi), `bk-gentleman-cute` (el mismo fondo con rosa suave, menta y celeste; del tema
   Gentleman-Cute), `bk-dia` (claro, papel cálido con acento lavanda, para usar de día),
   `bk-papel` (claro, papel blanco y tinta negra con amarillo, coral e índigo, del estilo de Paperfolio) y
-  `bk-papel-night` (su versión de noche: tinta casi negra, texto blanco y acento amarillo); además
+  `bk-papel-night` (su versión de noche: tinta casi negra, texto blanco cálido, bordes suaves y acento amarillo); además
   `catppuccin-mocha`, `rose-pine` y `tokyo-night`. Siguen al repo mientras no los retoques: bk anota qué instaló
   (`bk-temas.json`) y solo pisa una copia que sigue igual a esa; un tema tuyo con el mismo nombre queda como está y
   se avisa. El `bk-noche` y el `bk-tinta` que instalaron versiones anteriores (ahora `bk-neon` y `bk-papel-night`) se
