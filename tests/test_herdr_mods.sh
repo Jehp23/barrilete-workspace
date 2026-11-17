@@ -197,11 +197,12 @@ const M = new Function('View', 'div', 'svg', 'v_flex', 'h_flex', 'run', 'props',
   class {}, () => ({}), () => ({}), () => ({}), () => ({}), () => {}, () => ({}), () => {}, (o) => opened.push(o), () => ({}),
   () => mKeys, () => mTerms, () => [], () => mPanes, async () => ({ code: 1 }));
 mTerms = [{ address: 't1', labels: {} }, { address: 't2', parent: 't1', labels: { 'herdr.right-click': 'program' } }];
-mPanes = [{ pane: 'p1' }];
+mPanes = [{ pane: 'p1', tab: 'c1' }];
 const pane = M.items({ tab: 'pane', target: { pane: 'p1', terminal: 't1' } });
-assert.deepEqual(pane.map((x) => x[1]), ['pane.split', 'pane.split', 'pane.zoom', 'terminal.right_click', 'pane.close']);
-assert.deepEqual(pane.map((x) => x[0]), ['Dividir a la derecha', 'Dividir abajo', 'Agrandar', 'Clic derecho: al programa', 'Cerrar']);
-assert.ok(pane.every((x) => x[2].pane === 'p1' || x[2].terminal === 't1'), 'actúa sobre la terminal del clic');
+assert.deepEqual(pane.map((x) => x[1]), ['tab.rename', 'pane.split', 'pane.split', 'pane.zoom', 'terminal.right_click', 'pane.close']);
+assert.deepEqual(pane.map((x) => x[0]), ['Renombrar', 'Dividir a la derecha', 'Dividir abajo', 'Agrandar', 'Clic derecho: al programa', 'Cerrar']);
+assert.ok(pane.every((x) => x[2].pane === 'p1' || x[2].terminal === 't1' || x[2].id === 'c1'), 'actúa sobre la terminal del clic');
+assert.deepEqual(pane[0][2], { id: 'c1' }, 'Renombrar es el de la pestaña de esa terminal');
 ok('menú: las opciones de una terminal en una pestaña, en castellano, sobre la terminal del clic');
 const sub = M.items({ tab: 'pane', target: { pane: 'bloque', terminal: 't2' } });
 assert.deepEqual(sub.map((x) => x[0]), ['Clic derecho: menú de Herdr', 'Devolver a t1']);
@@ -210,7 +211,7 @@ assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, 'linked').map((x
 assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, null).map((x) => x[1]), ['space.rename', 'space.close']);
 assert.deepEqual(M.items({ tab: 'tab', target: { id: 'c', space: 's' } }).map((x) => x[1]), ['tab.rename', 'tab.new', 'tab.close']);
 ok('menú: espacio (con los worktrees si es un repo) y pestaña');
-assert.equal(M.height(pane), 12 + 5 * 32 + 2 * 9);
+assert.equal(M.height(pane), 12 + 6 * 32 + 2 * 9);
 assert.equal(JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.height, M.height(pane));
 assert.ok(M.WIDTH >= 280 && JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.width === M.WIDTH);
 ok('menú: el alto justo para las opciones de una terminal, y ancho para el texto y las teclas');

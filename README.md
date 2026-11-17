@@ -99,7 +99,7 @@ pisan con los del repo (se editan acá).
 - **Nombres vivos** (`lib/names.py`): el título que Claude le pone a un chat sale del primer mensaje y no cambia más.
   Al terminar cada turno, cuando el chat queda 20 s quieto, haiku lee lo último (el recap, tus pedidos y su
   respuesta) y la pestaña pasa a llamarse por el tema de ahora; el segundo renglón de la barra de agentes dice en qué
-  quedó (✓ terminó, ? te espera). Un nombre tuyo (`bk name`, renombrar la pestaña, `/rename`) manda: solo cambia el
+  quedó (✓ terminó, ? te espera). Un nombre tuyo (`bk name`, «Renombrar» en el clic derecho de la terminal o de la pestaña, `/rename`) manda: solo cambia el
   estado. `BK_NAMES_OFF=1` lo apaga.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
   su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`) avisa y no

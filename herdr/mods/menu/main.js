@@ -37,8 +37,11 @@ export function items(p, git) {
     const parent = term?.parent && all.find((t) => t.address === term.parent);
     const toProgram = term?.labels?.["herdr.right-click"] === "program";
     // Una terminal fuera de una pestaña (un bloque del layout, una ventana) no tiene pane que dividir ni cerrar
-    const inTab = panes().some((pane) => pane.pane === tg.pane);
+    const tab = panes().find((pane) => pane.pane === tg.pane)?.tab;
+    const inTab = Boolean(tab);
     return [
+      // Renombrar es el de su pestaña (Herdr pregunta el nombre): lib/names.py lo toma como bk name y no lo pisa
+      ...(inTab ? [["Renombrar", "tab.rename", { id: tab }, "square-pen"]] : []),
       ...(inTab ? [
         ["Dividir a la derecha", "pane.split", { direction: "right", pane: tg.pane }, "panel-right"],
         ["Dividir abajo", "pane.split", { direction: "down", pane: tg.pane }, "panel-right"],

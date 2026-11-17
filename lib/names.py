@@ -31,7 +31,7 @@ APP = os.environ.get("BK_HERDR_APP", "herdr-app")
 CLAUDE = os.environ.get("BK_NAMES_CLAUDE", "claude")
 MODEL = os.environ.get("BK_NAMES_MODEL", "haiku")
 TITLE_MAX, STATUS_MAX = 40, 70
-AUTO_TAB = re.compile(r"^(chat-\d+|\d+|tb\w+)?$")   # los nombres que Herdr o bk ponen solos: se pueden pisar
+AUTO_TAB = re.compile(r"^(chat-\d+|\d+|tb\w+|\d+\. general)?$")   # los nombres que Herdr o bk ponen solos: se pueden pisar
 
 
 def cache_dir():
@@ -164,7 +164,10 @@ def apply(term, labels, tr, title, status):
         name = (tab or {}).get("name") or ""
         # La pestaña es de este chat solo si no la renombró nadie: un nombre automático o el que pusimos antes
         ours = tab is not None and (AUTO_TAB.match(name) or name == labels.get("bk.autotitle"))
-        if title != labels.get("bk.autotitle"):
+        if tab is not None and not ours and name:
+            # La renombraste a mano (menú, doble clic): ese es su nombre, también para bk say/go y alt+a
+            sets.append(f"bk.name={name}")
+        elif title != labels.get("bk.autotitle"):
             sets.append(f"bk.autotitle={title}")
         if ours and name != title:
             subprocess.run([APP, "do", "tab.rename", json.dumps({"id": tab_id, "name": title}, ensure_ascii=False)],

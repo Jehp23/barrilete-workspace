@@ -77,8 +77,13 @@ run >/dev/null
 check_eq "$(log app.log | grep -c rename)" "1" "la pestaña tiene el título que pusimos antes: la renombra"
 
 reset "$CHAT" "Lo mío"
-check_eq "$(run)" 'bk.status=? Falta enviar el sitemap, bk.autotitle=Release #1095 en producción' \
-  "pestaña renombrada a mano: no la toca, solo el estado y el título sugerido"
+check_eq "$(run)" 'bk.status=? Falta enviar el sitemap, bk.name=Lo mío' \
+  "pestaña renombrada a mano (menú, doble clic): no la toca y adopta su nombre como bk name"
+check_eq "$(log app.log)" "" "pestaña renombrada a mano: no la renombra"
+
+reset "$CHAT" "1. general"
+run >/dev/null
+check_eq "$(log app.log | grep -c rename)" "1" "«1. general» (el nombre que Herdr le pone a un chat suelto): es automático, la renombra"
 
 reset '{"bk.kind":"chat","herdr.tab":"tbX","bk.name":"deploy"}' "deploy"
 check_eq "$(run)" 'bk.status=? Falta enviar el sitemap' "con bk name: solo el estado"
