@@ -1,6 +1,7 @@
 // El lado derecho de bk en Herdr: lo que mostraba el riel de tmux (lib/rail.py), en tres tarjetas de marco
 // redondeado con el título sobre la línea, como las de la TUI de bk.
 //   SESIÓN   proyecto, rama, cuenta, contexto de la sesión de Claude, uso de hoy y perfil de roles
+//   TODO     los pasos del issue que trabaja el chat: las casillas de su cuerpo («Hecho cuando»), de `bk _todo`
 //   GITHUB   el repo y sus PRs abiertos, cada uno con su estado en color
 //   CAMBIOS  lo que quedó sin commitear en el proyecto y en sus worktrees, con +/−
 // Los datos salen de `bk _side <carpeta>` (lib/herdr_side.py) para la carpeta de la terminal que mirás, cada
@@ -9,11 +10,12 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, focused, terminals, theme, home, shared } from "herdr";
+import { exec, focused, panes, terminals, theme, home, shared } from "herdr";
 import { ICONS, PROSE, al, card, pill } from "./kit.js";
 const ICONS_LADO = "mods/bk-lado/";   // los iconos propios del panel (cuenta.svg), al lado de su main.js
 
 const EVERY = 4000;        // git es barato: el panel sigue lo que pasa
+const TODO_EVERY = 20000; // bk _todo guarda lo de GitHub dos minutos: esto vuelve a leer su caché
 const SLOW = 60000;        // el uso lee los transcripts y gh sale a la red: una vez por minuto
 // El largo de la barra de contexto: 1,25 veces el umbral (bk context; 200k por defecto), así el rojo cae al 80%.
 // El ámbar sale en 3/4 del umbral (lib/usage.py). Sin umbral en el dato (un bk viejo), 400k como antes.
@@ -40,6 +42,9 @@ export default class Lado extends View {
     this.usageAt = 0;
     this.error = null;
     this.gh = new Map();   // carpeta → { at, repo, prs, error }
+    this.todo = null;      // lo que dijo bk _todo del chat enfocado
+    this.todoKey = "";
+    this.todoAt = 0;
     this.busy = false;
     const tick = async (cx) => {
       if (this.busy) return;   // una corrida lenta no se pisa con la siguiente
@@ -48,6 +53,7 @@ export default class Lado extends View {
       try {
         changed = await this.load();
         if (await this.loadGithub()) changed = true;
+        if (await this.loadTodo()) changed = true;
       } finally {
         this.busy = false;
       }
@@ -109,6 +115,64 @@ export default class Lado extends View {
       next.prs = JSON.parse(prs.stdout);
     } catch (e) { next.error = String(e?.message ?? e); }
     return JSON.stringify([had?.repo, had?.prs, had?.error]) !== JSON.stringify([next.repo, next.prs, next.error]);
+  }
+
+  // El issue del chat enfocado y sus casillas (bk _todo, lib/herdr_todo.py): el issue sale como en ÉPICAS, de la
+  // carpeta, la rama, el nombre del chat y su terminal. Se vuelve a pedir si cambia el chat o pasó TODO_EVERY. true si cambió.
+  async loadTodo() {
+    const f = focused();
+    if (!f?.terminal || !this.data?.project) {
+      const had = this.todo !== null;
+      this.todo = null; this.todoKey = "";
+      return had;
+    }
+    const p = panes().find((x) => x.pane === f.pane) ?? {};
+    const l = terminals().find((x) => x.address === f.terminal)?.labels ?? {};
+    const q = [f.cwd ?? "", p.branch ?? "", [l["bk.name"], l["bk.autotitle"], p.title].filter(Boolean).join(" "), f.terminal];
+    const key = JSON.stringify(q);
+    if (key === this.todoKey && Date.now() - this.todoAt < TODO_EVERY) return false;
+    const before = JSON.stringify(this.todo);
+    if (key !== this.todoKey) this.todo = null;   // otro chat: no mostrar los pasos del anterior mientras lee
+    this.todoKey = key;
+    this.todoAt = Date.now();
+    try {
+      const r = await exec(bin(), ["_todo", ...q], { timeout: 30000 });
+      if (r.code === 0) this.todo = JSON.parse(r.stdout);
+    } catch { /* queda lo último */ }
+    return before !== JSON.stringify(this.todo);
+  }
+
+  // TODO: el issue del chat y sus pasos, con una barra de avance. Solo lee: tildar es del agente (gh).
+  pasos(t) {
+    const td = this.todo;
+    if (!td) return card(t, "TODO", "", [div().text_color(t.dim).child("Leyendo…")]);
+    if (!td.issue) return card(t, "TODO", "", [div().text_color(t.dim).child("Este chat no trabaja un issue")]);
+    const open = () => { if (/^https:\/\/github\.com\//.test(td.url ?? "")) exec("open", [td.url]); };
+    const rows = [h_flex().id("todo-issue").gap(6).items_center().cursor_pointer().hover((s) => s.text_color(t.accent)).tooltip("Abrir en GitHub")
+      .on_click(open)
+      .child(div().flex_none().font_medium().text_color(t.accent).child(`#${td.issue}`))
+      .child(div().flex_1().min_w(0).truncate().font_family(PROSE).text_size(12.5).text_color(t.foreground).child(td.title || (td.offline ? "sin red" : "")))
+      .when(td.state === "closed", (x) => x.child(pill(t, "cerrado", t.done)))];
+    const items = td.items ?? [];
+    if (items.length) {
+      rows.push(h_flex().gap(2).h(5).mt(2).children(items.map((i) => div().flex_1().h(5).rounded(2).bg(i.done ? t.done : t.raised))));
+      let section = null;
+      items.forEach((i, n) => {
+        if (i.section && i.section !== section && new Set(items.map((x) => x.section)).size > 1) {
+          rows.push(div().pt(4).text_size(10.5).font_medium().text_color(t.dim).child(i.section));
+        }
+        section = i.section;
+        rows.push(h_flex().id(`todo-${n}`).gap(7).items_center().h(18).tooltip(i.text.replace(/`/g, ""))
+          .child(div().size(12).flex_none().rounded(3).border_1().border_color(i.done ? t.done : t.input).bg(i.done ? t.done : al(t.raised, "00"))
+            .flex().items_center().justify_center().text_size(8.5).font_bold().text_color(t.background ?? "#000").child(i.done ? "✓" : ""))
+          .child(div().flex_1().min_w(0).text_size(11.5).truncate().text_color(i.done ? t.dim : t.foreground).when(i.done, (x) => x.line_through()).child(i.text.replace(/`/g, ""))));
+      });
+    } else if (td.offline) {
+      rows.push(div().text_color(t.blocked).child("No pude leer el issue (¿sin red?)"));
+    } else {
+      rows.push(div().text_color(t.dim).child("El issue no tiene casillas (- [ ])"));
+    }
+    return card(t, "TODO", items.length ? `${td.done}/${td.total}` : "", rows);
   }
 
   // Una fila "clave   valor [algo a la derecha]", con las claves en una columna.
@@ -236,6 +300,7 @@ export default class Lado extends View {
     const cards = [];
     if (this.error) cards.push(card(t, "BK", "", [div().text_color(t.blocked).child(`No pude leer el estado: ${this.error}`)], { color: al(t.blocked, "66") }));
     if (d) cards.push(this.sesion(t, d));
+    if (d?.project && this.todoKey) cards.push(this.pasos(t));   // solo con una terminal enfocada
     if (d?.project) cards.push(this.github(t));
     if (d) cards.push(this.cambios(t, d));
     if (!d && !this.error) cards.push(card(t, "SESIÓN", "", [div().text_color(t.dim).child("Leyendo…")]));
