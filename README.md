@@ -144,7 +144,7 @@ pisan con los del repo (se editan acá).
   | `alt+i` | Implementar un issue: los abiertos del proyecto que mirás. Enter lanza al agente (o va a su pestaña si ya corre); Tab cambia el rol | `bk run <n>` |
   | `alt+r` | Revisar o corregir un PR. Enter lanza al reviewer, o lo aprueba si el kit ya lo propuso; Tab pide una instrucción y lanza el fix; ctrl+g vuelve a correr los checks que fallaron; ctrl+o lo abre en GitHub | `bk review`, `bk approve`, `bk fix`, `bk rerun --go` |
   | `alt+e` | Te esperan: tareas y aprobaciones. Enter lanza el reviewer propuesto o va a la pestaña del agente; Tab suma el historial | `bk approve` |
-  | `alt+p` | La épica del chat que mirás (si no tiene, la primera de ÉPICAS): sus sub-issues por estado, quién espera a quién y el camino más largo. Enter va al agente (o a GitHub), `g` abre GitHub, `l` lanza uno libre con confirmación | `bk run <n>` |
+  | `alt+p` | La épica del chat que mirás (si no tiene y hay varias, una lista para elegir): sus sub-issues por estado, quién espera a quién y el camino más largo. Enter va al agente (o a GitHub), `g` abre GitHub, `l` lanza uno libre con confirmación | `bk run <n>` |
   | `alt+t` | El panel derecho en la pestaña TODO: los pasos del issue que trabaja el chat que mirás (el issue sale como en `alt+p`), las casillas `- [ ]` de su cuerpo por sección, tildadas o no. Solo lee; el clic en el issue lo abre en GitHub. Otra vez `alt+t` vuelve a Estado | `bk _todo` |
   | `alt+a` | Agentes: los que te esperan arriba y, al lado, lo último de la terminal del elegido. Enter va a su pestaña, Tab le escribe, ctrl+x dos veces lo cierra, ctrl+o lo espía | `bk say`, `bk stop` |
   | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, el resumen de este chat para seguir en uno nuevo (abre `alt+h`), terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
@@ -425,11 +425,12 @@ trabajan los chats (una aunque la tengan varios, aunque estén en espacios disti
 con un segmento por sub-issue (hecho, con agente, libre o bloqueado, en ese orden) y una línea con lo que importa:
 **ahora #324 · t75 · destraba 5 · 1 libre** si un chat trabaja en uno (destraba: los abiertos que lo esperan, directa
 o indirectamente), si no **2 libres: kit#325, workspace#11**. Si la épica cruza repos, el número lleva el repo y una
-línea dice cuánto lleva cada uno (`kit 2/4 · workspace 1/5`). La fila de cada agente dice **#324 de #321**. Si
-ningún chat de un espacio tiene épica ahora, queda la última que tuvo ese espacio, en gris (guardada entre
-reinicios).
+línea dice cuánto lleva cada uno (`kit 2/4 · workspace 1/5`). La fila de cada agente dice **#324 de #321**. Van
+primero las épicas con algo libre (donde podés lanzar), después las demás en curso. Si los chats de algún espacio ya
+no tienen épica, queda una sola en gris al final: la última que tuvo el espacio que la dejó más recientemente
+(guardada entre reinicios).
 
-El clic en la tarjeta, o `alt+p` (la épica del chat que mirás; si no tiene, la primera), abre el detalle: AHORA,
+El clic en la tarjeta, o `alt+p` (la épica del chat que mirás; si no tiene, la única en curso o, con varias, una lista para elegirla con ↑↓ y ⏎), abre el detalle: AHORA,
 LIBRES, BLOQUEADOS (cada uno con lo que espera) y HECHOS plegado, con el camino más largo de esperas. ↑↓ mueven, ⏎ va
 al agente (o abre el issue en GitHub si no tiene), `g` abre GitHub, `esc` cierra. `l` sobre un libre pide
 confirmación mostrando `bk run N · en <carpeta>` y el segundo ⏎ lo lanza ahí, suelto (`bk _do`: sigue aunque se

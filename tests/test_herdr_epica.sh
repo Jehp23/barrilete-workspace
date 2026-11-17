@@ -243,6 +243,23 @@ out = await draw(v);
 assert.deepEqual([ids(out, /^epic-o/), text(find(out, 'rule-ÉPICAS')).includes('2')], [[], true], 'plegada: sin tarjetas, dice cuántas (la de abra y la última vista de otro)');
 find(out, 'epicas-fold').$click({}, cx);
 
+// Orden: primero las que tienen algo LIBRE (#10: r#11 y x#5), después las demás en curso (#13, sin subs), al final la gris
+AG = [agent('t4', 's2', '/otro', 'claude/14-c', 'cuatro'), agent('t2', 's1', '/abra', 'claude/10-e', 'dos')];
+out = await draw(v);
+assert.deepEqual(ids(out, /^epic-o/), ['epic-o/r#10', 'epic-o/r#13'], 'la que tiene libres va primero aunque su agente esté después');
+assert.deepEqual(Object.keys(shared['bk.epics'].epics), ['o/r#10', 'o/r#13'], 'y en ese orden la comparte (el selector de alt+p)');
+assert.ok(JSON.parse(store.epicsAt).s1 > 0 && JSON.parse(store.epicsAt).s2 > 0, 'guarda cuándo cada espacio tuvo su épica');
+
+// Una sola gris: de los espacios sin épica ahora, la del que la tuvo más recientemente
+AG = [agent('t1', 's1', '/abra', 'main', 'uno'), agent('t3', 's2', '/otro', 'main', 'tres')];
+v.lastEpics = { s1: E10, s2: E13 }; v.lastAt = { s1: 100, s2: 200 };
+out = await draw(v);
+assert.deepEqual(ids(out, /^epic-o/), ['epic-o/r#13'], 'dos espacios sin épica: una sola gris, la más reciente (#13 de otro)');
+v.lastAt = { s1: 300, s2: 200 };
+out = await draw(v);
+assert.deepEqual(ids(out, /^epic-o/), ['epic-o/r#10'], 'si la de abra es más reciente, queda esa');
+assert.ok(text(find(out, 'epic-o/r#10')).includes('la última vista · ningún chat la tiene ahora'), 'y sigue en gris');
+
 // El riel (angosto): sin épicas
 narrowNow = true;
 assert.equal(ids(await draw(v), /^epic-|rule-ÉPICAS/).length, 0, 'en el riel no hay épicas');
@@ -298,6 +315,25 @@ const Bk = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverla
 focusedT = { terminal: 't1' };
 await new Bk().handle('epica');
 assert.deepEqual([overlays.at(-1).mod, overlays.at(-1).props, overlays.at(-1).height], ['bk-agentes', { epic: 'o/r#10' }, shared['bk.epics'].epics['o/r#10'].height], 'alt+p: la épica del chat enfocado, del alto justo');
+
+// Un chat sin épica: con una sola en curso la abre; con varias, el selector
+const two = { epics: { 'o/r#10': { e: E10, stale: false, height: 300 }, 'o/r#13': { e: E13, stale: true, height: 250 } }, byTerminal: { t1: 'o/r#10' }, pickHeight: 104 };
+shared['bk.epics'] = { ...two, epics: { 'o/r#13': two.epics['o/r#13'] } };
+focusedT = { terminal: 't9' };
+await new Bk().handle('epica');
+assert.deepEqual(overlays.at(-1).props, { epic: 'o/r#13' }, 'chat sin épica y una sola en curso: esa');
+shared['bk.epics'] = two;
+await new Bk().handle('epica');
+assert.deepEqual([overlays.at(-1).mod, overlays.at(-1).kind, overlays.at(-1).props, overlays.at(-1).height], ['bk-agentes', 'dialog', { epicPick: true }, 104], 'chat sin épica y varias: el selector, del alto justo');
+P = { epicPick: true, overlay: 'ov7' };
+const pick = new Agents(); pick.init(P, cx);
+let po = pick.render(cx);
+assert.deepEqual(ids(po, /^pick-/), ['pick-o/r#10', 'pick-o/r#13'], 'el selector: una fila por épica, en el orden de la barra');
+assert.deepEqual(text(find(po, 'pick-o/r#13')), ['#13', 'Otra', '2/3'], 'cada una con #N, título y avance');
+po.$key({ key: 'down' }, cx); po = pick.render(cx);
+po.$key({ key: 'enter' }, cx);
+assert.deepEqual([closed.at(-1), overlays.at(-1).props, overlays.at(-1).height], ['ov7', { epic: 'o/r#13' }, 250], '↓ ⏎: cierra el selector y abre esa épica');
+
 shared['bk.epics'] = { epics: {}, byTerminal: {} };
 await new Bk().handle('epica');
 assert.match(notes.at(-1).body, /ningún chat tiene una épica/, 'sin épicas: lo dice');

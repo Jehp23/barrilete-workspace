@@ -127,6 +127,8 @@ function nextLine(t, p) {
 }
 // El popup de una épica: ancho fijo, alto justo para sus filas (HECHOS plegado) y la confirmación de lanzar.
 const POP_W = 520;
+// El selector de alt+p (mods/bk lo abre con este alto: encabezado + una fila por épica)
+const PICK = { head: 34, row: 30, pad: 10 };
 const POP = { head: 92, group: 28, row: 30, confirm: 86, foot: 38, max: 600, char: 6.8 };
 function popHeight(p) {
   if (!p) return 200;
@@ -142,7 +144,7 @@ const subMark = (t, st) => (typeof mark === "function" ? mark(t, st, 12) : div()
 export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
-    if (props()?.epic) {
+    if (props()?.epic || props()?.epicPick) {
       this.at = 0;
       this.doneOpen = false;
       this.confirm = null;   // el sub-issue que espera el segundo ⏎ para lanzarse
@@ -188,6 +190,7 @@ export default class Agents extends View {
     // guardada entre reinicios.
     this.chats = new Map();   // terminal → { issue, repo, epic } (solo los que tienen épica)
     this.lastEpics = JSON.parse(localStorage.getItem("epics") ?? "{}");
+    this.lastAt = JSON.parse(localStorage.getItem("epicsAt") ?? "{}");   // espacio → cuándo un chat la tuvo (ms)
     this.epicKey = null;
     this.epicAt = 0;
     cx.timer.every(EPIC_EVERY, (cx) => { this.epicAt = 0; cx.notify(); });
@@ -279,8 +282,10 @@ export default class Agents extends View {
         for (const x of qs) {
           const e = this.chats.get(x.address)?.epic;
           if (e && JSON.stringify(e) !== JSON.stringify(this.lastEpics[x.space])) { this.lastEpics[x.space] = e; dirty = true; }
+          if (e) this.lastAt[x.space] = Date.now();
         }
         if (dirty) localStorage.setItem("epics", JSON.stringify(this.lastEpics));
+        localStorage.setItem("epicsAt", JSON.stringify(this.lastAt));
       } catch { this.chats = new Map(); } finally {
         this.epicBusy = false;
         cx.notify();
@@ -288,8 +293,10 @@ export default class Agents extends View {
     });
   }
 
-  // Las épicas de la sección: las de los chats, sin repetir; y la última vista de cada espacio cuyos chats no tienen
-  // ninguna ahora (stale, en gris). Cada una con sus chats vivos, para saber qué sub-issue tiene agente.
+  // Las épicas de la sección: las de los chats, sin repetir; y una gris (stale): de los espacios cuyos chats ya no
+  // tienen ninguna, la última vista en el que la tuvo más recientemente. Cada una con sus chats vivos, para saber qué
+  // sub-issue tiene agente. Orden: primero las que tienen algo LIBRE (donde se puede actuar), después las demás en
+  // curso, al final la gris; dentro de cada grupo, el orden de los agentes.
   epicList() {
     const live = agents();
     const byPane = new Map(live.map((a) => [a.address, a.pane]));
@@ -299,12 +306,15 @@ export default class Agents extends View {
       const e = this.chats.get(a.address)?.epic;
       if (e && !out.has(ekey(e))) out.set(ekey(e), { e, stale: false });
     }
-    for (const s of spaces()) {
-      const last = this.lastEpics[s.id];
-      if (!last || out.has(ekey(last)) || live.some((a) => a.space === s.id && this.chats.get(a.address)?.epic)) continue;
-      out.set(ekey(last), { e: last, stale: true });
-    }
-    return [...out.values()].map((x) => ({ ...x, key: ekey(x.e), chats: x.stale ? [] : chats }));
+    const gone = spaces().map((s) => s.id).filter((id) => {
+      const last = this.lastEpics[id];
+      return last && !out.has(ekey(last)) && !live.some((a) => a.space === id && this.chats.get(a.address)?.epic);
+    });
+    const newest = gone.sort((a, b) => (this.lastAt[b] ?? 0) - (this.lastAt[a] ?? 0))[0];
+    if (newest) out.set(ekey(this.lastEpics[newest]), { e: this.lastEpics[newest], stale: true });
+    const rank = (x) => (x.stale ? 2 : (plan(x.e, chats)?.by.free.length ?? 0) > 0 ? 0 : 1);
+    return [...out.values()].map((x, i) => ({ x, i })).sort((a, b) => rank(a.x) - rank(b.x) || a.i - b.i)
+      .map(({ x }) => ({ ...x, key: ekey(x.e), chats: x.stale ? [] : chats }));
   }
 
   // Lo que necesita el popup (otra copia de este mod) y alt+p (mods/bk): en shared "bk.epics". Solo si cambió:
@@ -312,6 +322,7 @@ export default class Agents extends View {
   share(list) {
     const val = {
       epics: Object.fromEntries(list.map((x) => [x.key, { e: x.e, stale: x.stale, chats: x.chats, height: popHeight(plan(x.e, x.chats)) }])),
+      pickHeight: PICK.head + list.length * PICK.row + PICK.pad,
       byTerminal: Object.fromEntries([...this.chats].filter(([, c]) => c?.epic).map(([addr, c]) => [addr, ekey(c.epic)])),
     };
     const json = JSON.stringify(val);
@@ -487,6 +498,40 @@ export default class Agents extends View {
         .child(key_("↑↓", "mover")).child(key_("⏎", "abrir")).child(key_("g", "GitHub")).child(key_("l", "lanzar")).child(key_("esc", "cerrar")));
   }
 
+  // alt+p desde un chat sin épica, con varias en curso: cuál abrir. ↑↓ mueven, ⏎ o clic la abre, esc cierra.
+  epicPick(t) {
+    const all = shared("bk.epics")?.epics ?? {};
+    const keys = Object.keys(all);
+    this.at = Math.min(this.at, Math.max(0, keys.length - 1));
+    const open = (k) => {
+      closeOverlay(props().overlay);
+      if (k) openOverlay({ mod: "bk-agentes", kind: "dialog", width: POP_W, height: all[k]?.height ?? 400, props: { epic: k } });
+    };
+    return v_flex().id("epic-pick").track_focus(this.handle).size_full().min_h(0).p(5).bg(t.popover).text_size(12.5)
+      .on_mouse_down("left", () => this.handle.focus())
+      .on_key_down((ev, cx) => {
+        if (ev.key === "down" && keys.length) this.at = (this.at + 1) % keys.length;
+        else if (ev.key === "up" && keys.length) this.at = (this.at + keys.length - 1) % keys.length;
+        else if (ev.key === "enter") return open(keys[this.at]);
+        else if (ev.key === "escape") return closeOverlay(props().overlay);
+        else return;
+        cx.notify();
+      })
+      .child(div().px(8).pt(4).pb(6).text_size(10.5).font_semibold().text_color(t.accent).child("¿QUÉ ÉPICA?"))
+      .children(keys.map((k, i) => {
+        const { e, stale } = all[k];
+        const on = i === this.at;
+        return h_flex().id(`pick-${k}`).h(PICK.row).flex_none().px(8).gap(9).rounded(6).items_center().cursor_pointer()
+          .when(on, (el) => el.bg(t.selected))
+          .hover((el) => el.bg(on ? t.selected : t.hover))
+          .on_hover((h, cx) => { if (h && this.at !== i) { this.at = i; cx.notify(); } })
+          .on_click(() => open(k))
+          .child(div().flex_none().text_size(11).font_semibold().text_color(stale ? t.dim : t.accent).child(`#${e.number}`))
+          .child(div().flex_1().min_w(0).truncate().text_color(stale ? t.dim : t.foreground).child(e.title))
+          .child(div().flex_none().text_size(11).text_color(t.dim).child(`${e.done}/${e.total}`));
+      }));
+  }
+
   sortMenu(t) {
     const on = sortOf().id;
     return v_flex().w_full().p(5).bg(t.popover).text_size(12.5)
@@ -565,6 +610,7 @@ export default class Agents extends View {
     const t = theme();
     if (props()?.sortMenu) return this.sortMenu(t);
     if (props()?.epic) return this.epicPopup(t);
+    if (props()?.epicPick) return this.epicPick(t);
     const collapsed = narrow();
     const sort = sortOf();
     let list = agents();
