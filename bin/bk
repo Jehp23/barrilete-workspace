@@ -139,7 +139,7 @@ uso: bk [comando] [--dry-run]
 
 Con Herdr (bk backend herdr) cada chat y cada agente tiene un número fijo de ventana, y todo tiene tecla:
   alt+k comandos · alt+i implementar un issue · alt+r revisar o corregir un PR · alt+e te esperan
-  alt+t los pasos (TODO) del issue de este chat
+  alt+t el panel derecho en TODO: los pasos del issue de este chat
   alt+a agentes: ver, escribirles, cerrar · alt+n nuevo · alt+c chat nuevo · alt+s sesiones
   alt+h resumen y seguir en un chat nuevo · alt+g cambios · alt+u uso y costo · alt+m radio
   alt+, aspecto · alt+/ la hoja de teclas · alt+1…9 la ventana N · alt+shift+1…9 el agente N del espacio
@@ -1884,7 +1884,7 @@ case "${1:-}" in
   _ids)        tmux_only _ids "los espacios de Herdr"; ws_ids ;;
   _subagents)  shift; exec python3 "$WS/lib/herdr_subagents.py" "$@" ;;
   _epica)      shift; exec python3 "$WS/lib/herdr_epica.py" "$@" ;;   # la épica del chat enfocado y su avance (herdr/mods/agentes)
-  _todo)       shift; exec python3 "$WS/lib/herdr_todo.py" "$@" ;;    # los pasos del issue del chat enfocado (alt+t, herdr/mods/hub/todo.js)
+  _todo)       shift; exec python3 "$WS/lib/herdr_todo.py" "$@" ;;    # los pasos del issue del chat enfocado (alt+t, pestaña TODO de herdr/mods/lado)
   _tasks)      shift; exec python3 "$WS/lib/herdr_tasks.py" "$@" ;;   # bk tasks --json con el título de cada issue o PR (herdr/mods/tareas)
   _adopt)      shift; hd_adopt "${1:?bk _adopt <terminal>}" ;;   # la barra de Herdr: que bk conozca esa terminal y le dé su número
   _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)

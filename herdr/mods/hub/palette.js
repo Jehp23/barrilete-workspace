@@ -19,7 +19,7 @@ const NATIVE = [
   ["plan", "Agentes", "Planear una feature", "bk plan", null, "planner idea", (p) => p.askFor({ label: "plan", title: "¿Qué querés planear?", help: "El planner corre /plan-feature en la raíz del proyecto.", verb: "lanzar el planner", run: (text) => { p.close(); launch("Planner", ["plan", text]); } })],
   ["orchestrate", "Agentes", "Orquestar (hasta 3 issues)", "bk orchestrate", null, "orchestrator repartir", (p) => { p.close(); launch("Orquestador", ["orchestrate"]); }],
   ["tasks", "Agentes", "Tareas y aprobaciones", "bk tasks · bk approve", "mod.open:bk-tasks", "te esperan checkpoints aprobar reviewer", view("tasks")],
-  ["todo", "Agentes", "TODO: los pasos del issue de este chat", "bk _todo", "mod.open:bk-todo", "pasos casillas hecho cuando checklist tareas issue", view("todo")],
+  ["todo", "Agentes", "TODO del panel derecho: los pasos del issue de este chat", "bk _todo", "mod.open:bk-todo", "pasos casillas hecho cuando checklist tareas issue", view("todo")],
   ["agents", "Agentes", "Agentes: ver, escribirles, cerrar", "bk ls · say · stop", "mod.open:bk-agents", "peek watch lista", view("agents")],
   ["profiles", "Agentes", "Perfiles de modelos y tareas…", "bk profile · bk ask", null, "perfil modelos proveedor codex claude gemini editar nuevo tarea imagenes investigar", view("profiles")],
   ["next", "Agentes", "Ir al que te espera", "bk go", "mod.open:bk-next", "saltar bloqueado terminó", view("next")],

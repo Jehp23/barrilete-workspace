@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Los pasos del issue de un chat, para la ventana TODO de Herdr (alt+t, herdr/mods/hub/todo.js).
+"""Los pasos del issue de un chat, para la pestaña TODO del panel derecho de Herdr (alt+t, herdr/mods/lado).
 
   herdr_todo.py <carpeta> [rama] [texto] [terminal]        (bk _todo …)
 

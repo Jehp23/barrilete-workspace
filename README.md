@@ -145,7 +145,7 @@ pisan con los del repo (se editan acá).
   | `alt+r` | Revisar o corregir un PR. Enter lanza al reviewer, o lo aprueba si el kit ya lo propuso; Tab pide una instrucción y lanza el fix; ctrl+g vuelve a correr los checks que fallaron; ctrl+o lo abre en GitHub | `bk review`, `bk approve`, `bk fix`, `bk rerun --go` |
   | `alt+e` | Te esperan: tareas y aprobaciones. Enter lanza el reviewer propuesto o va a la pestaña del agente; Tab suma el historial | `bk approve` |
   | `alt+p` | La épica del chat que mirás (si no tiene, la primera de ÉPICAS): sus sub-issues por estado, quién espera a quién y el camino más largo. Enter va al agente (o a GitHub), `g` abre GitHub, `l` lanza uno libre con confirmación | `bk run <n>` |
-  | `alt+t` | TODO: los pasos del issue que trabaja el chat que mirás (el issue sale como en `alt+p`), las casillas `- [ ]` de su cuerpo por sección, tildadas o no. Solo lee; Enter abre el issue en GitHub | `bk _todo` |
+  | `alt+t` | El panel derecho en la pestaña TODO: los pasos del issue que trabaja el chat que mirás (el issue sale como en `alt+p`), las casillas `- [ ]` de su cuerpo por sección, tildadas o no. Solo lee; el clic en el issue lo abre en GitHub. Otra vez `alt+t` vuelve a Estado | `bk _todo` |
   | `alt+a` | Agentes: los que te esperan arriba y, al lado, lo último de la terminal del elegido. Enter va a su pestaña, Tab le escribe, ctrl+x dos veces lo cierra, ctrl+o lo espía | `bk say`, `bk stop` |
   | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, el resumen de este chat para seguir en uno nuevo (abre `alt+h`), terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
   | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta | `bk _hub session-go`, `bk stop` |
@@ -286,8 +286,8 @@ eventos, en `~/.local/state/bk/tasks/<proyecto>/<id>/` (`task.json` y `events.js
 `herdr-app do layout.switch --name bk-lavanda`.
 A la izquierda, la marca, los espacios y los agentes, cada uno con el chip de su número de ventana y su marca de
 estado; angosta queda en un riel con solo los chips. En el centro, las pestañas y los panes, cada pane con su
-cabecera (número, programa, qué hace, carpeta y rama). A la derecha, tres tarjetas: sesión, GitHub y cambios
-(`alt+.` las esconde). Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, radio y las
+cabecera (número, programa, qué hace, carpeta y rama). A la derecha, dos pestañas: Estado, con tres tarjetas
+(sesión, GitHub y cambios), y TODO, los pasos del issue del chat que mirás (`alt+t`; `alt+.` esconde el panel). Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, radio y las
 teclas de comandos y de la hoja de teclas. La cuenta es la de Claude de la terminal que mirás: su mail (de su
 `.claude.json`, sin preguntarle a Claude) y, si no es la de siempre, el nombre de `bk account` delante; el panel
 derecho muestra lo mismo. La marca de estado es la misma en todos, con los colores `blocked`, `done` y `working`

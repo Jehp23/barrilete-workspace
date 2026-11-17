@@ -46,11 +46,19 @@ export default class Bk extends View {
     if (c === "next") return this.next(f);
     if (c === "last") return this.last(f);
     if (c === "epica") return this.epica(f);
+    if (c === "todo") return this.todo();
     const g = /^go([1-9])$/.exec(c);
     if (g) return this.go(g[1]);
     const m = /^agent([1-9])$/.exec(c);
     if (m) return this.show(f, (t) => label(t, "bk.kind") === "agent", Number(m[1]), `no hay agente ${m[1]} en este espacio`);
     notify({ title: "bk", body: `comando desconocido: ${c}`, level: "warning" });
+  }
+
+  // alt+t: el panel derecho en la pestaña TODO (los pasos del issue del chat, mods/lado). Si ya estaba en TODO,
+  // vuelve a Estado. Siempre lo muestra: oculto (alt+.), la tecla no haría nada a la vista.
+  todo() {
+    setShared("bk.lado.tab", shared("bk.lado.tab") === "todo" ? "estado" : "todo");
+    run("layout.show", { id: "lado" });
   }
 
   // Cierra el popup anterior, viva o no su terminal (uno cuyo comando ya terminó puede quedar abierto y es
