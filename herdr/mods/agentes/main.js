@@ -243,7 +243,11 @@ export default class Agents extends View {
       const auto = !tab?.named || /^(chat-\d+|\d+)$/.test(tab.name) || tab.name === a.program?.name || tabCounts.get(a.tab) > 1;
       return (auto ? own : "") || (tab?.named ? tab.name : "") || own || a.program?.name || a.address;
     };
+    const labelsOf = new Map(native.map((x) => [x.address, x.labels ?? {}]));
     const metaOf = (a, title, full) => {
+      // En qué quedó el chat (lib/names.py, etiqueta bk.status) dice más que chat-3 o el nombre del programa
+      const status = labelsOf.get(a.address)?.["bk.status"];
+      if (status) return [full ? a.space_name : null, status].filter(Boolean).join(" · ");
       const tab = tabs.get(a.tab);
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
       const tabName = tab?.named && tab.name !== title ? tab.name : null;

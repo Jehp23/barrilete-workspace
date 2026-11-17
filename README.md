@@ -96,6 +96,11 @@ pisan con los del repo (se editan acá).
   `<proyecto>-<x>` en su worktree y `bk chat --suelto` va al espacio `chats`.
 - **Una pestaña por agente**: `bk run`, `fix`, `review`, `plan` y `orchestrate` lanzan al agente en una pestaña
   del espacio de su proyecto (`i42`, `pr57`…) sin sacarte de la que estás mirando. Herdr muestra su estado.
+- **Nombres vivos** (`lib/names.py`): el título que Claude le pone a un chat sale del primer mensaje y no cambia más.
+  Al terminar cada turno, cuando el chat queda 20 s quieto, haiku lee lo último (el recap, tus pedidos y su
+  respuesta) y la pestaña pasa a llamarse por el tema de ahora; el segundo renglón de la barra de agentes dice en qué
+  quedó (✓ terminó, ? te espera). Un nombre tuyo (`bk name`, renombrar la pestaña, `/rename`) manda: solo cambia el
+  estado. `BK_NAMES_OFF=1` lo apaga.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
   su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`) avisa y no
   corre: herdr-core ya mantiene vivas las terminales. `bk account use` sigue siendo de tmux; `--account X` anda.
@@ -362,7 +367,8 @@ que dan *no baja* son para reescribir o retirar. Usa `accepted:` y `mide:` del f
 ## Hook de estado (`hooks/agent_state.sh`)
 Un hook de Claude Code anota el estado de cada sesión (trabajando, te espera, terminó, en segundo plano), su rol, modelo,
 issue y pane en `~/.cache/sketchybar/agents/<sesión>.json`; de ahí leen `bk ls`, la tira, el riel, `bk monitor`, `bk s` y
-los paneles de Herdr. También escribe el `bk say` encolado cuando el agente termina el turno. La carpeta conserva el
+los paneles de Herdr. También escribe el `bk say` encolado cuando el agente termina el turno y, en Herdr, lanza los
+nombres vivos de los chats (`lib/names.py`). La carpeta conserva el
 nombre de cuando el estado era de la barra de Sketchybar, que ya no está: las sesiones vivas escriben ahí.
 
 Va registrado en `~/.claude/settings.json` en `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,

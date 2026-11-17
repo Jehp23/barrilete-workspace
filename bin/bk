@@ -65,7 +65,7 @@ uso: bk [comando] [--dry-run]
                     Con Herdr, N es el número fijo de la ventana (o el nombre del chat). --term <terminal> se lo
                     pide al chat de esa terminal desde afuera (lo usa alt+h; si bk no la conocía, la adopta) y
                     --cerrar cierra el chat viejo cuando el nuevo abre
-  name ["nombre"]   nombrar el chat de este workspace (sin nombre: el de /rename o el título de Claude; - lo borra)
+  name ["nombre"]   nombrar el chat de este workspace (sin nombre: el de /rename o, en Herdr, el del tema de ahora; - lo borra)
   open [proyecto]   abrir el workspace de otro proyecto en una ventana nueva (sin argumento: los abiertos)
   plan "<idea>"     planner: /plan-feature en la raíz del proyecto
   run <issue>       routing.py elige el rol → prepare.sh crea worktree → implementer en tmux
