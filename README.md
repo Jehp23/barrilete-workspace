@@ -189,8 +189,9 @@ pisan con los del repo (se editan acá).
   de bk: `bk-neon` (violeta oscuro, acento lavanda; antes se llamaba `bk-noche`), `bk-pastel` (oscuro suave, con
   rosa, menta, lila y durazno), `bk-gentleman` (casi negro, acento rosa fuerte y champán; sale del tema
   Gentleman-Sexy de pi), `bk-gentleman-cute` (el mismo fondo con rosa suave, menta y celeste; del tema
-  Gentleman-Cute), `bk-dia` (claro, papel cálido con acento lavanda, para usar de día) y
-  `bk-papel` (claro, papel blanco y tinta negra con amarillo, coral e índigo, del estilo de Paperfolio); además
+  Gentleman-Cute), `bk-dia` (claro, papel cálido con acento lavanda, para usar de día),
+  `bk-papel` (claro, papel blanco y tinta negra con amarillo, coral e índigo, del estilo de Paperfolio) y
+  `bk-tinta` (su versión de noche: tinta casi negra, texto blanco y acento amarillo); además
   `catppuccin-mocha`, `rose-pine` y `tokyo-night`. Siguen al repo mientras no los retoques: bk anota qué instaló
   (`bk-temas.json`) y solo pisa una copia que sigue igual a esa; un tema tuyo con el mismo nombre queda como está y
   se avisa. El `bk-noche` que instaló una versión anterior se borra si nadie lo tocó.
