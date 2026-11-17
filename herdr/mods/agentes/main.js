@@ -8,7 +8,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, focused, panes, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, exec, home } from "herdr";
+import { agents, terminals, focused, panes, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, exec, home, settings } from "herdr";
 import { ICONS, PROSE, RANK, al, find, narrow, ago, ids, said, picto, mark, keycap, iconButton, rule } from "./kit.js";
 
 const SUBS_EVERY = 4000;
@@ -127,7 +127,7 @@ function nextLine(t, p) {
 }
 // El popup de una épica: ancho fijo, alto justo para sus filas (HECHOS plegado) y la confirmación de lanzar.
 const POP_W = 520;
-const POP = { head: 92, group: 28, row: 30, confirm: 86, foot: 38, max: 600 };
+const POP = { head: 92, group: 28, row: 30, confirm: 86, foot: 38, max: 600, char: 6.8 };
 function popHeight(p) {
   if (!p) return 200;
   const groups = ["work", "free", "wait"].filter((k) => p.by[k].length).length + (p.by.done.length ? 1 : 0);
@@ -151,6 +151,8 @@ export default class Agents extends View {
       this.launched = new Set();
       this.handle = cx.focus_handle();
       this.handle.focus();
+      // Abierto con clic, el foco vuelve a la terminal de abajo al soltar: se lo pide de nuevo (como bk-stats)
+      cx.timer.after(300, () => this.handle.focus());
       return;
     }
     this.folded = new Set();
@@ -391,6 +393,9 @@ export default class Agents extends View {
     };
     const home_ = home();
     const where = (r) => (e.dirs?.[r.repo] ?? "").replace(home_, "~");
+    // La columna de las etiquetas, al ancho de la más larga (kit#324, workspace#12): los títulos arrancan parejos
+    const labelW = Math.max(48, Math.ceil(Math.max(0, ...[...(p?.label.values() ?? [])].map((l) => String(l).length)) * POP.char) + 2);
+    const indent = 16 + labelW + 9;
     const row = (r) => {
       const i = rows.indexOf(r);
       const on = i === this.at;
@@ -409,13 +414,13 @@ export default class Agents extends View {
         .on_hover((h, cx) => { if (h && this.at !== i) { this.at = i; cx.notify(); } })
         .on_click(() => enter(r))
         .tooltip(`${r.repo}#${r.number} ${r.title}${r.unblocks ? ` · destraba ${r.unblocks}` : ""}`)
-        .child(div().flex_none().min_w(64).text_size(11).text_color(t.dim).child(p.label.get(r.key)))
+        .child(div().flex_none().w(labelW).text_size(11).text_color(t.dim).child(p.label.get(r.key)))
         .child(div().flex_1().min_w(0).truncate().text_color(r.kind === "wait" || r.kind === "done" ? t.dim : t.foreground).child(r.title))
         .child(h_flex().flex_none().gap(6).items_center().text_size(11).children(right));
       const extra = [];
-      if (err) extra.push(div().mx(16).ml(89).mb(4).text_size(11).text_color(t.blocked).truncate().tooltip(err).child(err));
+      if (err) extra.push(div().mx(16).ml(indent).mb(4).text_size(11).text_color(t.blocked).truncate().tooltip(err).child(err));
       if (this.confirm === r.key) {
-        extra.push(v_flex().id("epic-confirm").mx(16).ml(89).mb(8).p(10).gap(7).rounded(8).border_1().border_color(al(t.accent, "66")).bg(al(t.accent, "12")).text_size(12).text_color(t.muted)
+        extra.push(v_flex().id("epic-confirm").mx(16).ml(indent).mb(8).p(10).gap(7).rounded(8).border_1().border_color(al(t.accent, "66")).bg(al(t.accent, "12")).text_size(12).text_color(t.muted)
           .child(div().text_color(t.foreground).child(`bk run ${r.number} · en ${where(r)}`))
           .child(div().child("Abre un worktree y un agente nuevo. El rol lo decide bk."))
           .child(h_flex().gap(8).items_center()
@@ -433,8 +438,12 @@ export default class Agents extends View {
       .child(div().text_color(t.dim).child(this.doneOpen ? "▾" : "▸"))
       .child(div().font_semibold().text_color(t.muted).child("HECHOS"))
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`${p.by.done.length}${this.doneOpen ? "" : ` · ${p.by.done.map((r) => p.label.get(r.key)).join(", ")}`}`)) : null;
+    // La lista: alto en px (el popup menos encabezado y pie) y scroll. Con flex_1 queda en alto cero; con alto
+    // fijo, HECHOS desplegado o la confirmación de lanzar se desplazan adentro en vez de tapar el pie.
+    const listH = Math.max(POP.row, (x.height ?? 400) - (this.headH ?? POP.head) - POP.foot - 2);
     const key_ = (k, what) => h_flex().gap(5).items_center().child(div().px(4).rounded(4).border_1().border_color(t.border).text_size(10).child(k)).child(what);
     return v_flex().id("epic-pop").track_focus(this.handle).size_full().min_h(0).bg(t.popover).text_size(12.5)
+      .on_mouse_down("left", () => this.handle.focus())   // un clic adentro le devuelve las teclas
       .on_key_down((ev, cx) => {
         if (this.busy) return;   // mientras bk _do arranca (un instante), las teclas esperan
         if (this.confirm) {
@@ -453,7 +462,11 @@ export default class Agents extends View {
         else return;
         cx.notify();
       })
-      .child(v_flex().flex_none().px(16).pt(14).pb(12).gap(8).border_b(1).border_color(t.border)
+      .child(v_flex().id("epic-head").flex_none().px(16).pt(14).pb(12).gap(8).border_b(1).border_color(t.border)
+        .on_size_change((size, cx) => {
+          const h = Math.ceil(size.height / (settings().zoom ?? 1));
+          if (h !== this.headH) { this.headH = h; cx.notify(); }
+        })
         .child(h_flex().gap(8).items_center()
           .child(div().flex_none().text_size(10).font_semibold().text_color(t.accent).child(`ÉPICA #${e.number}`))
           .child(div().flex_1().min_w(0).truncate().text_size(14).font_medium().text_color(t.foreground).child(e.title))
@@ -463,8 +476,7 @@ export default class Agents extends View {
           x.stale ? "la última vista: ningún chat la tiene ahora"
             : !p ? "sin los sub-issues todavía (bk no pudo preguntarle a GitHub)"
               : p.path.length ? `camino más largo: ${p.path.join(" → ")} · ${plural(p.path.length, "paso", "pasos")}` : "sin esperas entre los sub-issues")))
-      // Sin scroll ni flex_1: en un popup esa lista queda en alto cero (como bk-menu). El alto lo da popHeight.
-      .child(v_flex().id("epic-rows").flex_none().pb(6)
+      .child(v_flex().id("epic-rows").flex_none().h(listH).overflow_y_scrollbar().pb(6)
         .children(p ? [
           ...group("AHORA", p.by.work),
           ...group("LIBRES", p.by.free, p.by.free.length ? "" : ""),
