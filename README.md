@@ -420,9 +420,12 @@ en una pestaña de solo lectura. No envía instrucciones al subagente.
 
 Debajo de cada espacio, `bk-agentes` muestra **ÉPICA #N título ▓▓▓░░░ 5/7** por cada épica en la que trabajan sus
 chats (una línea por épica, aunque la tengan varios) y cuántos de sus sub-issues están cerrados; el clic la abre en
-GitHub. `bk _epica <carpeta> [rama] [texto]` (`lib/herdr_epica.py`; `bk _epica --json '[[carpeta, rama, texto], …]'`
-para todos los chats en una llamada) saca el issue de la rama (`claude/1152-…`, `claude/<tipo>/1152-…`), de la
-carpeta (un worktree `<repo>-wt/1152`) o de un `#1152` en el nombre del chat, y la épica es su padre en GitHub o
+GitHub. `bk _epica <carpeta> [rama] [texto] [terminal]` (`lib/herdr_epica.py`; `bk _epica --json '[[carpeta, rama, texto,
+terminal], …]'` para todos los chats en una llamada) saca el issue de la carpeta (un worktree `<repo>-wt/1152`), de
+la conversación de Claude de esa terminal (el último `<repo>-wt/N` o `prepare.sh N` en los comandos que corrió: un
+chat abierto en el checkout principal implementa en un worktree sin mover su carpeta, y la rama del checkout
+puede ser de otro chat), de la rama (`claude/1152-…`, `claude/<tipo>/1152-…`) o de un `#1152` en el nombre del
+chat, y la épica es su padre en GitHub o
 el issue mismo si tiene sub-issues. A GitHub le pregunta una vez por issue, en paralelo, y lo guarda cinco minutos
 en `~/.cache/bk/epica.json`: la barra pregunta cuando cambian los chats y cada minuto, nunca en cada dibujo. Si
 ningún chat de un espacio tiene épica ahora, queda la última que tuvo ese espacio, en gris (guardada entre

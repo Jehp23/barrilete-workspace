@@ -43,15 +43,15 @@ const hash = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.ch
 // El alto de bk-menu para el más largo de cada tipo (tests/test_herdr_mods.sh lo compara con height() de bk-menu)
 const MENU_H = { space: 12 + 5 * 32 + 9, pane: 12 + 6 * 32 + 2 * 9 };
 const menu = (tab, target) => openOverlay({ mod: "bk-menu", kind: "popup", width: 300, height: MENU_H[tab], props: { tab, target } });
-// De dónde sale la épica de cada chat: la carpeta y la rama de su pane, y su nombre (#123 en bk.name o bk.autotitle)
-// por si la rama no dice el issue. bk _epica (lib/herdr_epica.py) saca de ahí el issue y su épica.
+// De dónde sale la épica de cada chat: la carpeta y la rama de su pane, su nombre (#123 en bk.name o bk.autotitle) y
+// su terminal (bk lee en su conversación de Claude el worktree donde trabajó). bk _epica (lib/herdr_epica.py) saca de ahí el issue y su épica.
 function epicQueries() {
   const byPane = new Map(panes().map((p) => [p.pane, p]));
   const labels = new Map(terminals().map((x) => [x.address, x.labels ?? {}]));
   return agents().map((a) => {
     const p = byPane.get(a.pane) ?? {};
     const l = labels.get(a.address) ?? {};
-    return { address: a.address, space: a.space, q: [p.cwd ?? "", p.branch ?? "", [l["bk.name"], l["bk.autotitle"], p.title ?? a.title].filter(Boolean).join(" ")] };
+    return { address: a.address, space: a.space, q: [p.cwd ?? "", p.branch ?? "", [l["bk.name"], l["bk.autotitle"], p.title ?? a.title].filter(Boolean).join(" "), a.address] };
   });
 }
 const BAR = 6;

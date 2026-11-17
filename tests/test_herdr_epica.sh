@@ -67,8 +67,29 @@ check_eq "$(tail -1 "$TMP/gh.log")" "api repos/o/r/issues/14" "…y pregunta de 
 : >"$TMP/gh.log"; rm -f "$BK_CACHE_DIR/epica.json"
 check_eq "$(ep --json "[[\"$REPO\",\"claude/11-a\",\"\"],[\"$REPO\",\"main\",\"nada\"],[\"$REPO\",\"claude/13-b\",\"\"],[\"$TMP/proj-wt/11\",\"w\",\"\"]]" | jq -c 'map(.epic.number)')" '[10,null,13,10]' "--json: una respuesta por chat, en el mismo orden"
 check_eq "$(grep -c 'issues/11/parent' "$TMP/gh.log") $(calls)" "1 3" "--json: a GitHub una vez por issue (el #11 de dos chats, una vez; el #13, dos pedidos)"
-check_eq "$(ep --json 'no es json' 2>&1; echo "rc=$?")" "bk _epica --json '[[carpeta, rama, texto], …]'
+check_eq "$(ep --json 'no es json' 2>&1; echo "rc=$?")" "bk _epica --json '[[carpeta, rama, texto, terminal], …]'
 rc=1" "--json con algo que no es una lista: el uso, y falla"
+
+# La conversación de Claude de la terminal: un chat abierto en el checkout principal implementa en un worktree sin
+# mover su carpeta, y la rama del checkout puede ser de otro chat. Manda el último worktree o prepare.sh de sus comandos.
+export BK_PROJECTS="$TMP/projects"   # el estado de los chats: bin/bk lo lee de $HOME/.cache/sketchybar/agents
+mkdir -p "$HOME/.cache/sketchybar/agents" "$BK_PROJECTS/p"
+echo '{"pane":"t9","ts":1}' >"$HOME/.cache/sketchybar/agents/s9.json"
+cmd() { jq -cn --arg c "$1" '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:$c}}]}}'; }
+out() { jq -cn --arg c "$1" '{type:"user",message:{content:[{type:"tool_result",tool_use_id:"toolu_1",content:$c}]}}'; }   # como las de verdad: dice tool_use
+{ cmd ".claude/skills/implement-issue/prepare.sh 12"; cmd "cd $TMP/proj-wt/13 && git status"; out "$TMP/proj-wt/11 [w] $TMP/proj-wt/14"; } >"$BK_PROJECTS/p/s9.jsonl"
+check_eq "$(ep "$REPO" claude/11-algo "" t9 | jq -c '[.issue, .epic.number]')" '[13,13]' "conversación: el último worktree de sus comandos manda sobre la rama del checkout; lo que le respondieron no cuenta"
+cmd "cd $REPO && bash .claude/skills/implement-issue/prepare.sh 12" >>"$BK_PROJECTS/p/s9.jsonl"
+check_eq "$(ep "$REPO" claude/11-algo "" t9 | jq -c .issue)" '12' "…el último: prepare.sh <n> también"
+cmd "ls $TMP/otro-wt/77 $TMP/proj-wt/15x" >>"$BK_PROJECTS/p/s9.jsonl"
+cmd "echo 'corré prepare.sh 16' && python3 - <<'EOF'\nx = 'prepare.sh 17'\nEOF" >>"$BK_PROJECTS/p/s9.jsonl"
+check_eq "$(ep "$REPO" claude/11-algo "" t9 | jq -c .issue)" '12' "el worktree de otro repo, uno que no es <n> o un prepare.sh nombrado en un texto (no corrido) no cuentan"
+check_eq "$(ep "$TMP/proj-wt/11" w "" t9 | jq -c .issue)" '11' "un chat en su propio worktree: manda la carpeta"
+check_eq "$(ep "$REPO" claude/11-algo "" t8 | jq -c .issue)" '11' "una terminal sin conversación: la rama, como antes"
+: >"$BK_PROJECTS/p/s9.jsonl"
+check_eq "$(ep "$REPO" claude/11-algo "" t9 | jq -c .issue)" '11' "una conversación sin worktree: la rama"
+check_eq "$(jq -r 'keys[0]' "$BK_CACHE_DIR/epica-sesiones.json")" "$BK_PROJECTS/p/s9.jsonl" "guarda lo leído de cada conversación (por tamaño: no relee si no creció)"
+unset BK_PROJECTS
 
 # Las épicas debajo de cada espacio (herdr/mods/agentes), con Herdr falso
 node --input-type=module - "$ROOT" <<'JS' && { N=$((N+1)); echo "ok $N - mod: la épica debajo de su espacio"; } || { N=$((N+1)); FAILED=$((FAILED+1)); echo "not ok $N - mod: la épica debajo de su espacio"; }
@@ -140,7 +161,7 @@ reply = (qs) => ({ code: 0, stdout: JSON.stringify(qs.map(([, b]) => ({ issue: 1
 AG = [agent('t1', 's1', '/abra', 'claude/11-a', 'uno'), agent('t2', 's1', '/abra', 'claude/12-b', 'dos', { 'bk.name': 'Dos #12' }), agent('t3', 's2', '/otro', 'main', 'tres')];
 let v = new Agents(); v.init({}, cx); await settle();
 let out = await draw(v);
-assert.deepEqual(epicCalls()[0], ['bk', '_epica', '--json', JSON.stringify([['/abra', 'claude/11-a', 'uno'], ['/abra', 'claude/12-b', 'Dos #12 dos'], ['/otro', 'main', 'tres']])], 'una sola llamada con carpeta, rama y nombre de cada chat');
+assert.deepEqual(epicCalls()[0], ['bk', '_epica', '--json', JSON.stringify([['/abra', 'claude/11-a', 'uno', 't1'], ['/abra', 'claude/12-b', 'Dos #12 dos', 't2'], ['/otro', 'main', 'tres', 't3']])], 'una sola llamada con carpeta, rama y nombre de cada chat');
 assert.deepEqual(list(out), ['sp-s1', 'epic-s1-o/r#10', 'sp-s2', 'sp-s3'], 'la épica va debajo de su espacio, una vez aunque la tengan dos chats; los espacios sin épica, sin línea');
 let b = row(out, 'epic-s1-o/r#10');
 assert.deepEqual(text(b), ['ÉPICA', '#10 La épica', '▓▓░░░░', '2/5'], 'ÉPICA #N título, la barra y el avance');
