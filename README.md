@@ -197,10 +197,11 @@ pisan con los del repo (se editan acá).
   Gentleman-Sexy de pi), `bk-gentleman-cute` (el mismo fondo con rosa suave, menta y celeste; del tema
   Gentleman-Cute), `bk-dia` (claro, papel cálido con acento lavanda, para usar de día),
   `bk-papel` (claro, papel blanco y tinta negra con amarillo, coral e índigo, del estilo de Paperfolio) y
-  `bk-tinta` (su versión de noche: tinta casi negra, texto blanco y acento amarillo); además
+  `bk-papel-night` (su versión de noche: tinta casi negra, texto blanco y acento amarillo); además
   `catppuccin-mocha`, `rose-pine` y `tokyo-night`. Siguen al repo mientras no los retoques: bk anota qué instaló
   (`bk-temas.json`) y solo pisa una copia que sigue igual a esa; un tema tuyo con el mismo nombre queda como está y
-  se avisa. El `bk-noche` que instaló una versión anterior se borra si nadie lo tocó.
+  se avisa. El `bk-noche` y el `bk-tinta` que instalaron versiones anteriores (ahora `bk-neon` y `bk-papel-night`) se
+  borran si nadie los tocó.
   En `alt+,`, elegir un tema de la otra claridad (`bk-dia` con la apariencia oscura, o uno oscuro con la clara)
   cambia también la apariencia (`appearance` en `settings.json`); si no, Herdr no lo mostraría.
 - Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra
