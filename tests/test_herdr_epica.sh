@@ -8,6 +8,8 @@ export HOME="$TMP/home" BK_CACHE_DIR="$TMP/cache"
 unset BK_BACKEND BK_PROJECT GIT_DIR GIT_WORK_TREE
 mkdir -p "$HOME" "$TMP/fake"
 # gh falso: #10 es la épica (sub-issues 2/5) de #11; #12 no tiene épica; #13 es épica sin padre. Sin red: falla.
+# Los sub-issues de #10: #11 abierto, #12 cerrado y o/x#5 (otro repo), bloqueado por #11 (abierto) y #12 (cerrado).
+# #21 tiene su épica en otro repo: o/k#20.
 cat >"$TMP/fake/gh" <<FAKE
 #!/bin/sh
 echo "\$*" >>"$TMP/gh.log"
@@ -16,6 +18,10 @@ case "\$2" in
   repos/o/r/issues/11/parent) echo '{"number":10,"title":"La épica","sub_issues_summary":{"completed":2,"total":5}}' ;;
   repos/o/r/issues/13) echo '{"number":13,"title":"Otra épica","sub_issues_summary":{"completed":1,"total":3}}' ;;
   repos/o/r/issues/12) echo '{"number":12,"title":"Suelto","sub_issues_summary":{"completed":0,"total":0}}' ;;
+  repos/o/r/issues/21/parent) echo '{"number":20,"title":"Cruza","repository_url":"https://api.github.com/repos/o/k","sub_issues_summary":{"completed":0,"total":2}}' ;;
+  repos/o/r/issues/10/sub_issues*) echo '[{"number":11,"title":"Once","state":"open","repository_url":"https://api.github.com/repos/o/r"},{"number":12,"title":"Doce","state":"closed","repository_url":"https://api.github.com/repos/o/r"},{"number":5,"title":"Cinco","state":"open","repository_url":"https://api.github.com/repos/o/x"}]' ;;
+  repos/o/x/issues/5/dependencies/blocked_by) echo '[{"number":11,"state":"open","repository_url":"https://api.github.com/repos/o/r"},{"number":12,"state":"closed","repository_url":"https://api.github.com/repos/o/r"}]' ;;
+  repos/o/r/issues/11/dependencies/blocked_by) echo '[]' ;;
   repos/o/r/issues/*/parent) echo '{"message":"No parent issue found","status":"404"}'; echo "gh: No parent issue found (HTTP 404)" >&2; exit 1 ;;
   *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
 esac
@@ -29,14 +35,14 @@ calls() { wc -l <"$TMP/gh.log" | tr -d ' '; }
 REPO="$TMP/proj"; git init -q -b main "$REPO"; git -C "$REPO" remote add origin "git@github.com:o/r.git"
 mkdir -p "$TMP/proj-wt"; git -C "$REPO" commit -q --allow-empty -m x; git -C "$REPO" worktree add -q -b w "$TMP/proj-wt/11"
 
-check_eq "$(ep "$REPO" claude/11-algo | jq -c .)" '{"issue":11,"epic":{"repo":"o/r","number":10,"title":"La épica","done":2,"total":5}}' "rama claude/<n>-…: la épica es el padre del issue, con su avance"
+check_eq "$(ep "$REPO" claude/11-algo | jq -c '{issue, repo, epic: (.epic | del(.subs, .dirs))}')" '{"issue":11,"repo":"o/r","epic":{"repo":"o/r","number":10,"title":"La épica","done":2,"total":5}}' "rama claude/<n>-…: la épica es el padre del issue, con su avance"
 check_eq "$(ep "$REPO" claude/feat/11-algo | jq -c '[.issue, .epic.number]')" '[11,10]' "rama claude/<tipo>/<n>-…"
 check_eq "$(ep "$TMP/proj-wt/11" w | jq -c '[.issue, .epic.number]')" '[11,10]' "worktree <repo>-wt/<n>: el issue sale de la carpeta"
 check_eq "$(ep "$REPO" main 'Arreglar el login #11' | jq -c '[.issue, .epic.number]')" '[11,10]' "en main, el #<n> del nombre del chat"
 check_eq "$(ep "$REPO" claude/13-x | jq -c '[.issue, .epic.number, .epic.done, .epic.total]')" '[13,13,1,3]' "un issue con sub-issues es su propia épica"
-check_eq "$(ep "$REPO" claude/12-x | jq -c .)" '{"issue":12,"epic":null}' "issue sin épica: epic null"
+check_eq "$(ep "$REPO" claude/12-x | jq -c .)" '{"issue":12,"repo":"o/r","epic":null}' "issue sin épica: epic null"
 : >"$TMP/gh.log"
-check_eq "$(ep "$REPO" main 'sin número' | jq -c .) $(calls)" '{"issue":null,"epic":null} 0' "sin issue: null y no le pregunta nada a GitHub"
+check_eq "$(ep "$REPO" main 'sin número' | jq -c .) $(calls)" '{"issue":null,"repo":null,"epic":null} 0' "sin issue: null y no le pregunta nada a GitHub"
 check_eq "$(ep "$REPO" release/2026-11 | jq -c .issue)" 'null' "una rama sin <n>- no es un issue"
 
 : >"$TMP/gh.log"; ep "$REPO" claude/11-algo >/dev/null; ep "$REPO" claude/12-x >/dev/null
@@ -58,7 +64,7 @@ for v in c.values(): v["at"] -= 3600
 json.dump(c, open(p, "w"))
 PY
 check_eq "$(ep "$REPO" claude/11-algo | jq -c '[.epic.number, .offline]')" '[10,null]' "sin red: lo último guardado, aunque esté vencido"
-check_eq "$(ep "$REPO" claude/14-x | jq -c .)" '{"issue":14,"epic":null,"offline":true}' "sin red y sin nada guardado: null y offline"
+check_eq "$(ep "$REPO" claude/14-x | jq -c .)" '{"issue":14,"repo":"o/r","epic":null,"offline":true}' "sin red y sin nada guardado: null y offline"
 rm "$TMP/sin-red"
 check_eq "$(ep "$REPO" claude/14-x | jq -c .epic)" 'null' "el error de red no se guardó como «no tiene épica»: con red vuelve a preguntar"
 check_eq "$(tail -1 "$TMP/gh.log")" "api repos/o/r/issues/14" "…y pregunta de verdad"
@@ -69,6 +75,35 @@ check_eq "$(ep --json "[[\"$REPO\",\"claude/11-a\",\"\"],[\"$REPO\",\"main\",\"n
 check_eq "$(grep -c 'issues/11/parent' "$TMP/gh.log") $(calls)" "1 3" "--json: a GitHub una vez por issue (el #11 de dos chats, una vez; el #13, dos pedidos)"
 check_eq "$(ep --json 'no es json' 2>&1; echo "rc=$?")" "bk _epica --json '[[carpeta, rama, texto, terminal], …]'
 rc=1" "--json con algo que no es una lista: el uso, y falla"
+
+# Los sub-issues de cada épica (la sección ÉPICAS y su popup): en su propia caché, aparte
+export BK_CACHE_DIR="$TMP/cache-subs"; : >"$TMP/gh.log"; mkdir -p "$HOME/x"
+E=$(ep "$TMP/proj-wt/11" w)
+check_eq "$(jq -c '[.epic.subs[] | [.repo, .number, .state, .title, .blocked_by]]' <<<"$E")" '[["o/r",11,"open","Once",[]],["o/r",12,"closed","Doce",[]],["o/x",5,"open","Cinco",[{"repo":"o/r","number":11}]]]' "subs: los sub-issues de la épica (de otro repo también) y, de los abiertos, sus bloqueos abiertos"
+check_eq "$(grep -c 'issues/12/dependencies' "$TMP/gh.log")" "0" "de un sub-issue cerrado no pide bloqueos"
+check_eq "$(jq -c .repo <<<"$E")" '"o/r"' "cada chat dice el repo de su issue"
+check_eq "$(jq -cS .epic.dirs <<<"$E")" "{\"o/r\":\"$REPO\",\"o/x\":\"$HOME/x\"}" "dirs: el checkout principal del chat (no su worktree) y ~/<nombre> para un repo sin chat"
+rm -rf "$HOME/x"
+check_eq "$(ep "$TMP/proj-wt/11" w | jq -c .epic.dirs)" "{\"o/r\":\"$REPO\"}" "…un repo sin chat ni carpeta en ~: sin dir (no se puede lanzar ahí)"
+check_eq "$(ep "$REPO" claude/21-x | jq -c '[.epic.repo, .epic.number]')" '["o/k",20]' "la épica en otro repo: el repo sale de su repository_url, no del chat"
+RESP="$TMP/resp"; git init -q -b main "$RESP"; git -C "$RESP" remote add respaldo "https://github.com/o/r.git"
+check_eq "$(ep "$RESP" claude/11-a | jq -c '[.repo, .epic.number]')" '["o/r",10]' "sin origin, el único remoto de GitHub (el workspace tiene solo respaldo)"
+: >"$TMP/gh.log"; ep "$REPO" claude/11-a >/dev/null
+check_eq "$(grep -c 'sub_issues\|dependencies' "$TMP/gh.log")" "0" "los sub-issues salen de su caché: no vuelve a pedir"
+age() { python3 - "$1" <<'PY2'
+import json, sys
+p = sys.argv[1]; c = json.load(open(p))
+for v in c.values(): v["at"] -= 3600
+json.dump(c, open(p, "w"))
+PY2
+}
+age "$BK_CACHE_DIR/epica-subs.json"; ep "$REPO" claude/11-a >/dev/null
+check_eq "$(grep -c 'issues/10/sub_issues' "$TMP/gh.log")" "1" "vencida su caché, los vuelve a pedir"
+touch "$TMP/sin-red"; age "$BK_CACHE_DIR/epica-subs.json"; age "$BK_CACHE_DIR/epica.json"
+check_eq "$(ep "$REPO" claude/11-a | jq -c '[.epic.number, (.epic.subs | length)]')" '[10,3]' "sin red: los sub-issues guardados, aunque estén vencidos"
+rm "$BK_CACHE_DIR/epica-subs.json"
+check_eq "$(ep "$REPO" claude/11-a | jq -c '[.epic.number, (.epic | has("subs"))]')" '[10,false]' "sin red y sin sub-issues guardados: la épica sin subs (no una lista vacía)"
+rm "$TMP/sin-red"; export BK_CACHE_DIR="$TMP/cache"
 
 # La conversación de Claude de la terminal: un chat abierto en el checkout principal implementa en un worktree sin
 # mover su carpeta, y la rama del checkout puede ser de otro chat. Manda el último worktree o prepare.sh de sus comandos.

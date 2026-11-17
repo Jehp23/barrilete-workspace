@@ -13,11 +13,17 @@ El issue del chat sale, en este orden:
   4. de un #1152 en el texto (el nombre o el título automático del chat). La épica es su
 padre en GitHub, o el issue mismo si tiene sub-issues. Imprime un JSON:
 
-  {"issue": 1152, "epic": {"repo": "o/r", "number": 1150, "title": "…", "done": 5, "total": 7}}
+  {"issue": 1152, "repo": "o/r", "epic": {"repo": "o/r", "number": 1150, "title": "…", "done": 5, "total": 7,
+    "subs": [{"repo": "o/r", "number": 1151, "title": "…", "state": "open", "blocked_by": [{"repo": "o/x", "number": 9}]}, …],
+    "dirs": {"o/r": "/Users/yo/r", "o/x": "/Users/yo/x"}}}
 
-`epic` es null si el chat no tiene issue o el issue no tiene épica; `issue` es null sin issue. Lo de GitHub se
+`epic` es null si el chat no tiene issue o el issue no tiene épica; `issue` es null sin issue; `repo` es el del issue
+(el de la carpeta del chat). `subs` son los sub-issues de la épica (pueden ser de otro repo), y de los abiertos, los
+issues abiertos que los bloquean (`blocked_by`). `dirs` dice dónde lanzar un sub-issue de cada repo (`bk run N` corre
+en esa carpeta): el checkout principal de los chats de esa épica, si no ~/<nombre del repo> si existe. Lo de GitHub se
 guarda unos minutos en ~/.cache/bk/epica.json (BK_CACHE_DIR): la barra lo pide seguido y no debe pegarle a GitHub
-en cada dibujo. Sin red, lo último guardado aunque esté vencido; si no hay nada, epic null y "offline": true.
+en cada dibujo. Sin red, lo último guardado aunque esté vencido; si no hay nada, epic null y "offline": true. Los
+sub-issues de cada épica, igual, en ~/.cache/bk/epica-subs.json (sin red y sin nada guardado, `subs` no está).
 """
 import json, os, re, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
@@ -31,6 +37,7 @@ CACHE = os.path.join(os.environ.get("BK_CACHE_DIR", os.path.expanduser("~/.cache
 
 SCAN = 1 << 20   # de la conversación, se lee el último mega
 SESSIONS = os.path.join(os.path.dirname(CACHE), "epica-sesiones.json")
+SUBS = os.path.join(os.path.dirname(CACHE), "epica-subs.json")
 
 
 def worktree_issue(cwd):
@@ -118,8 +125,9 @@ def gh(path):
 
 
 def summary(repo, it):
+    """El padre puede ser de otro repo (una épica que cruza repos): el suyo sale de repository_url."""
     s = it.get("sub_issues_summary") or {}
-    return {"repo": repo, "number": it["number"], "title": it.get("title") or "",
+    return {"repo": repo_from_url(it.get("repository_url")) or repo, "number": it["number"], "title": it.get("title") or "",
             "done": s.get("completed") or 0, "total": s.get("total") or 0}
 
 
@@ -136,6 +144,32 @@ def fetch(repo, num):
     if it and (it.get("sub_issues_summary") or {}).get("total"):
         return summary(repo, it)
     return None
+
+
+def repo_from_url(url):
+    m = re.search(r"/repos/([^/]+/[^/]+)$", url or "")
+    return m.group(1) if m else ""
+
+
+def fetch_subs(repo, num):
+    """Los sub-issues de repo#num y, de los abiertos, sus bloqueos abiertos; lanza LookupError si GitHub no respondió."""
+    items, err = gh(f"repos/{repo}/issues/{num}/sub_issues?per_page=100")
+    if err == "error" or (items is not None and not isinstance(items, list)):
+        raise LookupError
+    subs = [{"repo": repo_from_url(it.get("repository_url")) or repo, "number": it["number"], "title": it.get("title") or "",
+             "state": it.get("state") or "open", "blocked_by": []} for it in items or [] if isinstance(it, dict) and "number" in it]
+
+    def blockers(s):
+        got, err = gh(f"repos/{s['repo']}/issues/{s['number']}/dependencies/blocked_by")
+        if err == "error":
+            raise LookupError
+        return [{"repo": repo_from_url(b.get("repository_url")) or s["repo"], "number": b["number"]}
+                for b in got or [] if isinstance(b, dict) and "number" in b and b.get("state") == "open"]
+    opened = [s for s in subs if s["state"] == "open"]
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for s, b in zip(opened, pool.map(blockers, opened)):
+            s["blocked_by"] = b
+    return subs
 
 
 def load(path=CACHE):
@@ -161,7 +195,7 @@ def save(cache, path=CACHE, prune=True):
 
 def resolve(queries):
     """Las respuestas de varios chats; a GitHub, una vez por issue y en paralelo."""
-    cache, now, keys = load(), time.time(), []
+    cache, now, keys, main_dirs = load(), time.time(), [], []
     states = AG.states() if any(q[3] for q in queries) else {}
     seen = load(SESSIONS)
     seen_before = json.dumps(seen, sort_keys=True)
@@ -173,8 +207,9 @@ def resolve(queries):
             if top and path:
                 session = session_issue(path, os.path.dirname(top.rstrip("/")), seen)
         num = issue_of(cwd, branch, text, session)
-        repo = AG.repo_of(cwd) if num and cwd and os.path.isdir(cwd) else ""
+        repo = repo_of(cwd) if num and cwd and os.path.isdir(cwd) else ""
         keys.append((num, repo))
+        main_dirs.append(checkout(cwd) if repo else "")
     if json.dumps(seen, sort_keys=True) != seen_before:
         save(seen, SESSIONS, prune=False)
     stale = sorted({(r, n) for n, r in keys if n and r
@@ -197,14 +232,70 @@ def resolve(queries):
         save(cache)
     out = []
     for num, repo in keys:
-        o = {"issue": num, "epic": None}
+        o = {"issue": num, "repo": repo or None, "epic": None}
         hit = cache.get(f"{repo}#{num}") if num and repo else None
         if hit:
             o["epic"] = hit.get("epic")   # sin red, lo último guardado aunque esté vencido
         elif (repo, num) in failed:
             o["offline"] = True
         out.append(o)
+    with_subs(out, main_dirs)
     return out
+
+
+def repo_of(cwd):
+    """El repo de GitHub de esa carpeta: el de origin; sin origin, el único remoto de GitHub (el workspace tiene
+    solo `respaldo`)."""
+    repo = AG.repo_of(cwd)
+    if repo:
+        return repo
+    found = {m.group(1) for m in re.finditer(r"github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?\s", AG.sh("git", "-C", cwd, "remote", "-v"))}
+    return found.pop() if len(found) == 1 else ""
+
+
+def checkout(cwd):
+    """El checkout principal del repo de esa carpeta (el de un worktree es el del repo): ahí corre `bk run`."""
+    top = AG.sh("git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+    return os.path.dirname(top.rstrip("/")) if top else ""
+
+
+def with_subs(out, main_dirs):
+    """Suma a cada épica sus sub-issues (caché propia, TTL) y dónde lanzar los de cada repo."""
+    cache, now = load(SUBS), time.time()
+    epics = {(o["epic"]["repo"], o["epic"]["number"]) for o in out if o["epic"]}
+    stale = sorted(rn for rn in epics if not (cache.get(f"{rn[0]}#{rn[1]}") and now - cache[f"{rn[0]}#{rn[1]}"].get("at", 0) < TTL))
+
+    def ask(rn):
+        try:
+            return rn, fetch_subs(*rn)
+        except LookupError:
+            return rn, LookupError
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        fresh = dict(pool.map(ask, stale))
+    got = {rn: subs for rn, subs in fresh.items() if subs is not LookupError}
+    for rn, subs in got.items():
+        cache[f"{rn[0]}#{rn[1]}"] = {"at": time.time(), "subs": subs}
+    if got:
+        save(cache, SUBS)
+    dirs = {}
+    for o, d in zip(out, main_dirs):
+        if o["epic"] and o["repo"] and d:
+            dirs.setdefault((o["epic"]["repo"], o["epic"]["number"]), {}).setdefault(o["repo"], d)
+    for o in out:
+        e = o["epic"]
+        if not e:
+            continue
+        rn = (e["repo"], e["number"])
+        e = o["epic"] = dict(e)   # la de la caché de épicas queda sin esto
+        hit = cache.get(f"{rn[0]}#{rn[1]}")
+        if hit:   # sin red, lo último guardado aunque esté vencido
+            e["subs"] = hit.get("subs") or []
+        d = dict(dirs.get(rn, {}))
+        for r in {e["repo"], *(s["repo"] for s in e.get("subs", []))} - set(d):
+            guess = os.path.join(os.path.expanduser("~"), r.split("/")[-1])
+            if os.path.isdir(guess):
+                d[r] = guess
+        e["dirs"] = d
 
 
 def main(argv):
