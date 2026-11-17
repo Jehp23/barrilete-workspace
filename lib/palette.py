@@ -47,6 +47,7 @@ ENTRIES = [
     ("Sesión", "Umbral de contexto: con cuánto seguir en un chat nuevo", "context", None, "show"),
     ("Sesión", "Cambiar el umbral de contexto", "context", "tokens (300k, 1m o default)", "show"),
     ("Sesión", "Lecciones por revisar", "lessons", None, "show"),
+    ("Sesión", "Bitácora de agentes: regenerar y abrir el HTML de estado", "bitacora", None, "show"),
     ("Sesión", "Registrar desvíos (learn)", "learn", None, "show"),
     ("Apariencia","Tema de día", "theme day", None, "show"),
     ("Apariencia","Tema de noche", "theme night", None, "show"),

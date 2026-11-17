@@ -130,6 +130,7 @@ uso: bk [comando] [--dry-run]
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
   learn             registra desvíos de los agentes en Obsidian y propone lecciones
   lessons           lecciones por revisar (status: proposed) en el vault
+  bitacora [repo] [html]  regenera la «Bitácora de agentes» del HTML de estado (retros del kit) y lo abre
   learn effect      ¿las reglas aceptadas bajan los hallazgos que dicen evitar? antes/después por ronda de
                     review (agents/efecto.md); las que no bajan, para reescribir o retirar
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
@@ -1849,6 +1850,8 @@ case "${1:-}" in
   learn)       shift; [ "${1:-}" = effect ] && { shift; exec python3 "$WS/lib/effect.py" "$@"; }
                exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
+  bitacora)    shift; out=$(python3 -I "$WS/lib/bitacora.py" "$@") || die "no pude regenerar la bitácora"
+               echo "$out"; [ -n "${BK_NO_OPEN:-}" ] || open "${out#ok: }" ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
   font)        shift; font "${1:-status}" ;;
