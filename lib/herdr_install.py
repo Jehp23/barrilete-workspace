@@ -49,7 +49,7 @@ def panels(src, home):
 
 
 # Temas que bk instaló con otro nombre: si la copia sigue igual a lo que bk instaló, se va (el nuevo la reemplaza)
-RENAMED_THEMES = {"bk-noche.json": "bk-neon.json"}
+RENAMED_THEMES = {"bk-noche.json": "bk-neon.json", "bk-tinta.json": "bk-papel-night.json"}
 
 
 def themes(src, home):

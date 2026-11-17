@@ -130,7 +130,8 @@ uso: bk [comando] [--dry-run]
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
   learn             registra desvíos de los agentes en Obsidian y propone lecciones
   lessons           lecciones por revisar (status: proposed) en el vault
-  bitacora [repo] [html]  regenera la «Bitácora de agentes» del HTML de estado (retros del kit) y lo abre
+  bitacora [repo...]  regenera la «Bitácora de agentes» de cada repo (los de ~/.config/bk/retros.json) con el
+                    scripts/agents/bitacora.py de su kit y la abre (.barrilete/bitacora.html)
   learn effect      ¿las reglas que aplica cada proyecto (rules.lock + .barrilete/rules/) bajan los hallazgos que
                     dicen evitar? antes/después por ronda de review y fallos de su check (agents/efecto.md)
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
@@ -1851,7 +1852,8 @@ case "${1:-}" in
                exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
   bitacora)    shift; out=$(python3 -I "$WS/lib/bitacora.py" "$@") || exit 1
-               echo "$out"; [ -n "${BK_NO_OPEN:-}" ] || open "${out#ok: }" ;;
+               echo "$out"
+               [ -n "${BK_NO_OPEN:-}" ] || while IFS= read -r l; do open "${l#ok: }"; done <<<"$out" ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
   font)        shift; font "${1:-status}" ;;
@@ -1882,6 +1884,7 @@ case "${1:-}" in
   _nth)        tmux_only _nth "los espacios de Herdr"; ws_ids | awk -F'\t' -v n="${2:-1}" '$1 == n {print $2}' ;;   # alt+N: el workspace con ese número
   _ids)        tmux_only _ids "los espacios de Herdr"; ws_ids ;;
   _subagents)  shift; exec python3 "$WS/lib/herdr_subagents.py" "$@" ;;
+  _epica)      shift; exec python3 "$WS/lib/herdr_epica.py" "$@" ;;   # la épica del chat enfocado y su avance (herdr/mods/agentes)
   _tasks)      shift; exec python3 "$WS/lib/herdr_tasks.py" "$@" ;;   # bk tasks --json con el título de cada issue o PR (herdr/mods/tareas)
   _adopt)      shift; hd_adopt "${1:?bk _adopt <terminal>}" ;;   # la barra de Herdr: que bk conozca esa terminal y le dé su número
   _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)

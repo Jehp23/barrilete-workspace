@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""La épica de un chat y su avance, para las líneas ÉPICA debajo de cada espacio en la barra (herdr/mods/agentes).
+
+  herdr_epica.py <carpeta> [rama] [texto] [terminal]        (bk _epica …)
+  herdr_epica.py --json '[[carpeta, rama, texto, terminal], …]'   (varios chats: una lista de respuestas, en orden)
+
+El issue del chat sale, en este orden:
+  1. de la carpeta, si el chat está en un worktree <repo>-wt/1152;
+  2. de la conversación de Claude de esa terminal: el último worktree <repo>-wt/N o `prepare.sh N` en los comandos
+     que corrió (un chat abierto en el checkout principal implementa en un worktree sin mover su carpeta, y la
+     rama del checkout puede ser de otro chat);
+  3. de la rama (claude/1152-algo, claude/feat/1152-algo);
+  4. de un #1152 en el texto (el nombre o el título automático del chat). La épica es su
+padre en GitHub, o el issue mismo si tiene sub-issues. Imprime un JSON:
+
+  {"issue": 1152, "epic": {"repo": "o/r", "number": 1150, "title": "…", "done": 5, "total": 7}}
+
+`epic` es null si el chat no tiene issue o el issue no tiene épica; `issue` es null sin issue. Lo de GitHub se
+guarda unos minutos en ~/.cache/bk/epica.json (BK_CACHE_DIR): la barra lo pide seguido y no debe pegarle a GitHub
+en cada dibujo. Sin red, lo último guardado aunque esté vencido; si no hay nada, epic null y "offline": true.
+"""
+import json, os, re, subprocess, sys, time
+from concurrent.futures import ThreadPoolExecutor
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import agents as AG
+
+TTL = 300
+CACHE = os.path.join(os.environ.get("BK_CACHE_DIR", os.path.expanduser("~/.cache/bk")), "epica.json")
+
+
+SCAN = 1 << 20   # de la conversación, se lee el último mega
+SESSIONS = os.path.join(os.path.dirname(CACHE), "epica-sesiones.json")
+
+
+def worktree_issue(cwd):
+    if cwd:
+        base, parent = os.path.basename(cwd.rstrip("/")), os.path.basename(os.path.dirname(cwd.rstrip("/")))
+        if base.isdigit() and parent.endswith("-wt"):
+            return int(base)
+    return None
+
+
+def transcript(sid):
+    import glob
+    hits = glob.glob(os.path.join(AG.PROJECTS, "*", f"{sid}.jsonl")) if sid else []
+    return hits[0] if hits else ""
+
+
+def session_issue(path, repo_dir, seen):
+    """El último issue en el que trabajó la conversación: los comandos de Claude (tool_use), no lo que le respondieron
+    (un `git worktree list` nombra todos los worktrees). `seen` guarda {archivo: [tamaño, issue]}: sin cambios, no relee."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return None
+    if seen.get(path, [None])[0] == size:
+        return seen[path][1]
+    base = re.escape(os.path.basename(repo_dir.rstrip("/")))
+    wt = re.compile(rf"{base}-wt/(\d+)(?![\w-])")
+    # prepare.sh corrido de verdad: al principio de un comando (o después de && ; |), no nombrado dentro de un texto
+    prep = re.compile(r"(?:^|&&|;|\|)\s*(?:bash\s+)?(?:\S*/)?prepare\.sh\s+#?(\d+)\b", re.M)
+    num = None
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, size - SCAN))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if '"tool_use"' not in line:
+            continue
+        try:
+            msg = json.loads(line).get("message") or {}
+        except ValueError:
+            continue
+        for c in msg.get("content") or []:
+            if isinstance(c, dict) and c.get("type") == "tool_use":
+                inp = c.get("input") or {}
+                cmd = inp.get("command") if isinstance(inp, dict) else None
+                # En un mismo comando, el worktree manda (prepare.sh N && cd <repo>-wt/N); si no hay, el prepare.sh
+                found = [int(m.group(1)) for m in wt.finditer(json.dumps(inp, ensure_ascii=False))] \
+                    or [int(m.group(1)) for m in prep.finditer(cmd if isinstance(cmd, str) else "")]
+                if found:
+                    num = found[-1]
+    seen[path] = [size, num]
+    return num
+
+
+def issue_of(cwd, branch, text, session=None):
+    wt = worktree_issue(cwd)
+    if wt:
+        return wt
+    if session:
+        return session
+    if branch and branch not in ("main", "master"):
+        # Las ramas de /implement-issue: claude/<n>-… o claude/<tipo>/<n>-… (el mismo patrón que available.sh del kit)
+        m = re.match(r"(?!release/)[a-z]+/(?:[a-z]{1,20}/)?(\d+)-", branch)
+        if m:
+            return int(m.group(1))
+    m = re.search(r"#(\d+)\b", text or "")
+    return int(m.group(1)) if m else None
+
+
+def gh(path):
+    """(json, None) si respondió; (None, "none") si GitHub dice 404; (None, "error") si no se pudo preguntar."""
+    env = {k: v for k, v in os.environ.items() if k not in ("GH_CONFIG_DIR", "GH_TOKEN")}
+    try:
+        r = subprocess.run(["gh", "api", path], capture_output=True, text=True, timeout=8, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None, "error"
+    if r.returncode != 0:
+        return None, "none" if "HTTP 404" in r.stderr else "error"
+    try:
+        return json.loads(r.stdout), None
+    except ValueError:
+        return None, "error"
+
+
+def summary(repo, it):
+    s = it.get("sub_issues_summary") or {}
+    return {"repo": repo, "number": it["number"], "title": it.get("title") or "",
+            "done": s.get("completed") or 0, "total": s.get("total") or 0}
+
+
+def fetch(repo, num):
+    """La épica de repo#num, None si no tiene; lanza LookupError si GitHub no respondió."""
+    parent, err = gh(f"repos/{repo}/issues/{num}/parent")
+    if parent:
+        return summary(repo, parent)
+    if err == "error":
+        raise LookupError
+    it, err = gh(f"repos/{repo}/issues/{num}")
+    if err == "error":
+        raise LookupError
+    if it and (it.get("sub_issues_summary") or {}).get("total"):
+        return summary(repo, it)
+    return None
+
+
+def load(path=CACHE):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save(cache, path=CACHE, prune=True):
+    now = time.time()
+    if prune:
+        cache = {k: v for k, v in cache.items() if now - v.get("at", 0) < 7 * 86400}
+    else:   # las conversaciones: las que ya no existen se van
+        cache = {k: v for k, v in cache.items() if os.path.exists(k)}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(cache, f, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def resolve(queries):
+    """Las respuestas de varios chats; a GitHub, una vez por issue y en paralelo."""
+    cache, now, keys = load(), time.time(), []
+    states = AG.states() if any(q[3] for q in queries) else {}
+    seen = load(SESSIONS)
+    seen_before = json.dumps(seen, sort_keys=True)
+    for cwd, branch, text, terminal in queries:
+        session = None
+        if terminal and not worktree_issue(cwd) and cwd and os.path.isdir(cwd):
+            top = AG.sh("git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+            path = transcript((states.get(terminal) or {}).get("_sid"))
+            if top and path:
+                session = session_issue(path, os.path.dirname(top.rstrip("/")), seen)
+        num = issue_of(cwd, branch, text, session)
+        repo = AG.repo_of(cwd) if num and cwd and os.path.isdir(cwd) else ""
+        keys.append((num, repo))
+    if json.dumps(seen, sort_keys=True) != seen_before:
+        save(seen, SESSIONS, prune=False)
+    stale = sorted({(r, n) for n, r in keys if n and r
+                    and not (cache.get(f"{r}#{n}") and now - cache[f"{r}#{n}"].get("at", 0) < TTL)})
+
+    def ask(rn):
+        try:
+            return rn, fetch(*rn)
+        except LookupError:
+            return rn, LookupError
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        fresh = dict(pool.map(ask, stale))
+    failed = set()
+    for rn, epic in fresh.items():
+        if epic is LookupError:
+            failed.add(rn)
+        else:
+            cache[f"{rn[0]}#{rn[1]}"] = {"at": time.time(), "epic": epic}
+    if len(failed) < len(fresh):
+        save(cache)
+    out = []
+    for num, repo in keys:
+        o = {"issue": num, "epic": None}
+        hit = cache.get(f"{repo}#{num}") if num and repo else None
+        if hit:
+            o["epic"] = hit.get("epic")   # sin red, lo último guardado aunque esté vencido
+        elif (repo, num) in failed:
+            o["offline"] = True
+        out.append(o)
+    return out
+
+
+def main(argv):
+    if argv[:1] == ["--json"]:
+        try:
+            qs = [(list(q) + ["", "", "", ""])[:4] for q in json.loads(argv[1])]
+        except (IndexError, ValueError, TypeError):
+            sys.exit("bk _epica --json '[[carpeta, rama, texto, terminal], …]'")
+        print(json.dumps(resolve([[str(x or "") for x in q] for q in qs]), ensure_ascii=False))
+        return
+    print(json.dumps(resolve([(argv + ["", "", "", ""])[:4]])[0], ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -7,10 +7,11 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, exec, home } from "herdr";
+import { agents, terminals, focused, panes, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, exec, home } from "herdr";
 import { ICONS, PROSE, RANK, al, find, narrow, ago, ids, said, picto, mark, keycap, iconButton, rule } from "./kit.js";
 
 const SUBS_EVERY = 4000;
+const EPIC_EVERY = 60000;   // bk _epica guarda lo de GitHub unos minutos: esto solo vuelve a leer su caché
 const bin = () => shared("bk.bin") || "bk";
 
 // Al riel (en macOS, con lugar para los botones de la ventana) o de vuelta al ancho que tenía.
@@ -42,6 +43,20 @@ const hash = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.ch
 // El alto de bk-menu para el más largo de cada tipo (tests/test_herdr_mods.sh lo compara con height() de bk-menu)
 const MENU_H = { space: 12 + 5 * 32 + 9, pane: 12 + 6 * 32 + 2 * 9 };
 const menu = (tab, target) => openOverlay({ mod: "bk-menu", kind: "popup", width: 300, height: MENU_H[tab], props: { tab, target } });
+// De dónde sale la épica de cada chat: la carpeta y la rama de su pane, su nombre (#123 en bk.name o bk.autotitle) y
+// su terminal (bk lee en su conversación de Claude el worktree donde trabajó). bk _epica (lib/herdr_epica.py) saca de ahí el issue y su épica.
+function epicQueries() {
+  const byPane = new Map(panes().map((p) => [p.pane, p]));
+  const labels = new Map(terminals().map((x) => [x.address, x.labels ?? {}]));
+  return agents().map((a) => {
+    const p = byPane.get(a.pane) ?? {};
+    const l = labels.get(a.address) ?? {};
+    return { address: a.address, space: a.space, q: [p.cwd ?? "", p.branch ?? "", [l["bk.name"], l["bk.autotitle"], p.title ?? a.title].filter(Boolean).join(" "), a.address] };
+  });
+}
+const BAR = 6;
+const bar = (done, total) => { const n = total ? Math.round((BAR * done) / total) : 0; return "▓".repeat(n) + "░".repeat(BAR - n); };
+
 // La marca de un sub-agente. tests/test_herdr_subagents.sh evalúa tree() y subRow() de este archivo sin sus
 // imports (solo les pasa View, div, svg, h_flex, v_flex, agents, run y home): por eso subRow no usa del kit
 // nada más que esto, y sin kit dibuja un hueco.
@@ -51,6 +66,7 @@ export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
     this.folded = new Set();
+    this.openPrev = new Set();   // las líneas «antes» desplegadas (plegadas por defecto)
     this.claudeSubs = {};
     this.subsRaw = "";
     this.subError = null;
@@ -78,6 +94,13 @@ export default class Agents extends View {
     };
     cx.spawn(refresh);
     cx.timer.every(SUBS_EVERY, (cx) => cx.spawn(refresh));
+    // La épica de cada chat, y la última vista de cada espacio: si ninguno de sus chats tiene, queda esa (en gris),
+    // guardada entre reinicios.
+    this.epics = new Map();
+    this.lastEpics = JSON.parse(localStorage.getItem("epics") ?? "{}");
+    this.epicKey = null;
+    this.epicAt = 0;
+    cx.timer.every(EPIC_EVERY, (cx) => { this.epicAt = 0; cx.notify(); });
     // El último estado de cada agente y cuándo cambió (ms), guardado entre reinicios.
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
     this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]");
@@ -124,6 +147,80 @@ export default class Agents extends View {
 
   since(a) {
     return this.changed[a.address]?.at ?? 0;
+  }
+
+  // Los chats que siguieron en otro por un handoff (etiqueta bk.from del nuevo, lib/herdr.sh): el mismo trabajo
+  // en una sola fila. Devuelve { prev: nuevo → viejo, hidden: los viejos que van debajo de su nuevo }. Un viejo
+  // fijado conserva su fila; si dos chats dicen venir del mismo, lo toma el primero de la lista; una cadena
+  // que vuelve sobre sí misma (no debería pasar) se corta.
+  lineage(list, labelsOf) {
+    const live = new Map(list.map((a) => [a.address, a]));
+    const prev = new Map();
+    const taken = new Set();
+    for (const a of list) {
+      const from = labelsOf.get(a.address)?.["bk.from"];
+      const old = from ? live.get(from) : null;   // uno que dice venir de sí mismo es una vuelta: se corta abajo
+      if (!old || old.pinned || taken.has(from)) continue;
+      let p = from, loop = false;
+      while (p && !loop) { loop = p === a.address; p = prev.get(p); }
+      if (loop) continue;
+      prev.set(a.address, from);
+      taken.add(from);
+    }
+    return { prev, hidden: taken };
+  }
+
+  // Pide las épicas de todos los chats en una llamada, si cambiaron los chats (o dónde están) o pasó EPIC_EVERY.
+  // Una a la vez. Llamado al dibujar.
+  epicRefresh(cx) {
+    const qs = epicQueries();
+    const key = JSON.stringify(qs.map((x) => x.q));
+    if (this.epicBusy || (key === this.epicKey && Date.now() - this.epicAt < EPIC_EVERY)) return;
+    this.epicBusy = true;
+    this.epicKey = key;
+    this.epicAt = Date.now();
+    cx.spawn(async (cx) => {
+      try {
+        const r = qs.length ? await exec(bin(), ["_epica", "--json", JSON.stringify(qs.map((x) => x.q))], { timeout: 30000 }) : { code: 0, stdout: "[]" };
+        // Si bk falla, no se sabe de quién es cada una: quedan las últimas vistas, en gris
+        const out = r.code === 0 ? JSON.parse(r.stdout) : [];
+        this.epics = new Map(qs.map((x, i) => [x.address, out[i]?.epic ?? null]));
+        let dirty = false;
+        for (const x of qs) {
+          const e = this.epics.get(x.address);
+          if (e && JSON.stringify(e) !== JSON.stringify(this.lastEpics[x.space])) { this.lastEpics[x.space] = e; dirty = true; }
+        }
+        if (dirty) localStorage.setItem("epics", JSON.stringify(this.lastEpics));
+      } catch { this.epics = new Map(); } finally {
+        this.epicBusy = false;
+        cx.notify();
+      }
+    });
+  }
+
+  // Las épicas de un espacio: las de sus chats, sin repetir; si no hay, la última vista ahí (stale, en gris).
+  spaceEpics(id) {
+    const seen = new Map();
+    for (const a of agents()) {
+      const e = a.space === id ? this.epics.get(a.address) : null;
+      if (e) seen.set(`${e.repo}#${e.number}`, { e, stale: false });   // la misma de dos chats, una línea
+    }
+    if (seen.size) return [...seen.values()];
+    const last = this.lastEpics[id];
+    return last ? [{ e: last, stale: true }] : [];
+  }
+
+  // Debajo del espacio: ÉPICA #N título ▓▓▓░░░ 5/7. Clic: en GitHub.
+  epicRow(t, sid, { e, stale }) {
+    const ink = stale ? t.dim : t.muted;
+    return h_flex().id(`epic-${sid}-${e.repo}#${e.number}`).h(22).flex_none().pl(35).pr(8).gap(6).rounded(6).items_center().text_size(11).cursor_pointer()
+      .hover((x) => x.bg(t.hover))
+      .tooltip(`${e.repo}#${e.number} ${e.title}${stale ? " · la última vista: ningún chat de este espacio tiene épica ahora" : ""}`)
+      .on_click(() => exec("open", [`https://github.com/${e.repo}/issues/${e.number}`]))
+      .child(div().flex_none().text_size(9.5).font_semibold().text_color(stale ? t.dim : t.accent).child("ÉPICA"))
+      .child(div().flex_1().min_w(0).truncate().text_color(ink).child(`#${e.number} ${e.title}`))
+      .child(div().flex_none().text_size(8.5).text_color(stale ? t.dim : e.total && e.done >= e.total ? t.done : t.accent).child(bar(e.done, e.total)))
+      .child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${e.done}/${e.total}`));
   }
 
   sortMenu(t) {
@@ -223,10 +320,23 @@ export default class Agents extends View {
     // Un sub-agente con pane también está en agents(): donde un árbol lo muestra no lleva fila propia, salvo fijado.
     const nested = new Set(collapsed ? [] : list.flatMap((a) => this.tree(all, a.address).map((s) => s.t.address)));
     list = list.filter((a) => a.pinned || !nested.has(a.address));
+    const labelsOf = new Map(native.map((x) => [x.address, x.labels ?? {}]));
+    const byAddress = new Map(list.map((a) => [a.address, a]));
+    // Un chat que siguió en otro (handoff) va debajo del nuevo, en la línea «antes»; en el riel no hay dónde
+    const { prev, hidden } = collapsed ? { prev: new Map(), hidden: new Set() } : this.lineage(list, labelsOf);
     const tabCounts = new Map();
     for (const a of list) tabCounts.set(a.tab, (tabCounts.get(a.tab) ?? 0) + 1);
     const byPriority = sort.id === "priority";
     const urgency = new Map(list.map((a) => [a.address, Math.max(RANK[a.status] ?? 0, ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
+    // Lo que te necesita en un chat viejo sube con su nuevo: la fila se ordena por lo más urgente de la cadena
+    const chained = (addr, seen = new Set()) => {
+      const old = prev.get(addr);
+      if (!old || seen.has(old)) return urgency.get(addr) ?? 0;
+      seen.add(old);
+      return Math.max(urgency.get(addr) ?? 0, chained(old, seen));
+    };
+    for (const a of list) if (prev.has(a.address)) urgency.set(a.address, chained(a.address));
+    list = list.filter((a) => !hidden.has(a.address));
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
     const pinned = list.filter((a) => a.pinned);
@@ -244,7 +354,6 @@ export default class Agents extends View {
       const auto = !tab?.named || /^(chat-\d+|\d+)$/.test(tab.name) || tab.name === a.program?.name || tabCounts.get(a.tab) > 1;
       return (auto ? own : "") || (tab?.named ? tab.name : "") || own || a.program?.name || a.address;
     };
-    const labelsOf = new Map(native.map((x) => [x.address, x.labels ?? {}]));
     const metaOf = (a, title, full) => {
       // En qué quedó el chat (lib/names.py, etiqueta bk.status) dice más que chat-3 o el nombre del programa
       const status = labelsOf.get(a.address)?.["bk.status"];
@@ -330,11 +439,38 @@ export default class Agents extends View {
             .when(this.hovered !== a.address && Boolean(when), (el) => el.child(div().flex_none().min_w(28).whitespace_nowrap().text_right().text_color(timeColor).child(ago(now - when))))));
     };
 
-    const withKids = (a) => {
+    // La línea «antes»: el chat del que este siguió (handoff), plegado. Desplegado muestra su fila entera, con
+    // sus sub-agentes y su propio «antes». Plegado igual avisa si algo ahí te espera o sigue trabajando.
+    const prevLine = (old, depth) => {
+      const open = this.openPrev.has(old.address);
+      const top = SECTION_STATUS[urgency.get(old.address)];
+      const loud = top === "blocked" || top === "working";
+      const head = h_flex().id(`prev-${old.address}`).pl(19).pr(8).h(24).flex_none().gap(5).rounded(6).items_center().text_size(11.5).cursor_pointer()
+        .hover((x) => x.bg(t.hover))
+        .tooltip(open ? "Plegar el chat anterior" : "El chat del que este siguió (handoff): clic para verlo")
+        .on_click((_e, cx) => {
+          open ? this.openPrev.delete(old.address) : this.openPrev.add(old.address);
+          cx.notify();
+        })
+        .child(svg(`${ICONS}chevron-${open ? "down" : "right"}.svg`).size(11).flex_none().text_color(t.dim))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`antes: ${titleOf(old)}`))
+        .when(loud, (el) => el.child(mark(t, top, 12)))
+        .child(div().id(`prev-x-${old.address}`).flex_none().p(1).rounded(4).text_color(t.dim).cursor_pointer()
+          .hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .tooltip("Cerrar el chat anterior")
+          .on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: old.tab }); })
+          .child(svg(`${ICONS}x.svg`).size(11)));
+      if (!open) return [head];
+      return [head, v_flex().pl(14).gap(1).children(withKids(old, depth + 1))];
+    };
+
+    const withKids = (a, depth = 0) => {
       const subs = collapsed ? [] : this.tree(all, a.address);
       const r = row(a, subs);
-      if (this.folded.has(a.address)) return [r];
-      return [r, ...subs.map((s) => this.subRow(t, s, shown))];
+      const old = depth < 8 ? byAddress.get(prev.get(a.address)) : null;
+      const before = old ? prevLine(old, depth) : [];
+      if (this.folded.has(a.address)) return [r, ...before];
+      return [r, ...subs.map((s) => this.subRow(t, s, shown)), ...before];
     };
 
     // Los grupos, en el orden de la lista: secciones por prioridad o espacios. Los agentes de un espacio
@@ -376,10 +512,12 @@ export default class Agents extends View {
         .child(h_flex().h(30).flex_none().items_center().justify_center()
           .child(iconButton(t, "collapse", "sidebar", toggleSidebar, { tip: "Abrir la barra", size: 15 })));
     }
+    this.epicRefresh(cx);
+    const spaceRows = sp.flatMap((s) => [this.spaceRow(t, s, false), ...this.spaceEpics(s.id).map((x) => this.epicRow(t, s.id, x))]);
     return v_flex().size_full().min_h(0).bg(t.chrome).pl(8).pr(4).pt(8).text_size(12.5)
       .child(rule(t, "ESPACIOS", [iconButton(t, "space-new", "plus", () => run("space.new"), { tip: "Espacio nuevo" })]))
-      // Hasta ocho espacios, la lista mide lo que ocupa; con más, se desplaza dentro de ese alto.
-      .child((sp.length > 8 ? v_flex().id("sp-list").h(8 * 29).overflow_y_scrollbar() : v_flex().id("sp-list")).flex_none().gap(1).pr(4).children(sp.map((s) => this.spaceRow(t, s, false))))
+      // Hasta ocho filas (espacios y sus épicas), la lista mide lo que ocupa; con más, se desplaza dentro de ese alto.
+      .child((spaceRows.length > 8 ? v_flex().id("sp-list").h(8 * 29).overflow_y_scrollbar() : v_flex().id("sp-list")).flex_none().gap(1).pr(4).children(spaceRows))
       .child(div().h(6).flex_none())
       .child(rule(t, "AGENTES", [
         iconButton(t, "ag-sort", sort.icon, () => openOverlay({ mod: "bk-agentes", kind: "popup", width: 200, height: 110, props: { sortMenu: true } }), { tip: `Orden: ${sort.label.toLowerCase()}` }),

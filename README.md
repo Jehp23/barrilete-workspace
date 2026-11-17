@@ -81,6 +81,12 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   se cierra cuando el nuevo abre: bk anota la terminal en `<session_id>.cerrar`, junto al resumen, y
   `bk handoff --listo` la cierra solo si sigue siendo la de esa sesión y la marca tiene menos de media hora. Un
   pedido sin `--cerrar` borra la marca de uno anterior. Es lo que corre `alt+h`, con sus dos opciones.
+  **Con Herdr el chat nuevo sigue siendo el mismo trabajo**: nace con el nombre del viejo (uno puesto a mano pasa
+  como puesto a mano, y `bk name` o el doble clic lo cambian; uno automático lo sigue actualizando `lib/names.py`) o,
+  si el viejo no tenía, con el título del resumen; su estado es «sigue: <primer paso de Falta>». Queda unido al viejo
+  (etiquetas `bk.from` en el nuevo y `bk.next` en el viejo) y en la barra de agentes el viejo no tiene fila propia:
+  va debajo del nuevo, en una línea «antes» plegada que se despliega con un clic y se cierra con su cruz. Plegada
+  igual lleva la marca si el viejo te espera o sigue trabajando, y el nuevo se ordena por lo más urgente de los dos.
 
 ## Herdr en vez de tmux (`bk backend herdr`)
 `bk backend herdr` hace que los chats y los agentes vivan en la app [Herdr](https://herdr.dev) y no en tmux
@@ -191,10 +197,11 @@ pisan con los del repo (se editan acá).
   Gentleman-Sexy de pi), `bk-gentleman-cute` (el mismo fondo con rosa suave, menta y celeste; del tema
   Gentleman-Cute), `bk-dia` (claro, papel cálido con acento lavanda, para usar de día),
   `bk-papel` (claro, papel blanco y tinta negra con amarillo, coral e índigo, del estilo de Paperfolio) y
-  `bk-tinta` (su versión de noche: tinta casi negra, texto blanco y acento amarillo); además
+  `bk-papel-night` (su versión de noche: tinta casi negra, texto blanco cálido, bordes suaves y acento amarillo); además
   `catppuccin-mocha`, `rose-pine` y `tokyo-night`. Siguen al repo mientras no los retoques: bk anota qué instaló
   (`bk-temas.json`) y solo pisa una copia que sigue igual a esa; un tema tuyo con el mismo nombre queda como está y
-  se avisa. El `bk-noche` que instaló una versión anterior se borra si nadie lo tocó.
+  se avisa. El `bk-noche` y el `bk-tinta` que instalaron versiones anteriores (ahora `bk-neon` y `bk-papel-night`) se
+  borran si nadie los tocó.
   En `alt+,`, elegir un tema de la otra claridad (`bk-dia` con la apariencia oscura, o uno oscuro con la clara)
   cambia también la apariencia (`appearance` en `settings.json`); si no, Herdr no lo mostraría.
 - Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra
@@ -205,7 +212,7 @@ pisan con los del repo (se editan acá).
   `lib/herdr.sh`, el instalador (teclas, mods, paneles, temas, layout y vista previa), los números fijos, la
   adopción y `bk handoff --term/--cerrar`; `tests/test_side.sh`, los datos del lado derecho; `tests/test_hub.sh`,
   los de los paneles. Partes de algunos mods corren en `node`, sin Herdr (`tests/test_herdr_subagents.sh`,
-  `tests/test_herdr_tasks.sh`). Lo que no está probado: apretar las teclas. macOS no deja mandarle teclas a Herdr
+  `tests/test_herdr_tasks.sh`, `tests/test_herdr_lineage.sh`, `tests/test_herdr_epica.sh`). Lo que no está probado: apretar las teclas. macOS no deja mandarle teclas a Herdr
   desde un script, así que ninguna prueba recorre tecla → mod → acción dentro de la app.
 
 ## Sesiones (`bk s` · `C-a s`)
@@ -362,9 +369,11 @@ son) en los PRs abiertos antes y después de `accepted`, y, si tiene `check`, cu
 `check_run` de `.barrilete/learning/events.jsonl` (sin eventos: "sin datos"). Al final dice qué parte de los hallazgos
 cae en `other` y qué etiquetas usan las reviews que no están en `classes.yml`. Escribe `agents/efecto.md`; las que dan
 *no baja* son para pasar a check, reescribir o retirar (decide la persona). Tests: `tests/test_effect.sh`.
-`bk bitacora` (alt+k «Bitácora de agentes», `lib/bitacora.py`) arma la sección *Bitácora de agentes* del HTML de estado
-(`~/Downloads/barrilete-estado-2026-11-15.backup.html`; `BK_BITACORA_HTML` lo cambia) con las retros de la rama `agents/retros`
-del kit y los títulos de `gh pr list`: una tarjeta por PR con cada agente que lo tocó. Reemplaza la sección y abre el HTML.
+`bk bitacora [repo...]` (alt+k «Bitácora de agentes», `lib/bitacora.py`) corre en cada repo de `~/.config/bk/retros.json`
+(o en los que le pasás) el `scripts/agents/bitacora.py` de su kit (barrilete-kit#339): una página por repo en
+`.barrilete/bitacora.html`, con una tarjeta por PR y cada agente que lo tocó, en el diseño de barrilete o el del proyecto
+(`.barrilete/bitacora.css`). Imprime `ok: <página>` por cada una y las abre. Un repo con un kit anterior a la bitácora
+se dice en una línea y se sigue; sin ninguna página, termina con 1. Tests: `tests/test_bitacora.sh`.
 
 ## Dotfiles
 - `dotfiles/tmux.conf` → `~/.config/tmux/tmux.conf`
@@ -408,6 +417,21 @@ internos de Claude (`Agent`), con descripción, tipo y número estable como bk-s
 los terminados y los que llevan más de diez minutos sin escribir, igual que bk-shell.
 Se actualiza cada cuatro segundos; el clic abre `bk sub` para seguir el transcript
 en una pestaña de solo lectura. No envía instrucciones al subagente.
+
+### La épica de cada espacio
+
+Debajo de cada espacio, `bk-agentes` muestra **ÉPICA #N título ▓▓▓░░░ 5/7** por cada épica en la que trabajan sus
+chats (una línea por épica, aunque la tengan varios) y cuántos de sus sub-issues están cerrados; el clic la abre en
+GitHub. `bk _epica <carpeta> [rama] [texto] [terminal]` (`lib/herdr_epica.py`; `bk _epica --json '[[carpeta, rama, texto,
+terminal], …]'` para todos los chats en una llamada) saca el issue de la carpeta (un worktree `<repo>-wt/1152`), de
+la conversación de Claude de esa terminal (el último `<repo>-wt/N` o `prepare.sh N` en los comandos que corrió: un
+chat abierto en el checkout principal implementa en un worktree sin mover su carpeta, y la rama del checkout
+puede ser de otro chat), de la rama (`claude/1152-…`, `claude/<tipo>/1152-…`) o de un `#1152` en el nombre del
+chat, y la épica es su padre en GitHub o
+el issue mismo si tiene sub-issues. A GitHub le pregunta una vez por issue, en paralelo, y lo guarda cinco minutos
+en `~/.cache/bk/epica.json`: la barra pregunta cuando cambian los chats y cada minuto, nunca en cada dibujo. Si
+ningún chat de un espacio tiene épica ahora, queda la última que tuvo ese espacio, en gris (guardada entre
+reinicios); sin red, lo último guardado.
 
 La cabecera de Lavanda muestra **BK** y el barrilete de la marca, que cambia según haya quien te espere, quien
 trabaje o nadie (`herdr/mods/marca/bk-wait.svg`, `bk-fly.svg`, `bk-rest.svg`). El mod propio `bk-marca` conserva
