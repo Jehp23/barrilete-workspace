@@ -229,10 +229,14 @@ console.log(`1..${n}`);
 JS
 # La lista de agentes (herdr/mods/agentes): la antigüedad de la fila no va en una caja de ancho fijo. En 28 px
 # entraba «12m» y «ahora» se partía en dos renglones (2026-11-15).
-row=$(grep -c 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js")
+row=$(grep -c 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js" || true)
 fit=$(grep 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js" | grep -c 'div()\.flex_none()\.min_w(28)\.whitespace_nowrap()\.text_right()[^()]*(timeColor)\.child(ago(now - when))')
 [ "$row $fit" = "1 1" ] || { echo "not ok - agentes: la antigüedad de la fila va en una caja de ancho fijo o se puede partir ($row $fit)"; exit 1; }
 echo "ok - agentes: la antigüedad de la fila no se parte (ancho mínimo, sin salto de renglón)"
+# Doble clic en una fila de la lista de agentes abre Renombrar de su pestaña (como las pestañas de arriba)
+dbl=$(grep -c 'on_mouse_down("left", (e) => { if (e.click_count === 2 && a.tab) run("tab.rename", { id: a.tab }); })' "$ROOT/herdr/mods/agentes/main.js" || true)
+[ "$dbl" = 1 ] || { echo "not ok - agentes: el doble clic en una fila no abre Renombrar ($dbl)"; exit 1; }
+echo "ok - agentes: doble clic en una fila abre Renombrar de su pestaña"
 # La cuenta en la barra y en el panel lado: el mail que dan bk _hub status y bk _side (--account de la terminal)
 B="$ROOT/herdr/mods/barra/main.js"; LD="$ROOT/herdr/mods/lado/main.js"
 c1=$(grep -c 'when(Boolean(d?.account || d?.email)' "$B"); c2=$(grep -c 'child(d.email)' "$B"); c3=$(grep -c 'svg("mods/bk-barra/cuenta.svg")' "$B")

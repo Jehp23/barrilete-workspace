@@ -312,6 +312,8 @@ export default class Agents extends View {
           cx.notify();
         })
         .on_click(() => run("pane.focus", { pane: a.pane }))
+        // Doble clic: renombrar, igual que «Renombrar» del clic derecho (el nombre a mano manda sobre el automático)
+        .on_mouse_down("left", (e) => { if (e.click_count === 2 && a.tab) run("tab.rename", { id: a.tab }); })
         .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); menu("pane", { pane: a.pane, terminal: a.address }); })
         .child(keycap(t, n, { on: a.focused }))
         .child(v_flex().flex_1().min_w(0).gap(3)
