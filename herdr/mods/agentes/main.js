@@ -51,6 +51,7 @@ export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
     this.folded = new Set();
+    this.openPrev = new Set();   // las líneas «antes» desplegadas (plegadas por defecto)
     this.claudeSubs = {};
     this.subsRaw = "";
     this.subError = null;
@@ -124,6 +125,27 @@ export default class Agents extends View {
 
   since(a) {
     return this.changed[a.address]?.at ?? 0;
+  }
+
+  // Los chats que siguieron en otro por un handoff (etiqueta bk.from del nuevo, lib/herdr.sh): el mismo trabajo
+  // en una sola fila. Devuelve { prev: nuevo → viejo, hidden: los viejos que van debajo de su nuevo }. Un viejo
+  // fijado conserva su fila; si dos chats dicen venir del mismo, lo toma el primero de la lista; una cadena
+  // que vuelve sobre sí misma (no debería pasar) se corta.
+  lineage(list, labelsOf) {
+    const live = new Map(list.map((a) => [a.address, a]));
+    const prev = new Map();
+    const taken = new Set();
+    for (const a of list) {
+      const from = labelsOf.get(a.address)?.["bk.from"];
+      const old = from ? live.get(from) : null;   // uno que dice venir de sí mismo es una vuelta: se corta abajo
+      if (!old || old.pinned || taken.has(from)) continue;
+      let p = from, loop = false;
+      while (p && !loop) { loop = p === a.address; p = prev.get(p); }
+      if (loop) continue;
+      prev.set(a.address, from);
+      taken.add(from);
+    }
+    return { prev, hidden: taken };
   }
 
   sortMenu(t) {
@@ -223,10 +245,23 @@ export default class Agents extends View {
     // Un sub-agente con pane también está en agents(): donde un árbol lo muestra no lleva fila propia, salvo fijado.
     const nested = new Set(collapsed ? [] : list.flatMap((a) => this.tree(all, a.address).map((s) => s.t.address)));
     list = list.filter((a) => a.pinned || !nested.has(a.address));
+    const labelsOf = new Map(native.map((x) => [x.address, x.labels ?? {}]));
+    const byAddress = new Map(list.map((a) => [a.address, a]));
+    // Un chat que siguió en otro (handoff) va debajo del nuevo, en la línea «antes»; en el riel no hay dónde
+    const { prev, hidden } = collapsed ? { prev: new Map(), hidden: new Set() } : this.lineage(list, labelsOf);
     const tabCounts = new Map();
     for (const a of list) tabCounts.set(a.tab, (tabCounts.get(a.tab) ?? 0) + 1);
     const byPriority = sort.id === "priority";
     const urgency = new Map(list.map((a) => [a.address, Math.max(RANK[a.status] ?? 0, ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
+    // Lo que te necesita en un chat viejo sube con su nuevo: la fila se ordena por lo más urgente de la cadena
+    const chained = (addr, seen = new Set()) => {
+      const old = prev.get(addr);
+      if (!old || seen.has(old)) return urgency.get(addr) ?? 0;
+      seen.add(old);
+      return Math.max(urgency.get(addr) ?? 0, chained(old, seen));
+    };
+    for (const a of list) if (prev.has(a.address)) urgency.set(a.address, chained(a.address));
+    list = list.filter((a) => !hidden.has(a.address));
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
     const pinned = list.filter((a) => a.pinned);
@@ -244,7 +279,6 @@ export default class Agents extends View {
       const auto = !tab?.named || /^(chat-\d+|\d+)$/.test(tab.name) || tab.name === a.program?.name || tabCounts.get(a.tab) > 1;
       return (auto ? own : "") || (tab?.named ? tab.name : "") || own || a.program?.name || a.address;
     };
-    const labelsOf = new Map(native.map((x) => [x.address, x.labels ?? {}]));
     const metaOf = (a, title, full) => {
       // En qué quedó el chat (lib/names.py, etiqueta bk.status) dice más que chat-3 o el nombre del programa
       const status = labelsOf.get(a.address)?.["bk.status"];
@@ -330,11 +364,38 @@ export default class Agents extends View {
             .when(this.hovered !== a.address && Boolean(when), (el) => el.child(div().flex_none().min_w(28).whitespace_nowrap().text_right().text_color(timeColor).child(ago(now - when))))));
     };
 
-    const withKids = (a) => {
+    // La línea «antes»: el chat del que este siguió (handoff), plegado. Desplegado muestra su fila entera, con
+    // sus sub-agentes y su propio «antes». Plegado igual avisa si algo ahí te espera o sigue trabajando.
+    const prevLine = (old, depth) => {
+      const open = this.openPrev.has(old.address);
+      const top = SECTION_STATUS[urgency.get(old.address)];
+      const loud = top === "blocked" || top === "working";
+      const head = h_flex().id(`prev-${old.address}`).pl(19).pr(8).h(24).flex_none().gap(5).rounded(6).items_center().text_size(11.5).cursor_pointer()
+        .hover((x) => x.bg(t.hover))
+        .tooltip(open ? "Plegar el chat anterior" : "El chat del que este siguió (handoff): clic para verlo")
+        .on_click((_e, cx) => {
+          open ? this.openPrev.delete(old.address) : this.openPrev.add(old.address);
+          cx.notify();
+        })
+        .child(svg(`${ICONS}chevron-${open ? "down" : "right"}.svg`).size(11).flex_none().text_color(t.dim))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`antes: ${titleOf(old)}`))
+        .when(loud, (el) => el.child(mark(t, top, 12)))
+        .child(div().id(`prev-x-${old.address}`).flex_none().p(1).rounded(4).text_color(t.dim).cursor_pointer()
+          .hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .tooltip("Cerrar el chat anterior")
+          .on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: old.tab }); })
+          .child(svg(`${ICONS}x.svg`).size(11)));
+      if (!open) return [head];
+      return [head, v_flex().pl(14).gap(1).children(withKids(old, depth + 1))];
+    };
+
+    const withKids = (a, depth = 0) => {
       const subs = collapsed ? [] : this.tree(all, a.address);
       const r = row(a, subs);
-      if (this.folded.has(a.address)) return [r];
-      return [r, ...subs.map((s) => this.subRow(t, s, shown))];
+      const old = depth < 8 ? byAddress.get(prev.get(a.address)) : null;
+      const before = old ? prevLine(old, depth) : [];
+      if (this.folded.has(a.address)) return [r, ...before];
+      return [r, ...subs.map((s) => this.subRow(t, s, shown)), ...before];
     };
 
     // Los grupos, en el orden de la lista: secciones por prioridad o espacios. Los agentes de un espacio

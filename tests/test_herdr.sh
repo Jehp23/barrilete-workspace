@@ -184,6 +184,31 @@ check_eq "$(( $(tabs) - n0 )) $(has "$last" "take 'rojo1'")" "1 si" "handoff --s
 rm -f "$BK_HANDOFF_DIR"/rojo1.*
 bk handoff --seguir >/dev/null 2>&1; check_eq "$?" "1" "handoff --seguir sin resumenes listos: falla"
 
+# --- el chat nuevo de un handoff sigue siendo el mismo trabajo: nombre, estado y unión con el viejo ---
+newterm() { st -r '.terms | keys_unsorted | last'; }
+lab() { st -r --arg t "$1" --arg k "$2" '.terms[$t].labels[$k] // ""'; }
+tabname() { st -r --arg id "$(lab "$1" herdr.tab)" '[.spaces[].tabs[] | select(.id == $id) | .name] | first // ""'; }
+resumen() {   # resumen <sid>: pedido desde t1 y escrito con la plantilla llena
+  (cd "$REPO" && HC_TERMINAL_ID=t1 BK_HC="$TMP/fake/hc" PATH="$TMP/fake:$PATH" python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import handoff; handoff.request(sys.argv[3], cwd=sys.argv[2])' "$ROOT/lib" "$REPO" "$1") >/dev/null
+  printf '# Seguir desde abc: Escáner de staff\nDe dónde: …\n\n## Hecho\n- PR #1090\n\n## Falta (en orden)\n1. Primer paso: mergear `#1095` y avisar.\n2. otro\n' >"$BK_HANDOFF_DIR/$1.md"
+}
+PATH="$TMP/fake:$PATH" hc label t1 "bk.autotitle=Release #1095" "bk.status=falta el deploy" >/dev/null
+resumen her1; bk chat --desde her1 >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T") | $(lab "$T" bk.autotitle) | $(lab "$T" bk.name)" "Release #1095 | Release #1095 | " "handoff: el chat nuevo nace con el título automático del viejo, que sigue siendo automático"
+check_eq "$(lab "$T" bk.status)" "sigue: mergear #1095 y avisar" "handoff: su estado es el primer paso de «Falta» del resumen"
+check_eq "$(lab "$T" bk.from) $(lab t1 bk.next)" "t1 $T" "handoff: el nuevo queda unido al viejo (bk.from) y el viejo sabe dónde siguió (bk.next)"
+PATH="$TMP/fake:$PATH" hc label t1 "bk.name=Mi tablero" >/dev/null
+resumen her2; bk chat --desde her2 >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T") | $(lab "$T" bk.name) | $(lab "$T" bk.autotitle)" "Mi tablero | Mi tablero | " "handoff: un nombre puesto a mano pasa como nombre a mano"
+resumen her3; bk chat --desde her3 --nombre Otro >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T") $(lab "$T" bk.name)" "Otro Otro" "handoff con --nombre: manda el nombre que pediste"
+PATH="$TMP/fake:$PATH" hc label t1 bk.name= bk.autotitle= >/dev/null
+resumen her4; bk chat --desde her4 >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T") | $(lab "$T" bk.autotitle)" "Escáner de staff | Escáner de staff" "handoff: sin nombre en el viejo, el título sale de la primera línea del resumen"
+resumen her5; printf '# Seguir desde abc: <en qué andabas, en pocas palabras>\n## Falta (en orden)\n1. Primer paso: <lo próximo>\n' >"$BK_HANDOFF_DIR/her5.md"
+bk chat --desde her5 >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T" | sed 's/[0-9]*$//') | $(lab "$T" bk.status) | $(lab "$T" bk.autotitle)" "chat- |  | " "handoff: lo que quedó como <placeholder> no nombra (pestaña chat-N, sin estado)"
+
 # --- bk s retoma una sesión cerrada (lib/sessions.py): bk chat con WS_CHAT_CMD, un chat más del proyecto ---
 n0=$(tabs); WS_CHAT_CMD="cd '$REPO' && claude --resume abc-123" BK_PROJECT="$REPO" bk chat >/dev/null 2>&1
 last=$(st -r '.terms | to_entries | last | .value | (.argv | join(" ")) + " | " + .labels["bk.kind"] + " " + .labels["bk.project"]')

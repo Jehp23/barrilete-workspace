@@ -81,6 +81,12 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   se cierra cuando el nuevo abre: bk anota la terminal en `<session_id>.cerrar`, junto al resumen, y
   `bk handoff --listo` la cierra solo si sigue siendo la de esa sesión y la marca tiene menos de media hora. Un
   pedido sin `--cerrar` borra la marca de uno anterior. Es lo que corre `alt+h`, con sus dos opciones.
+  **Con Herdr el chat nuevo sigue siendo el mismo trabajo**: nace con el nombre del viejo (uno puesto a mano pasa
+  como puesto a mano, y `bk name` o el doble clic lo cambian; uno automático lo sigue actualizando `lib/names.py`) o,
+  si el viejo no tenía, con el título del resumen; su estado es «sigue: <primer paso de Falta>». Queda unido al viejo
+  (etiquetas `bk.from` en el nuevo y `bk.next` en el viejo) y en la barra de agentes el viejo no tiene fila propia:
+  va debajo del nuevo, en una línea «antes» plegada que se despliega con un clic y se cierra con su cruz. Plegada
+  igual lleva la marca si el viejo te espera o sigue trabajando, y el nuevo se ordena por lo más urgente de los dos.
 
 ## Herdr en vez de tmux (`bk backend herdr`)
 `bk backend herdr` hace que los chats y los agentes vivan en la app [Herdr](https://herdr.dev) y no en tmux
