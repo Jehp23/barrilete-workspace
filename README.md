@@ -416,15 +416,17 @@ los terminados y los que llevan más de diez minutos sin escribir, igual que bk-
 Se actualiza cada cuatro segundos; el clic abre `bk sub` para seguir el transcript
 en una pestaña de solo lectura. No envía instrucciones al subagente.
 
-### La épica del chat enfocado
+### La épica de cada espacio
 
-Arriba de AGENTES, `bk-agentes` muestra **ÉPICA #N título ▓▓▓▓░░░░░░ 5/7**: la épica del chat enfocado y cuántos
-de sus sub-issues están cerrados; el clic la abre en GitHub. `bk _epica <carpeta> [rama] [texto]`
-(`lib/herdr_epica.py`) saca el issue de la rama (`claude/1152-…`, `claude/<tipo>/1152-…`), de la carpeta (un
-worktree `<repo>-wt/1152`) o de un `#1152` en el nombre del chat, y la épica es su padre en GitHub o el issue
-mismo si tiene sub-issues. Lo de GitHub queda cinco minutos en `~/.cache/bk/epica.json`: la barra pregunta al
-cambiar de chat y cada minuto, nunca en cada dibujo. Si el chat no tiene épica, queda la última vista en gris
-(guardada entre reinicios); sin red, lo último guardado.
+Debajo de cada espacio, `bk-agentes` muestra **ÉPICA #N título ▓▓▓░░░ 5/7** por cada épica en la que trabajan sus
+chats (una línea por épica, aunque la tengan varios) y cuántos de sus sub-issues están cerrados; el clic la abre en
+GitHub. `bk _epica <carpeta> [rama] [texto]` (`lib/herdr_epica.py`; `bk _epica --json '[[carpeta, rama, texto], …]'`
+para todos los chats en una llamada) saca el issue de la rama (`claude/1152-…`, `claude/<tipo>/1152-…`), de la
+carpeta (un worktree `<repo>-wt/1152`) o de un `#1152` en el nombre del chat, y la épica es su padre en GitHub o
+el issue mismo si tiene sub-issues. A GitHub le pregunta una vez por issue, en paralelo, y lo guarda cinco minutos
+en `~/.cache/bk/epica.json`: la barra pregunta cuando cambian los chats y cada minuto, nunca en cada dibujo. Si
+ningún chat de un espacio tiene épica ahora, queda la última que tuvo ese espacio, en gris (guardada entre
+reinicios); sin red, lo último guardado.
 
 La cabecera de Lavanda muestra **BK** y el barrilete de la marca, que cambia según haya quien te espere, quien
 trabaje o nadie (`herdr/mods/marca/bk-wait.svg`, `bk-fly.svg`, `bk-rest.svg`). El mod propio `bk-marca` conserva

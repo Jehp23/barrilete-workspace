@@ -35,7 +35,7 @@ let AG = [], TERMS = [], calls = [], shared = {};
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 const deps = {
   View: class {}, div: node, svg: node, h_flex: node, v_flex: node,
-  agents: () => AG, terminals: () => TERMS, focused: () => null, spaces: () => [{ id: 's1', name: 'proj', tabs: AG.map((a) => ({ id: a.tab, name: a.tabName, named: true })) }],
+  agents: () => AG, terminals: () => TERMS, focused: () => null, panes: () => [], spaces: () => [{ id: 's1', name: 'proj', tabs: AG.map((a) => ({ id: a.tab, name: a.tabName, named: true })) }],
   run: (...a) => calls.push(a), theme: () => new Proxy({}, { get: () => '#000000' }), shared: (k) => shared[k], setShared: () => {},
   setAgentOrder: (o) => { shared.order = o; }, openOverlay: () => {}, closeOverlay: () => {}, props: () => ({}), window: () => ({}),
   layout: () => ({}), exec: async () => ({ code: 0, stdout: '{"by_terminal":{}}' }), home: () => '/h',

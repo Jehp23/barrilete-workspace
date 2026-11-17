@@ -43,16 +43,18 @@ const hash = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.ch
 // El alto de bk-menu para el más largo de cada tipo (tests/test_herdr_mods.sh lo compara con height() de bk-menu)
 const MENU_H = { space: 12 + 5 * 32 + 9, pane: 12 + 6 * 32 + 2 * 9 };
 const menu = (tab, target) => openOverlay({ mod: "bk-menu", kind: "popup", width: 300, height: MENU_H[tab], props: { tab, target } });
-// De qué chat sale la épica: la carpeta y la rama del pane enfocado, y el nombre del chat (#123 en bk.name o
-// bk.autotitle) por si la rama no dice el issue. bk _epica (lib/herdr_epica.py) saca de ahí el issue y su épica.
-function epicQuery() {
-  const f = focused();
-  if (!f?.terminal) return null;
-  const p = panes().find((x) => x.pane === f.pane) ?? {};
-  const l = terminals().find((x) => x.address === f.terminal)?.labels ?? {};
-  return [p.cwd ?? f.cwd ?? "", p.branch ?? "", [l["bk.name"], l["bk.autotitle"], p.title].filter(Boolean).join(" ")];
+// De dónde sale la épica de cada chat: la carpeta y la rama de su pane, y su nombre (#123 en bk.name o bk.autotitle)
+// por si la rama no dice el issue. bk _epica (lib/herdr_epica.py) saca de ahí el issue y su épica.
+function epicQueries() {
+  const byPane = new Map(panes().map((p) => [p.pane, p]));
+  const labels = new Map(terminals().map((x) => [x.address, x.labels ?? {}]));
+  return agents().map((a) => {
+    const p = byPane.get(a.pane) ?? {};
+    const l = labels.get(a.address) ?? {};
+    return { address: a.address, space: a.space, q: [p.cwd ?? "", p.branch ?? "", [l["bk.name"], l["bk.autotitle"], p.title ?? a.title].filter(Boolean).join(" ")] };
+  });
 }
-const BAR = 10;
+const BAR = 6;
 const bar = (done, total) => { const n = total ? Math.round((BAR * done) / total) : 0; return "▓".repeat(n) + "░".repeat(BAR - n); };
 
 // La marca de un sub-agente. tests/test_herdr_subagents.sh evalúa tree() y subRow() de este archivo sin sus
@@ -92,9 +94,10 @@ export default class Agents extends View {
     };
     cx.spawn(refresh);
     cx.timer.every(SUBS_EVERY, (cx) => cx.spawn(refresh));
-    // La épica del chat enfocado. Si ese chat no tiene, queda la última vista (en gris): guardada entre reinicios.
-    this.epic = null;
-    this.lastEpic = JSON.parse(localStorage.getItem("epic") ?? "null");
+    // La épica de cada chat, y la última vista de cada espacio: si ninguno de sus chats tiene, queda esa (en gris),
+    // guardada entre reinicios.
+    this.epics = new Map();
+    this.lastEpics = JSON.parse(localStorage.getItem("epics") ?? "{}");
     this.epicKey = null;
     this.epicAt = 0;
     cx.timer.every(EPIC_EVERY, (cx) => { this.epicAt = 0; cx.notify(); });
@@ -167,47 +170,57 @@ export default class Agents extends View {
     return { prev, hidden: taken };
   }
 
-  // Pide la épica si cambió el chat enfocado o pasó EPIC_EVERY; uno a la vez. Llamado al dibujar.
+  // Pide las épicas de todos los chats en una llamada, si cambiaron los chats (o dónde están) o pasó EPIC_EVERY.
+  // Una a la vez. Llamado al dibujar.
   epicRefresh(cx) {
-    const q = epicQuery();
-    const key = JSON.stringify(q);
+    const qs = epicQueries();
+    const key = JSON.stringify(qs.map((x) => x.q));
     if (this.epicBusy || (key === this.epicKey && Date.now() - this.epicAt < EPIC_EVERY)) return;
     this.epicBusy = true;
     this.epicKey = key;
     this.epicAt = Date.now();
     cx.spawn(async (cx) => {
       try {
-        if (!q) { this.epic = null; return; }
-        const r = await exec(bin(), ["_epica", ...q], { timeout: 20000 });
-        // La del chat anterior queda hasta la respuesta (sin parpadeo); si bk falla, no se sabe: va la última, en gris
-        const e = r.code === 0 ? JSON.parse(r.stdout).epic ?? null : null;
-        if (e && JSON.stringify(e) !== JSON.stringify(this.lastEpic)) {
-          this.lastEpic = e;
-          localStorage.setItem("epic", JSON.stringify(e));
+        const r = qs.length ? await exec(bin(), ["_epica", "--json", JSON.stringify(qs.map((x) => x.q))], { timeout: 30000 }) : { code: 0, stdout: "[]" };
+        // Si bk falla, no se sabe de quién es cada una: quedan las últimas vistas, en gris
+        const out = r.code === 0 ? JSON.parse(r.stdout) : [];
+        this.epics = new Map(qs.map((x, i) => [x.address, out[i]?.epic ?? null]));
+        let dirty = false;
+        for (const x of qs) {
+          const e = this.epics.get(x.address);
+          if (e && JSON.stringify(e) !== JSON.stringify(this.lastEpics[x.space])) { this.lastEpics[x.space] = e; dirty = true; }
         }
-        this.epic = e;
-      } catch { this.epic = null; } finally {
+        if (dirty) localStorage.setItem("epics", JSON.stringify(this.lastEpics));
+      } catch { this.epics = new Map(); } finally {
         this.epicBusy = false;
-        // Si el foco cambió mientras preguntaba, la próxima vuelta pide el nuevo.
         cx.notify();
       }
     });
   }
 
-  // ÉPICA #N título ▓▓▓▓░░ 5/7, de la épica del chat enfocado; si no tiene, la última vista, en gris. Clic: en GitHub.
-  epicBlock(t) {
-    const e = this.epic ?? this.lastEpic;
-    if (!e) return null;
-    const stale = !this.epic;
-    const ink = stale ? t.dim : t.foreground;
-    return h_flex().id("epic").h(26).flex_none().pl(8).pr(8).gap(7).rounded(6).items_center().text_size(11.5).cursor_pointer()
+  // Las épicas de un espacio: las de sus chats, sin repetir; si no hay, la última vista ahí (stale, en gris).
+  spaceEpics(id) {
+    const seen = new Map();
+    for (const a of agents()) {
+      const e = a.space === id ? this.epics.get(a.address) : null;
+      if (e) seen.set(`${e.repo}#${e.number}`, { e, stale: false });   // la misma de dos chats, una línea
+    }
+    if (seen.size) return [...seen.values()];
+    const last = this.lastEpics[id];
+    return last ? [{ e: last, stale: true }] : [];
+  }
+
+  // Debajo del espacio: ÉPICA #N título ▓▓▓░░░ 5/7. Clic: en GitHub.
+  epicRow(t, sid, { e, stale }) {
+    const ink = stale ? t.dim : t.muted;
+    return h_flex().id(`epic-${sid}-${e.repo}#${e.number}`).h(22).flex_none().pl(35).pr(8).gap(6).rounded(6).items_center().text_size(11).cursor_pointer()
       .hover((x) => x.bg(t.hover))
-      .tooltip(`${e.repo}#${e.number} ${e.title}${stale ? " · la última vista: este chat no tiene épica" : ""}`)
+      .tooltip(`${e.repo}#${e.number} ${e.title}${stale ? " · la última vista: ningún chat de este espacio tiene épica ahora" : ""}`)
       .on_click(() => exec("open", [`https://github.com/${e.repo}/issues/${e.number}`]))
-      .child(div().flex_none().text_size(10.5).font_semibold().text_color(stale ? t.dim : t.accent).child("ÉPICA"))
+      .child(div().flex_none().text_size(9.5).font_semibold().text_color(stale ? t.dim : t.accent).child("ÉPICA"))
       .child(div().flex_1().min_w(0).truncate().text_color(ink).child(`#${e.number} ${e.title}`))
-      .child(div().flex_none().text_size(9).text_color(stale ? t.dim : e.total && e.done >= e.total ? t.done : t.accent).child(bar(e.done, e.total)))
-      .child(div().flex_none().text_color(t.dim).child(`${e.done}/${e.total}`));
+      .child(div().flex_none().text_size(8.5).text_color(stale ? t.dim : e.total && e.done >= e.total ? t.done : t.accent).child(bar(e.done, e.total)))
+      .child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${e.done}/${e.total}`));
   }
 
   sortMenu(t) {
@@ -500,13 +513,12 @@ export default class Agents extends View {
           .child(iconButton(t, "collapse", "sidebar", toggleSidebar, { tip: "Abrir la barra", size: 15 })));
     }
     this.epicRefresh(cx);
-    const epic = this.epicBlock(t);
+    const spaceRows = sp.flatMap((s) => [this.spaceRow(t, s, false), ...this.spaceEpics(s.id).map((x) => this.epicRow(t, s.id, x))]);
     return v_flex().size_full().min_h(0).bg(t.chrome).pl(8).pr(4).pt(8).text_size(12.5)
       .child(rule(t, "ESPACIOS", [iconButton(t, "space-new", "plus", () => run("space.new"), { tip: "Espacio nuevo" })]))
-      // Hasta ocho espacios, la lista mide lo que ocupa; con más, se desplaza dentro de ese alto.
-      .child((sp.length > 8 ? v_flex().id("sp-list").h(8 * 29).overflow_y_scrollbar() : v_flex().id("sp-list")).flex_none().gap(1).pr(4).children(sp.map((s) => this.spaceRow(t, s, false))))
+      // Hasta ocho filas (espacios y sus épicas), la lista mide lo que ocupa; con más, se desplaza dentro de ese alto.
+      .child((spaceRows.length > 8 ? v_flex().id("sp-list").h(8 * 29).overflow_y_scrollbar() : v_flex().id("sp-list")).flex_none().gap(1).pr(4).children(spaceRows))
       .child(div().h(6).flex_none())
-      .when(Boolean(epic), (el) => el.child(epic).child(div().h(2).flex_none()))
       .child(rule(t, "AGENTES", [
         iconButton(t, "ag-sort", sort.icon, () => openOverlay({ mod: "bk-agentes", kind: "popup", width: 200, height: 110, props: { sortMenu: true } }), { tip: `Orden: ${sort.label.toLowerCase()}` }),
       ]))

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""La épica del chat enfocado y su avance, para el bloque ÉPICA de la barra de agentes (herdr/mods/agentes).
+"""La épica de un chat y su avance, para las líneas ÉPICA debajo de cada espacio en la barra (herdr/mods/agentes).
 
   herdr_epica.py <carpeta> [rama] [texto]        (bk _epica …)
+  herdr_epica.py --json '[[carpeta, rama, texto], …]'   (varios chats: una lista de respuestas, en el mismo orden)
 
 El issue del chat sale, en este orden, de la rama (claude/1152-algo, claude/feat/1152-algo), de la carpeta (un
 worktree <repo>-wt/1152) o de un #1152 en el texto (el nombre o el título automático del chat). La épica es su
@@ -14,6 +15,7 @@ guarda unos minutos en ~/.cache/bk/epica.json (BK_CACHE_DIR): la barra lo pide s
 en cada dibujo. Sin red, lo último guardado aunque esté vencido; si no hay nada, epic null y "offline": true.
 """
 import json, os, re, subprocess, sys, time
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import agents as AG
@@ -90,26 +92,52 @@ def save(cache):
     os.replace(tmp, CACHE)
 
 
-def main(argv):
-    cwd, branch, text = (argv + ["", "", ""])[:3]
-    num = issue_of(cwd, branch, text)
-    out = {"issue": num, "epic": None}
-    repo = AG.repo_of(cwd) if num and cwd and os.path.isdir(cwd) else ""
-    if num and repo:
-        key, cache = f"{repo}#{num}", load()
-        hit = cache.get(key)
-        if hit and time.time() - hit.get("at", 0) < TTL:
-            out["epic"] = hit.get("epic")
+def resolve(queries):
+    """Las respuestas de varios chats; a GitHub, una vez por issue y en paralelo."""
+    cache, now, keys = load(), time.time(), []
+    for cwd, branch, text in queries:
+        num = issue_of(cwd, branch, text)
+        repo = AG.repo_of(cwd) if num and cwd and os.path.isdir(cwd) else ""
+        keys.append((num, repo))
+    stale = sorted({(r, n) for n, r in keys if n and r
+                    and not (cache.get(f"{r}#{n}") and now - cache[f"{r}#{n}"].get("at", 0) < TTL)})
+
+    def ask(rn):
+        try:
+            return rn, fetch(*rn)
+        except LookupError:
+            return rn, LookupError
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        fresh = dict(pool.map(ask, stale))
+    failed = set()
+    for rn, epic in fresh.items():
+        if epic is LookupError:
+            failed.add(rn)
         else:
-            try:
-                out["epic"] = fetch(repo, num)
-                cache[key] = {"at": time.time(), "epic": out["epic"]}
-                save(cache)
-            except LookupError:
-                out["epic"] = hit.get("epic") if hit else None
-                if not hit:
-                    out["offline"] = True
-    print(json.dumps(out, ensure_ascii=False))
+            cache[f"{rn[0]}#{rn[1]}"] = {"at": time.time(), "epic": epic}
+    if len(failed) < len(fresh):
+        save(cache)
+    out = []
+    for num, repo in keys:
+        o = {"issue": num, "epic": None}
+        hit = cache.get(f"{repo}#{num}") if num and repo else None
+        if hit:
+            o["epic"] = hit.get("epic")   # sin red, lo último guardado aunque esté vencido
+        elif (repo, num) in failed:
+            o["offline"] = True
+        out.append(o)
+    return out
+
+
+def main(argv):
+    if argv[:1] == ["--json"]:
+        try:
+            qs = [(list(q) + ["", "", ""])[:3] for q in json.loads(argv[1])]
+        except (IndexError, ValueError, TypeError):
+            sys.exit("bk _epica --json '[[carpeta, rama, texto], …]'")
+        print(json.dumps(resolve([[str(x or "") for x in q] for q in qs]), ensure_ascii=False))
+        return
+    print(json.dumps(resolve([(argv + ["", "", ""])[:3]])[0], ensure_ascii=False))
 
 
 if __name__ == "__main__":

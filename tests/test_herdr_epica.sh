@@ -63,8 +63,15 @@ rm "$TMP/sin-red"
 check_eq "$(ep "$REPO" claude/14-x | jq -c .epic)" 'null' "el error de red no se guardó como «no tiene épica»: con red vuelve a preguntar"
 check_eq "$(tail -1 "$TMP/gh.log")" "api repos/o/r/issues/14" "…y pregunta de verdad"
 
-# El bloque ÉPICA en la barra (herdr/mods/agentes), con Herdr falso
-node --input-type=module - "$ROOT" <<'JS' && { N=$((N+1)); echo "ok $N - mod: el bloque ÉPICA de la barra"; } || { N=$((N+1)); FAILED=$((FAILED+1)); echo "not ok $N - mod: el bloque ÉPICA de la barra"; }
+# Varios chats en una llamada (la barra pide los de todos los espacios juntos)
+: >"$TMP/gh.log"; rm -f "$BK_CACHE_DIR/epica.json"
+check_eq "$(ep --json "[[\"$REPO\",\"claude/11-a\",\"\"],[\"$REPO\",\"main\",\"nada\"],[\"$REPO\",\"claude/13-b\",\"\"],[\"$TMP/proj-wt/11\",\"w\",\"\"]]" | jq -c 'map(.epic.number)')" '[10,null,13,10]' "--json: una respuesta por chat, en el mismo orden"
+check_eq "$(grep -c 'issues/11/parent' "$TMP/gh.log") $(calls)" "1 3" "--json: a GitHub una vez por issue (el #11 de dos chats, una vez; el #13, dos pedidos)"
+check_eq "$(ep --json 'no es json' 2>&1; echo "rc=$?")" "bk _epica --json '[[carpeta, rama, texto], …]'
+rc=1" "--json con algo que no es una lista: el uso, y falla"
+
+# Las épicas debajo de cada espacio (herdr/mods/agentes), con Herdr falso
+node --input-type=module - "$ROOT" <<'JS' && { N=$((N+1)); echo "ok $N - mod: la épica debajo de su espacio"; } || { N=$((N+1)); FAILED=$((FAILED+1)); echo "not ok $N - mod: la épica debajo de su espacio"; }
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 const root = process.argv[2];
@@ -90,21 +97,25 @@ const node = () => {
 };
 const walk = (n, out = []) => { if (n && n.$kids) { out.push(n); for (const k of n.$kids) walk(k, out); } return out; };
 const text = (n) => walk(n).flatMap((x) => x.$kids).filter((k) => typeof k === 'string');
-const block = (n) => walk(n).find((x) => x.$id === 'epic');
 const colors = (b) => walk(b).flatMap((x) => x.$color);
+// La lista de espacios en orden: sp-<id> y epic-<espacio>-<repo>#<n>
+const list = (out) => walk(walk(out).find((x) => x.$id === 'sp-list')).map((x) => x.$id).filter((i) => /^(sp|epic)-/.test(i ?? '') && i !== 'sp-list');
+const row = (out, id) => walk(out).find((x) => x.$id === id);
 
-let FOCUS = null, narrowNow = false, reply = null, execs = [], store = {};
-const T = { foreground: 'FG', dim: 'DIM', accent: 'ACC', done: 'DONE' };
+// abra (s1) tiene dos chats; otro (s2), uno; vacio (s3), ninguno
+let AG = [], narrowNow = false, reply = null, execs = [], store = {};
+const T = { foreground: 'FG', muted: 'MUT', dim: 'DIM', accent: 'ACC', done: 'DONE' };
+const SP = [{ id: 's1', name: 'abra', tabs: [] }, { id: 's2', name: 'otro', tabs: [] }, { id: 's3', name: 'vacio', tabs: [] }];
 const deps = {
   View: class {}, div: node, svg: node, h_flex: node, v_flex: node,
-  agents: () => [], terminals: () => [{ address: 't1', state: 'live', labels: { 'bk.name': 'Login #11' } }],
-  focused: () => FOCUS, panes: () => [{ pane: 'p1', cwd: '/r', branch: 'main', title: 'claude' }],
-  spaces: () => [], run: () => {}, theme: () => new Proxy(T, { get: (o, k) => o[k] ?? '#000' }), shared: () => undefined, setShared: () => {},
+  agents: () => AG, terminals: () => AG.map((a) => ({ address: a.address, state: 'live', labels: a.labels ?? {} })),
+  focused: () => null, panes: () => AG.map((a) => ({ pane: a.pane, cwd: a.cwd, branch: a.branch, title: a.title })),
+  spaces: () => SP, run: () => {}, theme: () => new Proxy(T, { get: (o, k) => o[k] ?? '#000' }), shared: () => undefined, setShared: () => {},
   setAgentOrder: () => {}, openOverlay: () => {}, closeOverlay: () => {}, props: () => ({}), window: () => ({}), layout: () => ({}),
   exec: async (cmd, args) => {
     execs.push([cmd, ...args]);
     if (args[0] === '_subagents') return { code: 0, stdout: '{"by_terminal":{}}' };
-    if (args[0] === '_epica') return reply;
+    if (args[0] === '_epica') return reply(JSON.parse(args[2]));
     return { code: 0, stdout: '' };
   },
   home: () => '/h', ICONS: '', PROSE: '', RANK: { blocked: 4, done: 3, working: 2, idle: 1 }, al: (c) => c, find: () => null,
@@ -118,56 +129,63 @@ const cx = { spawn(f) { pending.push(f(cx)); }, timer: { every() {} }, notify() 
 const settle = async () => { while (pending.length) await pending.shift(); };
 const epicCalls = () => execs.filter((e) => e[1] === '_epica');
 const draw = async (v) => { v.render(cx); await settle(); return v.render(cx); };
+const agent = (address, space, cwd, branch, title, labels) => ({ address, space, space_name: space, pane: `p-${address}`, tab: `tab-${address}`, status: 'idle', cwd, branch, title, labels, seq: 0 });
 
-const E = { repo: 'o/r', number: 10, title: 'La épica', done: 2, total: 5 };
+const E10 = { repo: 'o/r', number: 10, title: 'La épica', done: 2, total: 5 };
+const E13 = { repo: 'o/r', number: 13, title: 'Otra', done: 3, total: 3 };
+// el falso de bk _epica: por la rama
+const BY = { 'claude/11-a': E10, 'claude/12-b': E10, 'claude/14-c': E13 };
+reply = (qs) => ({ code: 0, stdout: JSON.stringify(qs.map(([, b]) => ({ issue: 1, epic: BY[b] ?? null }))) });
+
+AG = [agent('t1', 's1', '/abra', 'claude/11-a', 'uno'), agent('t2', 's1', '/abra', 'claude/12-b', 'dos', { 'bk.name': 'Dos #12' }), agent('t3', 's2', '/otro', 'main', 'tres')];
 let v = new Agents(); v.init({}, cx); await settle();
-assert.equal(block(v.render(cx)), undefined, 'sin chat enfocado ni épica vista: no hay bloque');
-assert.equal(epicCalls().length, 0, 'sin chat enfocado no pregunta');
-
-FOCUS = { terminal: 't1', pane: 'p1', cwd: '/x' };
-reply = { code: 0, stdout: JSON.stringify({ issue: 11, epic: E }) };
 let out = await draw(v);
-assert.deepEqual(epicCalls()[0], ['bk', '_epica', '/r', 'main', 'Login #11 claude'], 'le pasa a bk _epica la carpeta y la rama del pane y el nombre del chat');
-let b = block(out);
-assert.ok(b, 'con épica: el bloque');
-assert.deepEqual(text(b), ['ÉPICA', '#10 La épica', '▓▓▓▓░░░░░░', '2/5'], 'ÉPICA #N título, la barra y el avance');
-assert.deepEqual(colors(b), ['ACC', 'FG', 'ACC', 'DIM'], 'la del chat enfocado: rótulo y barra en acento, título en primer plano (solo el 2/5 en gris)');
-await draw(v); await draw(v);
-assert.equal(epicCalls().length, 1, 'el mismo chat: no vuelve a preguntar en cada dibujo');
-assert.equal(JSON.parse(store.epic).number, 10, 'guarda la última vista entre reinicios');
-
+assert.deepEqual(epicCalls()[0], ['bk', '_epica', '--json', JSON.stringify([['/abra', 'claude/11-a', 'uno'], ['/abra', 'claude/12-b', 'Dos #12 dos'], ['/otro', 'main', 'tres']])], 'una sola llamada con carpeta, rama y nombre de cada chat');
+assert.deepEqual(list(out), ['sp-s1', 'epic-s1-o/r#10', 'sp-s2', 'sp-s3'], 'la épica va debajo de su espacio, una vez aunque la tengan dos chats; los espacios sin épica, sin línea');
+let b = row(out, 'epic-s1-o/r#10');
+assert.deepEqual(text(b), ['ÉPICA', '#10 La épica', '▓▓░░░░', '2/5'], 'ÉPICA #N título, la barra y el avance');
+assert.deepEqual(colors(b), ['ACC', 'MUT', 'ACC', 'DIM'], 'la actual: rótulo y barra en acento');
 b.$click();
 assert.deepEqual(execs.at(-1), ['open', 'https://github.com/o/r/issues/10'], 'clic: la épica en GitHub');
+await draw(v); await draw(v);
+assert.equal(epicCalls().length, 1, 'los mismos chats: no vuelve a preguntar en cada dibujo');
+assert.equal(JSON.parse(store.epics).s1.number, 10, 'guarda la última vista de cada espacio entre reinicios');
 
-// Otro chat sin épica: queda la última vista, en gris
-FOCUS = { terminal: 't2', pane: 'p2', cwd: '/otro' };
-reply = { code: 0, stdout: JSON.stringify({ issue: null, epic: null }) };
-out = await draw(v); b = block(out);
-assert.equal(epicCalls().length, 2, 'cambió el chat enfocado: vuelve a preguntar');
-assert.deepEqual(text(b).slice(0, 2), ['ÉPICA', '#10 La épica'], 'sin épica: la última vista, no se esconde');
+// Dos épicas en un espacio: una línea por cada una
+AG.push(agent('t4', 's1', '/abra', 'claude/14-c', 'cuatro'));
+out = await draw(v);
+assert.equal(epicCalls().length, 2, 'cambiaron los chats: vuelve a preguntar');
+assert.deepEqual(list(out), ['sp-s1', 'epic-s1-o/r#10', 'epic-s1-o/r#13', 'sp-s2', 'sp-s3'], 'dos épicas en abra: dos líneas');
+assert.deepEqual(colors(row(out, 'epic-s1-o/r#13')).slice(2, 3), ['DONE'], 'completa: la barra en el color de listo');
+
+// Los chats de abra dejan de tener épica: queda la última vista ahí, en gris
+AG = [agent('t1', 's1', '/abra', 'main', 'uno'), agent('t3', 's2', '/otro', 'main', 'tres')];
+out = await draw(v);
+const last = JSON.parse(store.epics).s1.number;
+assert.deepEqual(list(out), ['sp-s1', `epic-s1-o/r#${last}`, 'sp-s2', 'sp-s3'], 'sin épica ahora: la última vista de ese espacio, no se esconde');
+b = row(out, `epic-s1-o/r#${last}`);
 assert.deepEqual(colors(b), ['DIM', 'DIM', 'DIM', 'DIM'], 'la última vista va toda en gris');
-assert.match(b.$tip, /última vista/, 'y el tooltip dice que es la última vista');
+assert.match(b.$tip, /última vista/, 'y el tooltip lo dice');
 
-// bk falla: no se sabe, va la última en gris (no la del chat anterior como si fuera de este)
-FOCUS = { terminal: 't1', pane: 'p1', cwd: '/x' };
-reply = { code: 0, stdout: JSON.stringify({ issue: 11, epic: E }) };
-await draw(v);
-FOCUS = { terminal: 't3', pane: 'p3', cwd: '/y' };
-reply = { code: 1, stdout: '' };
-b = block(await draw(v));
-assert.deepEqual(colors(b), ['DIM', 'DIM', 'DIM', 'DIM'], 'si bk _epica falla, gris');
+// bk falla: no sigue la épica anterior del chat como si fuera actual; las últimas vistas, en gris
+AG = [agent('t1', 's1', '/abra', 'claude/11-a', 'uno')];
+out = await draw(v);
+assert.deepEqual(colors(row(out, 'epic-s1-o/r#10')).slice(0, 1), ['ACC'], 'antes de fallar: la #10, actual');
+AG = [agent('t1', 's1', '/abra', 'claude/14-c', 'uno')];
+reply = () => ({ code: 1, stdout: '' });
+b = row(await draw(v), 'epic-s1-o/r#10');
+assert.deepEqual(colors(b), ['DIM', 'DIM', 'DIM', 'DIM'], 'si bk _epica falla, la última vista en gris');
 
-// Reinicio: la última vista vuelve aunque el chat enfocado no tenga épica; completa, la barra llena
-store.epic = JSON.stringify({ ...E, done: 5 });
+// Reinicio: vuelven las últimas vistas guardadas
+reply = () => ({ code: 0, stdout: '[]' });
+AG = [];
 v = new Agents(); v.init({}, cx); await settle();
-reply = { code: 0, stdout: JSON.stringify({ issue: null, epic: null }) };
-b = block(await draw(v));
-assert.deepEqual(text(b).slice(1), ['#10 La épica', '▓▓▓▓▓▓▓▓▓▓', '5/5'], 'después de reiniciar, la última vista guardada');
+assert.deepEqual(list(await draw(v)), ['sp-s1', 'epic-s1-o/r#10', 'sp-s2', 'sp-s3'], 'después de reiniciar, la última vista de cada espacio');
+assert.equal(epicCalls().filter((e) => e[3] === '[]').length, 0, 'sin chats no llama a bk');
 
-// El riel (angosto) no lleva el bloque
+// El riel (angosto): solo los espacios
 narrowNow = true;
-assert.equal(block(await draw(v)), undefined, 'en el riel no hay bloque');
-
+assert.equal(walk(await draw(v)).filter((x) => /^epic-/.test(x.$id ?? '')).length, 0, 'en el riel no hay épicas');
 JS
 
 echo "1..$N"
