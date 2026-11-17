@@ -222,14 +222,13 @@ ok('menú: las teclas en símbolos (⌘ ⇧ D), solo las globales');
 M.openMenu('pane', { pane: 'p1', terminal: 't1' });
 assert.deepEqual([opened[0].mod, opened[0].width, opened[0].height], ['bk-menu', M.WIDTH, M.height(pane)]);
 const lay = JSON.parse(fs.readFileSync(`${root}/herdr/layouts/bk-lavanda.json`, 'utf8'));
-const users = ['agentes', 'pestanas'].map((m) => fs.readFileSync(`${root}/herdr/mods/${m}/main.js`, 'utf8'));
-assert.deepEqual([lay.terminal_menu, users.map((u) => u.includes('mod: "bk-menu"') && !u.includes('mod: "menu"'))], ['bk-menu', [true, true]]);
-ok('menú: el layout, la lista de agentes y las pestañas usan bk-menu, no el de Herdr');
+const users = ['agentes'].map((m) => fs.readFileSync(`${root}/herdr/mods/${m}/main.js`, 'utf8'));
+assert.deepEqual([lay.terminal_menu, users.map((u) => u.includes('mod: "bk-menu"') && !u.includes('mod: "menu"'))], ['bk-menu', [true]]);
+ok('menú: el layout y la lista de agentes usan bk-menu, no el de Herdr');
 const menuH = new Function(`${users[0].match(/^const MENU_H = .*;$/m)[0]}\nreturn MENU_H;`)();
 assert.deepEqual(menuH, { pane: M.height(pane), space: M.height(M.items({ tab: 'space', target: { id: 's' } }, 'linked')) });
-assert.ok(users[1].includes(`height: ${M.height(M.items({ tab: 'tab', target: { id: 'c', space: 's' } }))},`) || users[1].includes('height: 12 + 3 * 32 + 9,'));
 assert.ok(!/overflow_y_scroll/.test(menuSrc), 'bk-menu sin scroll: en el popup se ve como una raya');
-ok('menú: la lista de agentes y las pestañas lo abren con el alto justo para sus opciones, sin scroll');
+ok('menú: la lista de agentes lo abre con el alto justo para sus opciones, sin scroll');
 console.log(`1..${n}`);
 JS
 # La lista de agentes (herdr/mods/agentes): la antigüedad de la fila no va en una caja de ancho fijo. En 28 px

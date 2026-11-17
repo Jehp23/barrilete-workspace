@@ -188,7 +188,7 @@ pisan con los del repo (se editan acá).
 - **Los paneles del layout**: `bk backend herdr` copia cada carpeta de `herdr/mods` (menos `bk` y `hub`) a
   `mods/bk-<nombre>`, y el layout que las muestra, uno solo: `bk-lavanda` (ver *Estética Lavanda*). `agentes` es
   la barra izquierda (espacios y agentes, cada uno con el chip de su número), `marca` su cabecera y su pie,
-  `pestanas` las pestañas, `cabecera` la de cada pane, `lado` el panel derecho y `barra` la barra de estado.
+  `pestanas` la franja de arriba (el contexto del chat enfocado: proyecto, épica, issue y rol, el avance de las casillas del issue y los agentes que te esperan), `cabecera` la de cada pane, `lado` el panel derecho y `barra` la barra de estado.
   `agentes`, `pestanas`, `cabecera`, `lado` y `marca` comparten las piezas de dibujo de `kit.js`: un mod no puede
   importar de otra carpeta, así que cada uno lleva su copia y un test falla si dejan de ser iguales. El lado
   derecho sale de `bk _side` (proyecto, rama, perfil de roles, contexto de la sesión de Claude de la carpeta, uso
