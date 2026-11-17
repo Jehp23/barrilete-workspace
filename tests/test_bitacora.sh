@@ -47,5 +47,10 @@ check_eq "$(BK_BITACORA_REPO="$TMP/kit" BK_BITACORA_HTML="$H" BK_NO_OPEN=1 "$ROO
 check_eq "$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import palette as P
 print(sum(1 for e in P.ENTRIES if e[2] == "bitacora" and e[4] == "show"))' "$ROOT/lib")" "1" "alt+k tiene la fila «Bitácora de agentes»"
 
+err=$(BK_BITACORA_REPO="$TMP/kit" BK_BITACORA_HTML="$TMP/no-esta.html" BK_NO_OPEN=1 "$ROOT/bin/bk" bitacora 2>&1); rc=$?
+check_eq "$rc|$err" "1|no encuentro el HTML de estado en $TMP/no-esta.html (pasá la ruta como segundo argumento o en BK_BITACORA_HTML)" \
+  "sin el HTML: lo dice en una línea (sin traceback) y sale con error"
+check_eq "$(grep -c 'barrilete-estado-2026-11-15.backup.html' "$ROOT/lib/bitacora.py")" "2" "el HTML por defecto es el .backup.html de Descargas"
+
 echo "1..$N"
 [ "$FAILED" -eq 0 ]

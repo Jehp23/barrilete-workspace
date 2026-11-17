@@ -1850,7 +1850,7 @@ case "${1:-}" in
   learn)       shift; [ "${1:-}" = effect ] && { shift; exec python3 "$WS/lib/effect.py" "$@"; }
                exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
-  bitacora)    shift; out=$(python3 -I "$WS/lib/bitacora.py" "$@") || die "no pude regenerar la bitácora"
+  bitacora)    shift; out=$(python3 -I "$WS/lib/bitacora.py" "$@") || exit 1
                echo "$out"; [ -n "${BK_NO_OPEN:-}" ] || open "${out#ok: }" ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;

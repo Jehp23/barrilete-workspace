@@ -357,7 +357,7 @@ las que marcás `accepted` con su regla pasan a `agents/INDEX.md`, que Claude Co
 ronda (y qué parte del total son) en los PRs abiertos antes y después de aceptarla. Escribe `agents/efecto.md`; las
 que dan *no baja* son para reescribir o retirar. Usa `accepted:` y `mide:` del frontmatter de la lección.
 `bk bitacora` (alt+k «Bitácora de agentes», `lib/bitacora.py`) arma la sección *Bitácora de agentes* del HTML de estado
-(`~/Downloads/barrilete-estado-2026-11-15.html`; `BK_BITACORA_HTML` lo cambia) con las retros de la rama `agents/retros`
+(`~/Downloads/barrilete-estado-2026-11-15.backup.html`; `BK_BITACORA_HTML` lo cambia) con las retros de la rama `agents/retros`
 del kit y los títulos de `gh pr list`: una tarjeta por PR con cada agente que lo tocó. Reemplaza la sección y abre el HTML.
 
 ## Dotfiles

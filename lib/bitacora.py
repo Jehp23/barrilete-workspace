@@ -9,7 +9,7 @@ de cada agente que trabajó en él y su reporte. Es idempotente: reemplaza lo qu
 Uso:  bk bitacora [ruta-al-repo] [ruta-al-html]   (alt+k «Bitácora de agentes»: la regenera y abre el HTML)
       python3 -I lib/bitacora.py [ruta-al-repo] [ruta-al-html]   solo la regenera
 
-Por defecto el repo es ~/barrilete-kit y el HTML ~/Downloads/barrilete-estado-2026-11-15.html (BK_BITACORA_REPO y
+Por defecto el repo es ~/barrilete-kit y el HTML ~/Downloads/barrilete-estado-2026-11-15.backup.html (BK_BITACORA_REPO y
 BK_BITACORA_HTML los cambian; los argumentos mandan).
 """
 import datetime
@@ -22,7 +22,7 @@ import sys
 
 REPO = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("BK_BITACORA_REPO") or "~/barrilete-kit")
 HTML = os.path.expanduser(sys.argv[2] if len(sys.argv) > 2 else
-                          os.environ.get("BK_BITACORA_HTML") or "~/Downloads/barrilete-estado-2026-11-15.html")
+                          os.environ.get("BK_BITACORA_HTML") or "~/Downloads/barrilete-estado-2026-11-15.backup.html")
 RAMA = "origin/agents/retros"
 INI, FIN = "<!-- bitacora:start -->", "<!-- bitacora:end -->"
 NAV = '<a href="#bitacora">13 bitácora</a>'
@@ -218,8 +218,11 @@ def construir(retros, prs):
 
 
 def main():
-    with open(HTML, encoding="utf-8") as f:
-        doc = f.read()
+    try:
+        with open(HTML, encoding="utf-8") as f:
+            doc = f.read()
+    except FileNotFoundError:
+        sys.exit(f"no encuentro el HTML de estado en {HTML} (pasá la ruta como segundo argumento o en BK_BITACORA_HTML)")
     bloque = construir(leer_retros(), leer_prs())
     if INI in doc and FIN in doc:
         doc = doc[: doc.index(INI)] + bloque + doc[doc.index(FIN) + len(FIN):]
