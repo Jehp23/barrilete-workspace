@@ -431,8 +431,8 @@ reinicios).
 El clic en la tarjeta, o `alt+p` (la épica del chat que mirás; si no tiene, la primera), abre el detalle: AHORA,
 LIBRES, BLOQUEADOS (cada uno con lo que espera) y HECHOS plegado, con el camino más largo de esperas. ↑↓ mueven, ⏎ va
 al agente (o abre el issue en GitHub si no tiene), `g` abre GitHub, `esc` cierra. `l` sobre un libre pide
-confirmación mostrando `bk run N · en <carpeta>` y el segundo ⏎ lo lanza ahí (el rol lo decide bk); si falla, el
-error queda en la fila. Los datos los deja la barra en `shared("bk.epics")`.
+confirmación mostrando `bk run N · en <carpeta>` y el segundo ⏎ lo lanza ahí, suelto (`bk _do`: sigue aunque se
+cierre el popup y avisa al terminar, con el error si falló; el rol lo decide bk). Los datos los deja la barra en `shared("bk.epics")`.
 
 `bk _epica <carpeta> [rama] [texto] [terminal]` (`lib/herdr_epica.py`; `bk _epica --json '[[carpeta, rama, texto,
 terminal], …]'` para todos los chats en una llamada) saca el issue de la carpeta (un worktree `<repo>-wt/1152`), de

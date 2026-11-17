@@ -173,7 +173,7 @@ const deps = {
     execs.push([cmd, ...args, ...(opts?.cwd ? [`cwd=${opts.cwd}`] : [])]);
     if (args[0] === '_subagents') return { code: 0, stdout: '{"by_terminal":{}}' };
     if (args[0] === '_epica') return reply(JSON.parse(args[2]));
-    if (args[0] === 'run') return runReply;
+    if (args[0] === '_do') return runReply;
     return { code: 0, stdout: '' };
   },
   home: () => '/h', ICONS: '', PROSE: '', RANK: { blocked: 4, done: 3, working: 2, idle: 1 }, al: (c) => c,
@@ -254,6 +254,7 @@ P = { epic: 'o/r#10', overlay: 'ov9' };
 const pop = new Agents(); pop.init(P, cx);
 let o = pop.render(cx);
 const rowsOf = (o) => ids(o, /^er-/);
+assert.ok(!/epic-rows"\)\.flex_1|epic-rows"\)[^\n]*overflow_y/.test(load('agentes', 'Agents')), 'las filas del popup sin flex_1 ni scroll: en un popup quedan en alto cero');
 assert.deepEqual(text(o).filter((s) => /^(AHORA|LIBRES|BLOQUEADOS|HECHOS)$/.test(s)), ['AHORA', 'LIBRES', 'BLOQUEADOS', 'HECHOS'], 'grupos AHORA, LIBRES, BLOQUEADOS y HECHOS');
 assert.deepEqual(rowsOf(o), ['er-o/r#11', 'er-o/x#5', 'er-o/r#15', 'er-o/r#16'], 'HECHOS empieza plegado');
 assert.ok(text(o).includes('camino más largo: r#11 → r#15 → r#16 · 3 pasos'), 'el camino más largo');
@@ -273,9 +274,9 @@ assert.equal(find(o, 'epic-confirm'), undefined, 'esc cancela la confirmación (
 key('l'); runReply = { code: 1, stdout: '', stderr: 'algo\nprepare.sh rechazó #5\n' };
 key('enter');
 const shut = closed.length; for (let i = 0; i < 2; i++) { o.$key({ key: 'escape' }, cx); o = pop.render(cx); }
-assert.ok(closed.length === shut && text(o).includes('lanzando…'), 'mientras lanza, esc no cierra y la fila dice «lanzando…»');
+assert.ok(closed.length === shut && text(o).includes('lanzando…'), 'mientras bk _do arranca, esc espera y la fila dice «lanzando…»');
 await settle(); o = pop.render(cx);
-assert.deepEqual(execs.at(-1), ['bk', 'run', '5', 'cwd=/h/x'], '⏎ lanza: bk run N en la carpeta de su repo');
+assert.deepEqual(execs.at(-1), ['bk', '_do', '--cwd', '/h/x', '--title', 'Lanzar #5', '--', 'run', '5', 'cwd=/h/x'], '⏎ lanza: bk run N suelto (bk _do), en la carpeta de su repo');
 assert.ok(text(o).includes('prepare.sh rechazó #5'), 'si falla, el error queda en la fila');
 runReply = { code: 0, stdout: '', stderr: '' };
 key('l'); key('enter'); await settle(); o = pop.render(cx);

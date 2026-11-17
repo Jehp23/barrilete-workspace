@@ -353,7 +353,7 @@ export default class Agents extends View {
   }
 
   // El popup: la épica entera, AHORA / LIBRES / BLOQUEADOS / HECHOS (plegado). ↑↓ mueven; ⏎ va al agente o a
-  // GitHub; g GitHub; l lanza un libre (con confirmación: bk run N en la carpeta de su repo); esc cierra.
+  // GitHub; g GitHub; l lanza un libre (con confirmación: bk run N en la carpeta de su repo, suelto con bk _do); esc cierra.
   epicPopup(t) {
     const key = props().epic;
     const x = shared("bk.epics")?.epics?.[key];
@@ -379,7 +379,8 @@ export default class Agents extends View {
       this.errors.delete(r.key);
       cx.spawn(async (cx) => {
         try {
-          const res = await exec(bin(), ["run", String(r.number)], { cwd: dir, timeout: 180000 });
+          // bk _do lo deja corriendo suelto (sigue aunque se cierre el popup) y avisa al terminar, con el error si falla
+          const res = await exec(bin(), ["_do", "--cwd", dir, "--title", `Lanzar #${r.number}`, "--", "run", String(r.number)], { cwd: dir, timeout: 15000 });
           if (res.code !== 0) this.errors.set(r.key, (res.stderr || res.stdout || "").trim().split("\n").filter(Boolean).pop() || `bk run salió con ${res.code}`);
           else this.launched.add(r.key);
         } catch (err) { this.errors.set(r.key, String(err?.message ?? err)); }
@@ -397,7 +398,7 @@ export default class Agents extends View {
       const right = r.kind === "work" ? [div().text_color(t.working).child(r.agent.address)]
         : r.kind === "wait" ? [div().text_color(t.dim).child(`espera ${r.blocked_by.map((b) => p.label.get(ekey(b)) ?? `${short(b.repo)}#${b.number}`).join(", ")}`)]
         : r.kind === "free" ? [this.busy === r.key ? div().text_color(t.dim).child("lanzando…")
-          : this.launched.has(r.key) ? div().text_color(t.done).child("lanzado")
+          : this.launched.has(r.key) ? div().text_color(t.done).tooltip("bk avisa cuando el agente arranca, o si falló").child("lanzado")
           : on && e.dirs?.[r.repo] ? div().id(`launch-${r.key}`).px(8).py(2).rounded(5).bg(t.accent).text_color(t.accent_foreground ?? t.background).font_medium().cursor_pointer()
             .on_click((_ev, cx) => { cx.stop_propagation(); this.confirm = r.key; cx.notify(); }).child("Lanzar")
           : on ? div().text_color(t.dim).child(`sin carpeta para ${short(r.repo)}`) : div()]
@@ -435,7 +436,7 @@ export default class Agents extends View {
     const key_ = (k, what) => h_flex().gap(5).items_center().child(div().px(4).rounded(4).border_1().border_color(t.border).text_size(10).child(k)).child(what);
     return v_flex().id("epic-pop").track_focus(this.handle).size_full().min_h(0).bg(t.popover).text_size(12.5)
       .on_key_down((ev, cx) => {
-        if (this.busy) return;   // mientras corre bk run, esc no cierra: no se sabe si Herdr corta lo que corre un mod cerrado
+        if (this.busy) return;   // mientras bk _do arranca (un instante), las teclas esperan
         if (this.confirm) {
           const r = rows.find((x) => x.key === this.confirm);
           if (ev.key === "enter" && r) launch(r, cx);
@@ -462,7 +463,8 @@ export default class Agents extends View {
           x.stale ? "la última vista: ningún chat la tiene ahora"
             : !p ? "sin los sub-issues todavía (bk no pudo preguntarle a GitHub)"
               : p.path.length ? `camino más largo: ${p.path.join(" → ")} · ${plural(p.path.length, "paso", "pasos")}` : "sin esperas entre los sub-issues")))
-      .child(v_flex().id("epic-rows").flex_1().min_h(0).pb(6).overflow_y_scrollbar()
+      // Sin scroll ni flex_1: en un popup esa lista queda en alto cero (como bk-menu). El alto lo da popHeight.
+      .child(v_flex().id("epic-rows").flex_none().pb(6)
         .children(p ? [
           ...group("AHORA", p.by.work),
           ...group("LIBRES", p.by.free, p.by.free.length ? "" : ""),
@@ -470,7 +472,7 @@ export default class Agents extends View {
           ...(doneHead ? [doneHead, ...(this.doneOpen ? p.by.done.flatMap(row) : [])] : []),
         ] : []))
       .child(h_flex().flex_none().h(POP.foot).px(16).gap(12).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
-        .child(key_("↑↓", "mover")).child(key_("⏎", "ir al agente · si no, GitHub")).child(key_("g", "GitHub")).child(key_("l", "lanzar")).child(key_("esc", "cerrar")));
+        .child(key_("↑↓", "mover")).child(key_("⏎", "abrir")).child(key_("g", "GitHub")).child(key_("l", "lanzar")).child(key_("esc", "cerrar")));
   }
 
   sortMenu(t) {
