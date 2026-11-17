@@ -144,6 +144,7 @@ pisan con los del repo (se editan acá).
   | `alt+i` | Implementar un issue: los abiertos del proyecto que mirás. Enter lanza al agente (o va a su pestaña si ya corre); Tab cambia el rol | `bk run <n>` |
   | `alt+r` | Revisar o corregir un PR. Enter lanza al reviewer, o lo aprueba si el kit ya lo propuso; Tab pide una instrucción y lanza el fix; ctrl+g vuelve a correr los checks que fallaron; ctrl+o lo abre en GitHub | `bk review`, `bk approve`, `bk fix`, `bk rerun --go` |
   | `alt+e` | Te esperan: tareas y aprobaciones. Enter lanza el reviewer propuesto o va a la pestaña del agente; Tab suma el historial | `bk approve` |
+  | `alt+p` | La épica del chat que mirás (si no tiene, la primera de ÉPICAS): sus sub-issues por estado, quién espera a quién y el camino más largo. Enter va al agente (o a GitHub), `g` abre GitHub, `l` lanza uno libre con confirmación | `bk run <n>` |
   | `alt+a` | Agentes: los que te esperan arriba y, al lado, lo último de la terminal del elegido. Enter va a su pestaña, Tab le escribe, ctrl+x dos veces lo cierra, ctrl+o lo espía | `bk say`, `bk stop` |
   | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, el resumen de este chat para seguir en uno nuevo (abre `alt+h`), terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
   | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta | `bk _hub session-go`, `bk stop` |
@@ -416,20 +417,35 @@ los terminados y los que llevan más de diez minutos sin escribir, igual que bk-
 Se actualiza cada cuatro segundos; el clic abre `bk sub` para seguir el transcript
 en una pestaña de solo lectura. No envía instrucciones al subagente.
 
-### La épica de cada espacio
+### Las épicas en la barra
 
-Debajo de cada espacio, `bk-agentes` muestra **ÉPICA #N título ▓▓▓░░░ 5/7** por cada épica en la que trabajan sus
-chats (una línea por épica, aunque la tengan varios) y cuántos de sus sub-issues están cerrados; el clic la abre en
-GitHub. `bk _epica <carpeta> [rama] [texto] [terminal]` (`lib/herdr_epica.py`; `bk _epica --json '[[carpeta, rama, texto,
+Entre ESPACIOS y AGENTES, `bk-agentes` tiene la sección **ÉPICAS** (plegable): una tarjeta por cada épica en la que
+trabajan los chats (una aunque la tengan varios, aunque estén en espacios distintos) con **#N título k/n**, una barra
+con un segmento por sub-issue (hecho, con agente, libre o bloqueado, en ese orden) y una línea con lo que importa:
+**ahora #324 · t75 · destraba 5 · 1 libre** si un chat trabaja en uno (destraba: los abiertos que lo esperan, directa
+o indirectamente), si no **2 libres: kit#325, workspace#11**. Si la épica cruza repos, el número lleva el repo y una
+línea dice cuánto lleva cada uno (`kit 2/4 · workspace 1/5`). La fila de cada agente dice **#324 de #321**. Si
+ningún chat de un espacio tiene épica ahora, queda la última que tuvo ese espacio, en gris (guardada entre
+reinicios).
+
+El clic en la tarjeta, o `alt+p` (la épica del chat que mirás; si no tiene, la primera), abre el detalle: AHORA,
+LIBRES, BLOQUEADOS (cada uno con lo que espera) y HECHOS plegado, con el camino más largo de esperas. ↑↓ mueven, ⏎ va
+al agente (o abre el issue en GitHub si no tiene), `g` abre GitHub, `esc` cierra. `l` sobre un libre pide
+confirmación mostrando `bk run N · en <carpeta>` y el segundo ⏎ lo lanza ahí (el rol lo decide bk); si falla, el
+error queda en la fila. Los datos los deja la barra en `shared("bk.epics")`.
+
+`bk _epica <carpeta> [rama] [texto] [terminal]` (`lib/herdr_epica.py`; `bk _epica --json '[[carpeta, rama, texto,
 terminal], …]'` para todos los chats en una llamada) saca el issue de la carpeta (un worktree `<repo>-wt/1152`), de
 la conversación de Claude de esa terminal (el último `<repo>-wt/N` o `prepare.sh N` en los comandos que corrió: un
 chat abierto en el checkout principal implementa en un worktree sin mover su carpeta, y la rama del checkout
 puede ser de otro chat), de la rama (`claude/1152-…`, `claude/<tipo>/1152-…`) o de un `#1152` en el nombre del
-chat, y la épica es su padre en GitHub o
-el issue mismo si tiene sub-issues. A GitHub le pregunta una vez por issue, en paralelo, y lo guarda cinco minutos
-en `~/.cache/bk/epica.json`: la barra pregunta cuando cambian los chats y cada minuto, nunca en cada dibujo. Si
-ningún chat de un espacio tiene épica ahora, queda la última que tuvo ese espacio, en gris (guardada entre
-reinicios); sin red, lo último guardado.
+chat; el repo, del remoto `origin` (o del único remoto de GitHub). La épica es su padre en GitHub (puede estar en
+otro repo) o el issue mismo si tiene sub-issues. De cada épica trae los sub-issues (`/sub_issues`, de cualquier
+repo) y, de los abiertos, los issues abiertos que los bloquean (`/dependencies/blocked_by`), y en `dirs` dónde
+lanzar los de cada repo: el checkout principal de sus chats, si no `~/<nombre del repo>`. A GitHub le pregunta una
+vez por issue y por épica, en paralelo, y lo guarda cinco minutos en `~/.cache/bk/epica.json` y
+`~/.cache/bk/epica-subs.json`: la barra pregunta cuando cambian los chats y cada minuto, nunca en cada dibujo. Sin
+red, lo último guardado.
 
 La cabecera de Lavanda muestra **BK** y el barrilete de la marca, que cambia según haya quien te espere, quien
 trabaje o nadie (`herdr/mods/marca/bk-wait.svg`, `bk-fly.svg`, `bk-rest.svg`). El mod propio `bk-marca` conserva

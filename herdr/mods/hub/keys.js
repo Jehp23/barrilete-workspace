@@ -18,6 +18,7 @@ const NAMES = {
   "mod.open:bk-tasks": [KIT, "Te esperan: tareas y aprobaciones"],
   "mod.open:bk-agents": [KIT, "Agentes: ver, escribirles, cerrar"],
   "mod.open:bk-next": [KIT, "Ir al que te espera"],
+  "mod.open:bk-epica": [KIT, "La épica de este chat: sub-issues, bloqueos y lanzar"],
   "mod.open:bk-chat": [CHATS, "Chat nuevo en este proyecto"],
   "mod.open:bk-new": [CHATS, "Nuevo… (rama, suelto, otro proyecto)"],
   "mod.open:bk-sessions": [CHATS, "Sesiones: saltar o retomar"],

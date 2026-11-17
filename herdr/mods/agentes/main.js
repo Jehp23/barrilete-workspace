@@ -1,4 +1,5 @@
-// La barra izquierda de bk-lavanda: los espacios y, debajo, los agentes con sus sub-agentes (quién lanzó a
+// La barra izquierda de bk-lavanda: los espacios, las épicas (sección ÉPICAS; con props { epic }, este mod es su
+// popup de detalle) y, debajo, los agentes con sus sub-agentes (quién lanzó a
 // quién). Cada agente lleva el chip con su número fijo de ventana (alt+N), su título, dónde está y la marca
 // de estado, la misma que usan las pestañas, la cabecera de cada pane y la barra de abajo.
 // Dos vistas (el botón de la derecha de "AGENTES"): por prioridad (te esperan, listos, trabajando, quietos)
@@ -54,9 +55,85 @@ function epicQueries() {
     return { address: a.address, space: a.space, q: [p.cwd ?? "", p.branch ?? "", [l["bk.name"], l["bk.autotitle"], p.title ?? a.title].filter(Boolean).join(" "), a.address] };
   });
 }
-const BAR = 6;
-const bar = (done, total) => { const n = total ? Math.round((BAR * done) / total) : 0; return "▓".repeat(n) + "░".repeat(BAR - n); };
 
+// Las épicas (sección ÉPICAS y su popup). Cada sub-issue es: hecho, con agente (un chat trabaja en él), libre (abierto
+// y sin bloqueos abiertos) o bloqueado. La barra va en ese orden, un segmento por sub-issue.
+const ekey = (x) => `${x.repo}#${x.number}`;
+const short = (repo) => String(repo).split("/").pop().split("-").pop();
+// El número de un sub-issue: con su repo delante si la épica cruza repos (kit#324, workspace#11)
+const num = (s, cross) => (cross ? `${short(s.repo)}#${s.number}` : `#${s.number}`);
+const KINDS = ["done", "work", "free", "wait"];
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+// La épica en filas y números. chats: [{ address, pane, issue, repo }] de los agentes vivos. null sin sub-issues
+// (bk no los pudo traer todavía): la tarjeta usa done/total.
+function plan(e, chats) {
+  if (!Array.isArray(e?.subs)) return null;
+  const agentOf = new Map();
+  for (const c of chats) if (c.issue && c.repo && !agentOf.has(`${c.repo}#${c.issue}`)) agentOf.set(`${c.repo}#${c.issue}`, c);
+  const rows = e.subs.map((s) => {
+    const open = s.state === "open";
+    const agent = open ? agentOf.get(ekey(s)) ?? null : null;
+    const blocked_by = open ? s.blocked_by ?? [] : [];
+    return { ...s, blocked_by, key: ekey(s), kind: !open ? "done" : agent ? "work" : blocked_by.length ? "wait" : "free", agent };
+  });
+  const open = new Set(rows.filter((r) => r.kind !== "done").map((r) => r.key));
+  // Quién espera a quién, entre los abiertos de la épica
+  const waiters = new Map();
+  for (const r of rows) for (const b of r.blocked_by) if (open.has(ekey(b))) waiters.set(ekey(b), [...(waiters.get(ekey(b)) ?? []), r.key]);
+  // Lo que destraba cada uno: los abiertos que lo esperan, directa o indirectamente (una vuelta no cuenta dos veces)
+  const below = (k) => {
+    const seen = new Set(), todo = [k];
+    while (todo.length) for (const w of waiters.get(todo.pop()) ?? []) if (w !== k && !seen.has(w)) { seen.add(w); todo.push(w); }
+    return seen.size;
+  };
+  for (const r of rows) r.unblocks = r.kind === "done" ? 0 : below(r.key);
+  // El camino más largo de esperas (si hay vueltas, se cortan)
+  const memo = new Map();
+  const longest = (k, path) => {
+    if (memo.has(k)) return memo.get(k);
+    let best = [];
+    for (const w of waiters.get(k) ?? []) {
+      if (path.has(w)) continue;
+      path.add(w);
+      const p = longest(w, path);
+      path.delete(w);
+      if (p.length > best.length) best = p;
+    }
+    const out = [k, ...best];
+    memo.set(k, out);
+    return out;
+  };
+  const path = [...open].map((k) => longest(k, new Set([k]))).reduce((m, p) => (p.length > m.length ? p : m), []);
+  const repos = [...new Set([e.repo, ...rows.map((r) => r.repo)])].filter((r) => rows.some((x) => x.repo === r))
+    .map((repo) => ({ repo, done: rows.filter((r) => r.repo === repo && r.kind === "done").length, total: rows.filter((r) => r.repo === repo).length }));
+  const cross = repos.length > 1;
+  const by = Object.fromEntries(KINDS.map((k) => [k, rows.filter((r) => r.kind === k)]));
+  const label = new Map(rows.map((r) => [r.key, num(r, cross)]));
+  return { rows, by, cross, repos, path: path.length > 1 ? path.map((k) => label.get(k)) : [], label };
+}
+// La línea de la tarjeta: qué corre y qué destraba, o qué está libre. Partes [texto, color].
+function nextLine(t, p) {
+  const { work, free, wait } = p.by;
+  if (!work.length && !free.length && !wait.length) return [["completa", t.done]];
+  const out = [];
+  if (work.length) {
+    const w = work[0];
+    out.push(["ahora ", t.dim], [`${num(w, p.cross)} · ${w.agent.address}${work.length > 1 ? ` +${work.length - 1}` : ""}`, t.working]);
+    if (w.unblocks) out.push([` · destraba ${w.unblocks}`, t.dim]);
+    out.push([free.length ? ` · ${plural(free.length, "libre", "libres")}` : " · nada libre", free.length ? t.accent : t.dim]);
+  } else if (free.length) out.push([`${plural(free.length, "libre", "libres")}: ${free.map((r) => num(r, p.cross)).join(", ")}`, t.accent]);
+  else out.push([`nada libre · ${plural(wait.length, "bloqueado", "bloqueados")}`, t.dim]);
+  return out;
+}
+// El popup de una épica: ancho fijo, alto justo para sus filas (HECHOS plegado) y la confirmación de lanzar.
+const POP_W = 520;
+const POP = { head: 92, group: 28, row: 30, confirm: 86, foot: 38, max: 600 };
+function popHeight(p) {
+  if (!p) return 200;
+  const groups = ["work", "free", "wait"].filter((k) => p.by[k].length).length + (p.by.done.length ? 1 : 0);
+  const rows = p.by.work.length + p.by.free.length + p.by.wait.length;
+  return Math.min(POP.max, POP.head + groups * POP.group + rows * POP.row + (p.by.free.length ? POP.confirm : 0) + POP.foot + 8);
+}
 // La marca de un sub-agente. tests/test_herdr_subagents.sh evalúa tree() y subRow() de este archivo sin sus
 // imports (solo les pasa View, div, svg, h_flex, v_flex, agents, run y home): por eso subRow no usa del kit
 // nada más que esto, y sin kit dibuja un hueco.
@@ -65,6 +142,17 @@ const subMark = (t, st) => (typeof mark === "function" ? mark(t, st, 12) : div()
 export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
+    if (props()?.epic) {
+      this.at = 0;
+      this.doneOpen = false;
+      this.confirm = null;   // el sub-issue que espera el segundo ⏎ para lanzarse
+      this.busy = null;
+      this.errors = new Map();
+      this.launched = new Set();
+      this.handle = cx.focus_handle();
+      this.handle.focus();
+      return;
+    }
     this.folded = new Set();
     this.openPrev = new Set();   // las líneas «antes» desplegadas (plegadas por defecto)
     this.claudeSubs = {};
@@ -96,7 +184,7 @@ export default class Agents extends View {
     cx.timer.every(SUBS_EVERY, (cx) => cx.spawn(refresh));
     // La épica de cada chat, y la última vista de cada espacio: si ninguno de sus chats tiene, queda esa (en gris),
     // guardada entre reinicios.
-    this.epics = new Map();
+    this.chats = new Map();   // terminal → { issue, repo, epic } (solo los que tienen épica)
     this.lastEpics = JSON.parse(localStorage.getItem("epics") ?? "{}");
     this.epicKey = null;
     this.epicAt = 0;
@@ -184,43 +272,205 @@ export default class Agents extends View {
         const r = qs.length ? await exec(bin(), ["_epica", "--json", JSON.stringify(qs.map((x) => x.q))], { timeout: 30000 }) : { code: 0, stdout: "[]" };
         // Si bk falla, no se sabe de quién es cada una: quedan las últimas vistas, en gris
         const out = r.code === 0 ? JSON.parse(r.stdout) : [];
-        this.epics = new Map(qs.map((x, i) => [x.address, out[i]?.epic ?? null]));
+        this.chats = new Map(qs.map((x, i) => [x.address, out[i]?.epic ? out[i] : null]));
         let dirty = false;
         for (const x of qs) {
-          const e = this.epics.get(x.address);
+          const e = this.chats.get(x.address)?.epic;
           if (e && JSON.stringify(e) !== JSON.stringify(this.lastEpics[x.space])) { this.lastEpics[x.space] = e; dirty = true; }
         }
         if (dirty) localStorage.setItem("epics", JSON.stringify(this.lastEpics));
-      } catch { this.epics = new Map(); } finally {
+      } catch { this.chats = new Map(); } finally {
         this.epicBusy = false;
         cx.notify();
       }
     });
   }
 
-  // Las épicas de un espacio: las de sus chats, sin repetir; si no hay, la última vista ahí (stale, en gris).
-  spaceEpics(id) {
-    const seen = new Map();
-    for (const a of agents()) {
-      const e = a.space === id ? this.epics.get(a.address) : null;
-      if (e) seen.set(`${e.repo}#${e.number}`, { e, stale: false });   // la misma de dos chats, una línea
+  // Las épicas de la sección: las de los chats, sin repetir; y la última vista de cada espacio cuyos chats no tienen
+  // ninguna ahora (stale, en gris). Cada una con sus chats vivos, para saber qué sub-issue tiene agente.
+  epicList() {
+    const live = agents();
+    const byPane = new Map(live.map((a) => [a.address, a.pane]));
+    const chats = [...this.chats].filter(([addr, c]) => c && byPane.has(addr)).map(([address, c]) => ({ address, pane: byPane.get(address), issue: c.issue, repo: c.repo }));
+    const out = new Map();
+    for (const a of live) {
+      const e = this.chats.get(a.address)?.epic;
+      if (e && !out.has(ekey(e))) out.set(ekey(e), { e, stale: false });
     }
-    if (seen.size) return [...seen.values()];
-    const last = this.lastEpics[id];
-    return last ? [{ e: last, stale: true }] : [];
+    for (const s of spaces()) {
+      const last = this.lastEpics[s.id];
+      if (!last || out.has(ekey(last)) || live.some((a) => a.space === s.id && this.chats.get(a.address)?.epic)) continue;
+      out.set(ekey(last), { e: last, stale: true });
+    }
+    return [...out.values()].map((x) => ({ ...x, key: ekey(x.e), chats: x.stale ? [] : chats }));
   }
 
-  // Debajo del espacio: ÉPICA #N título ▓▓▓░░░ 5/7. Clic: en GitHub.
-  epicRow(t, sid, { e, stale }) {
-    const ink = stale ? t.dim : t.muted;
-    return h_flex().id(`epic-${sid}-${e.repo}#${e.number}`).h(22).flex_none().pl(35).pr(8).gap(6).rounded(6).items_center().text_size(11).cursor_pointer()
-      .hover((x) => x.bg(t.hover))
-      .tooltip(`${e.repo}#${e.number} ${e.title}${stale ? " · la última vista: ningún chat de este espacio tiene épica ahora" : ""}`)
-      .on_click(() => exec("open", [`https://github.com/${e.repo}/issues/${e.number}`]))
-      .child(div().flex_none().text_size(9.5).font_semibold().text_color(stale ? t.dim : t.accent).child("ÉPICA"))
-      .child(div().flex_1().min_w(0).truncate().text_color(ink).child(`#${e.number} ${e.title}`))
-      .child(div().flex_none().text_size(8.5).text_color(stale ? t.dim : e.total && e.done >= e.total ? t.done : t.accent).child(bar(e.done, e.total)))
-      .child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${e.done}/${e.total}`));
+  // Lo que necesita el popup (otra copia de este mod) y alt+p (mods/bk): en shared "bk.epics". Solo si cambió:
+  // setShared redibuja todos los mods.
+  share(list) {
+    const val = {
+      epics: Object.fromEntries(list.map((x) => [x.key, { e: x.e, stale: x.stale, chats: x.chats, height: popHeight(plan(x.e, x.chats)) }])),
+      byTerminal: Object.fromEntries([...this.chats].filter(([, c]) => c?.epic).map(([addr, c]) => [addr, ekey(c.epic)])),
+    };
+    const json = JSON.stringify(val);
+    if (json !== this.sharedJson) { this.sharedJson = json; setShared("bk.epics", val); }
+  }
+
+  // La barra segmentada: un segmento por sub-issue (hecho, con agente, libre, bloqueado). Sin sub-issues, done/total.
+  segs(t, e, p, stale, h = 6) {
+    const colors = p ? KINDS.flatMap((k) => p.by[k].map(() => ({ done: t.done, work: t.working, free: t.accent, wait: t.raised })[k]))
+      : [...Array(e.total || 0)].map((_, i) => (i < e.done ? t.done : t.raised));
+    return h_flex().h(h).gap(2).flex_none().children(colors.map((c) => div().flex_1().h(h).rounded(2).bg(stale && c !== t.raised ? t.dim : c)));
+  }
+
+  // La tarjeta de una épica: #N título k/n, la barra, qué corre o qué está libre, y los repos si cruza. Clic: el popup.
+  epicCard(t, x) {
+    const { e, stale } = x;
+    const p = plan(e, x.chats);
+    const line = stale ? [["la última vista · ningún chat la tiene ahora", t.dim]] : p ? nextLine(t, p) : [];
+    return v_flex().id(`epic-${x.key}`).flex_none().mr(4).my(1).pl(10).pr(8).py(7).gap(5).rounded(8).bg(t.surface ?? t.raised).cursor_pointer()
+      .hover((el) => el.bg(t.hover))
+      .tooltip(`${e.repo}#${e.number} ${e.title}${stale ? " · la última vista: ningún chat la tiene ahora" : ""} · clic: el detalle`)
+      .on_mouse_down("left", (ev) => { this.clickY = ev.position?.y ?? null; })
+      .on_click(() => this.openEpic(x.key))
+      .child(h_flex().gap(6).items_center().text_size(11.5)
+        .child(div().flex_none().text_size(9.5).font_semibold().text_color(stale ? t.dim : t.accent).child(`#${e.number}`))
+        .child(div().flex_1().min_w(0).truncate().text_color(stale ? t.dim : t.foreground).child(e.title))
+        .child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${e.done}/${e.total}`)))
+      .child(this.segs(t, e, p, stale))
+      .when(line.length > 0, (el) => el.child(h_flex().min_w(0).text_size(10.5).whitespace_nowrap().overflow_hidden()
+        .children(line.map(([s, c]) => div().flex_none().text_color(stale ? t.dim : c).child(s)))))
+      .when(Boolean(p?.cross) && !stale, (el) => el.child(div().truncate().text_size(10).text_color(t.dim)
+        .child(p.repos.map((r) => `${short(r.repo)} ${r.done}/${r.total}`).join(" · "))));
+  }
+
+  // El popup junto a la tarjeta (a la derecha de la barra, a la altura del clic)
+  openEpic(key) {
+    const h = shared("bk.epics")?.epics?.[key]?.height ?? 400;
+    const x = (narrow() ? 44 : find(layout(), "sidebar")?.size?.px ?? 288) + 6;
+    const y = Math.max(8, (this.clickY ?? 120) - 30);
+    openOverlay({ mod: "bk-agentes", kind: "popup", width: POP_W, height: h, at: { x, y }, props: { epic: key } });
+  }
+
+  // El popup: la épica entera, AHORA / LIBRES / BLOQUEADOS / HECHOS (plegado). ↑↓ mueven; ⏎ va al agente o a
+  // GitHub; g GitHub; l lanza un libre (con confirmación: bk run N en la carpeta de su repo); esc cierra.
+  epicPopup(t) {
+    const key = props().epic;
+    const x = shared("bk.epics")?.epics?.[key];
+    const close = () => closeOverlay(props().overlay);
+    if (!x) return v_flex().id("epic-pop").track_focus(this.handle).size_full().p(16).bg(t.popover).text_size(12.5).text_color(t.dim)
+      .on_key_down((ev) => { if (ev.key === "escape") close(); })
+      .child(`No tengo los datos de ${key}: la barra todavía no los trajo.`);
+    const { e } = x;
+    const p = plan(e, x.chats);
+    const rows = p ? [...p.by.work, ...p.by.free, ...p.by.wait, ...(this.doneOpen ? p.by.done : [])] : [];
+    this.at = Math.min(this.at, Math.max(0, rows.length - 1));
+    const sel = rows[this.at];
+    const gh = (r) => exec("open", [`https://github.com/${r.repo}/issues/${r.number}`]);
+    const enter = (r) => {
+      if (!r) return gh(e);
+      if (r.agent) { close(); return run("pane.focus", { terminal: r.agent.address }); }
+      return gh(r);
+    };
+    const launch = (r, cx) => {
+      const dir = e.dirs?.[r.repo];
+      if (!dir || this.busy) return;
+      this.busy = r.key;
+      this.errors.delete(r.key);
+      cx.spawn(async (cx) => {
+        try {
+          const res = await exec(bin(), ["run", String(r.number)], { cwd: dir, timeout: 180000 });
+          if (res.code !== 0) this.errors.set(r.key, (res.stderr || res.stdout || "").trim().split("\n").filter(Boolean).pop() || `bk run salió con ${res.code}`);
+          else this.launched.add(r.key);
+        } catch (err) { this.errors.set(r.key, String(err?.message ?? err)); }
+        this.busy = null;
+        this.confirm = null;
+        cx.notify();
+      });
+    };
+    const home_ = home();
+    const where = (r) => (e.dirs?.[r.repo] ?? "").replace(home_, "~");
+    const row = (r) => {
+      const i = rows.indexOf(r);
+      const on = i === this.at;
+      const err = this.errors.get(r.key);
+      const right = r.kind === "work" ? [div().text_color(t.working).child(r.agent.address)]
+        : r.kind === "wait" ? [div().text_color(t.dim).child(`espera ${r.blocked_by.map((b) => p.label.get(ekey(b)) ?? `${short(b.repo)}#${b.number}`).join(", ")}`)]
+        : r.kind === "free" ? [this.busy === r.key ? div().text_color(t.dim).child("lanzando…")
+          : this.launched.has(r.key) ? div().text_color(t.done).child("lanzado")
+          : on && e.dirs?.[r.repo] ? div().id(`launch-${r.key}`).px(8).py(2).rounded(5).bg(t.accent).text_color(t.accent_foreground ?? t.background).font_medium().cursor_pointer()
+            .on_click((_ev, cx) => { cx.stop_propagation(); this.confirm = r.key; cx.notify(); }).child("Lanzar")
+          : on ? div().text_color(t.dim).child(`sin carpeta para ${short(r.repo)}`) : div()]
+        : [];
+      const main = h_flex().id(`er-${r.key}`).h(POP.row).flex_none().px(16).gap(9).items_center().cursor_pointer()
+        .when(on, (el) => el.bg(t.selected).border_l(2).border_color(t.accent))
+        .hover((el) => el.bg(on ? t.selected : t.hover))
+        .on_hover((h, cx) => { if (h && this.at !== i) { this.at = i; cx.notify(); } })
+        .on_click(() => enter(r))
+        .tooltip(`${r.repo}#${r.number} ${r.title}${r.unblocks ? ` · destraba ${r.unblocks}` : ""}`)
+        .child(div().flex_none().min_w(64).text_size(11).text_color(t.dim).child(p.label.get(r.key)))
+        .child(div().flex_1().min_w(0).truncate().text_color(r.kind === "wait" || r.kind === "done" ? t.dim : t.foreground).child(r.title))
+        .child(h_flex().flex_none().gap(6).items_center().text_size(11).children(right));
+      const extra = [];
+      if (err) extra.push(div().mx(16).ml(89).mb(4).text_size(11).text_color(t.blocked).truncate().tooltip(err).child(err));
+      if (this.confirm === r.key) {
+        extra.push(v_flex().id("epic-confirm").mx(16).ml(89).mb(8).p(10).gap(7).rounded(8).border_1().border_color(al(t.accent, "66")).bg(al(t.accent, "12")).text_size(12).text_color(t.muted)
+          .child(div().text_color(t.foreground).child(`bk run ${r.number} · en ${where(r)}`))
+          .child(div().child("Abre un worktree y un agente nuevo. El rol lo decide bk."))
+          .child(h_flex().gap(8).items_center()
+            .child(div().id("epic-go").px(8).py(2).rounded(5).bg(t.accent).text_color(t.accent_foreground ?? t.background).font_medium().cursor_pointer()
+              .on_click((_ev, cx) => launch(r, cx)).child("⏎ Lanzar"))
+            .child(div().id("epic-cancel").px(8).py(2).rounded(5).border_1().border_color(t.border).cursor_pointer()
+              .on_click((_ev, cx) => { this.confirm = null; cx.notify(); }).child("esc Cancelar"))));
+      }
+      return [main, ...extra];
+    };
+    const group = (title, list, more = "") => (list.length ? [h_flex().h(POP.group).flex_none().px(16).pt(8).gap(6).items_center().text_size(10.5)
+      .child(div().font_semibold().text_color(t.muted).child(title)).child(div().text_color(t.dim).child(`${list.length}${more}`)), ...list.flatMap(row)] : []);
+    const doneHead = p && p.by.done.length ? h_flex().id("epic-done").h(POP.group).flex_none().px(16).pt(8).gap(6).items_center().text_size(10.5).cursor_pointer()
+      .on_click((_ev, cx) => { this.doneOpen = !this.doneOpen; cx.notify(); })
+      .child(div().text_color(t.dim).child(this.doneOpen ? "▾" : "▸"))
+      .child(div().font_semibold().text_color(t.muted).child("HECHOS"))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`${p.by.done.length}${this.doneOpen ? "" : ` · ${p.by.done.map((r) => p.label.get(r.key)).join(", ")}`}`)) : null;
+    const key_ = (k, what) => h_flex().gap(5).items_center().child(div().px(4).rounded(4).border_1().border_color(t.border).text_size(10).child(k)).child(what);
+    return v_flex().id("epic-pop").track_focus(this.handle).size_full().min_h(0).bg(t.popover).text_size(12.5)
+      .on_key_down((ev, cx) => {
+        if (this.busy) return;   // mientras corre bk run, esc no cierra: no se sabe si Herdr corta lo que corre un mod cerrado
+        if (this.confirm) {
+          const r = rows.find((x) => x.key === this.confirm);
+          if (ev.key === "enter" && r) launch(r, cx);
+          else if (ev.key === "escape") this.confirm = null;
+          else return;
+          return cx.notify();
+        }
+        if (ev.key === "down" && rows.length) this.at = (this.at + 1) % rows.length;
+        else if (ev.key === "up" && rows.length) this.at = (this.at + rows.length - 1) % rows.length;
+        else if (ev.key === "enter") return enter(sel);
+        else if (ev.key === "g") return gh(sel ?? e);
+        else if (ev.key === "l" && sel?.kind === "free" && e.dirs?.[sel.repo] && !this.launched.has(sel.key)) this.confirm = sel.key;
+        else if (ev.key === "escape") return close();
+        else return;
+        cx.notify();
+      })
+      .child(v_flex().flex_none().px(16).pt(14).pb(12).gap(8).border_b(1).border_color(t.border)
+        .child(h_flex().gap(8).items_center()
+          .child(div().flex_none().text_size(10).font_semibold().text_color(t.accent).child(`ÉPICA #${e.number}`))
+          .child(div().flex_1().min_w(0).truncate().text_size(14).font_medium().text_color(t.foreground).child(e.title))
+          .child(div().flex_none().text_color(t.dim).child(`${e.done}/${e.total}`)))
+        .child(this.segs(t, e, p, false, 7))
+        .child(div().truncate().text_size(11).text_color(t.dim).child(
+          x.stale ? "la última vista: ningún chat la tiene ahora"
+            : !p ? "sin los sub-issues todavía (bk no pudo preguntarle a GitHub)"
+              : p.path.length ? `camino más largo: ${p.path.join(" → ")} · ${plural(p.path.length, "paso", "pasos")}` : "sin esperas entre los sub-issues")))
+      .child(v_flex().id("epic-rows").flex_1().min_h(0).pb(6).overflow_y_scrollbar()
+        .children(p ? [
+          ...group("AHORA", p.by.work),
+          ...group("LIBRES", p.by.free, p.by.free.length ? "" : ""),
+          ...group("BLOQUEADOS", p.by.wait),
+          ...(doneHead ? [doneHead, ...(this.doneOpen ? p.by.done.flatMap(row) : [])] : []),
+        ] : []))
+      .child(h_flex().flex_none().h(POP.foot).px(16).gap(12).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
+        .child(key_("↑↓", "mover")).child(key_("⏎", "ir al agente · si no, GitHub")).child(key_("g", "GitHub")).child(key_("l", "lanzar")).child(key_("esc", "cerrar")));
   }
 
   sortMenu(t) {
@@ -300,6 +550,7 @@ export default class Agents extends View {
   render(cx) {
     const t = theme();
     if (props()?.sortMenu) return this.sortMenu(t);
+    if (props()?.epic) return this.epicPopup(t);
     const collapsed = narrow();
     const sort = sortOf();
     let list = agents();
@@ -362,6 +613,15 @@ export default class Agents extends View {
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
       const tabName = tab?.named && tab.name !== title ? tab.name : null;
       return [machine, full ? a.space_name : null, tabName ?? (a.program?.name !== title ? a.program?.name : null)].filter(Boolean).join(" · ");
+    };
+
+    // «#324 de #321»: el issue del chat y su épica (la sección ÉPICAS); el chat que trabaja la épica misma, «épica #321»
+    const ofEpic = (a) => {
+      const c = this.chats.get(a.address);
+      if (!c?.epic || !c.issue) return null;
+      const self = c.issue === c.epic.number && c.repo === c.epic.repo;
+      const mine = c.repo && c.repo !== c.epic.repo ? `${short(c.repo)}#${c.issue}` : `#${c.issue}`;
+      return { text: self ? `épica #${c.epic.number}` : `${mine} de #${c.epic.number}`, tip: `${c.epic.repo}#${c.epic.number} ${c.epic.title}` };
     };
 
     // El chevron que pliega los sub-agentes; plegado, cuántos son, con el color del más urgente.
@@ -434,6 +694,7 @@ export default class Agents extends View {
           .child(h_flex().gap(5).items_center().text_size(11).line_height(1.25).text_color(t.dim)
             .when(Boolean(pic), (el) => el.child(pic))
             .child(div().flex_1().min_w(0).truncate().child(meta))
+            .when(Boolean(ofEpic(a)), (el) => el.child(div().flex_none().text_color(t.accent).tooltip(ofEpic(a)?.tip ?? "").child(ofEpic(a)?.text ?? "")))
             .when(this.hovered === a.address, (el) => el.child(pin))
             .when(this.hovered !== a.address && isPinned, (el) => el.child(svg(`${ICONS}pin.svg`).size(11).flex_none()))
             .when(this.hovered !== a.address && Boolean(when), (el) => el.child(div().flex_none().min_w(28).whitespace_nowrap().text_right().text_color(timeColor).child(ago(now - when))))));
@@ -513,12 +774,21 @@ export default class Agents extends View {
           .child(iconButton(t, "collapse", "sidebar", toggleSidebar, { tip: "Abrir la barra", size: 15 })));
     }
     this.epicRefresh(cx);
-    const spaceRows = sp.flatMap((s) => [this.spaceRow(t, s, false), ...this.spaceEpics(s.id).map((x) => this.epicRow(t, s.id, x))]);
+    const spaceRows = sp.map((s) => this.spaceRow(t, s, false));
+    const epics = this.epicList();
+    this.share(epics);
+    const epicsOpen = !this.folded.has("epicas");
     return v_flex().size_full().min_h(0).bg(t.chrome).pl(8).pr(4).pt(8).text_size(12.5)
       .child(rule(t, "ESPACIOS", [iconButton(t, "space-new", "plus", () => run("space.new"), { tip: "Espacio nuevo" })]))
-      // Hasta ocho filas (espacios y sus épicas), la lista mide lo que ocupa; con más, se desplaza dentro de ese alto.
+      // Hasta ocho espacios, la lista mide lo que ocupa; con más, se desplaza dentro de ese alto.
       .child((spaceRows.length > 8 ? v_flex().id("sp-list").h(8 * 29).overflow_y_scrollbar() : v_flex().id("sp-list")).flex_none().gap(1).pr(4).children(spaceRows))
       .child(div().h(6).flex_none())
+      // ÉPICAS: una tarjeta por épica; se pliega como los grupos de AGENTES. Sin épicas, no está.
+      .when(epics.length > 0, (el) => el
+        .child(rule(t, "ÉPICAS", [div().text_size(10.5).text_color(t.dim).child(epicsOpen ? "" : String(epics.length)),
+          iconButton(t, "epicas-fold", `chevron-${epicsOpen ? "down" : "right"}`, (_e, cx) => { epicsOpen ? this.folded.add("epicas") : this.folded.delete("epicas"); cx.notify(); }, { tip: epicsOpen ? "Plegar las épicas" : "Mostrar las épicas", size: 12 })]))
+        .when(epicsOpen, (x) => x.child((epics.length > 3 ? v_flex().id("epic-list").h(3 * 82).overflow_y_scrollbar() : v_flex().id("epic-list")).flex_none().gap(2).children(epics.map((e) => this.epicCard(t, e)))))
+        .child(div().h(6).flex_none()))
       .child(rule(t, "AGENTES", [
         iconButton(t, "ag-sort", sort.icon, () => openOverlay({ mod: "bk-agentes", kind: "popup", width: 200, height: 110, props: { sortMenu: true } }), { tip: `Orden: ${sort.label.toLowerCase()}` }),
       ]))

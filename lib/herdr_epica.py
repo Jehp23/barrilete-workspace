@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""La épica de un chat y su avance, para las líneas ÉPICA debajo de cada espacio en la barra (herdr/mods/agentes).
+"""La épica de un chat, su avance y sus sub-issues, para la sección ÉPICAS de la barra y su popup (herdr/mods/agentes).
 
   herdr_epica.py <carpeta> [rama] [texto] [terminal]        (bk _epica …)
   herdr_epica.py --json '[[carpeta, rama, texto, terminal], …]'   (varios chats: una lista de respuestas, en orden)

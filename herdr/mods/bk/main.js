@@ -45,6 +45,7 @@ export default class Bk extends View {
     if (c === "chat") return this.chat(f);
     if (c === "next") return this.next(f);
     if (c === "last") return this.last(f);
+    if (c === "epica") return this.epica(f);
     const g = /^go([1-9])$/.exec(c);
     if (g) return this.go(g[1]);
     const m = /^agent([1-9])$/.exec(c);
@@ -176,6 +177,15 @@ export default class Bk extends View {
     if (!prev) return notify({ title: "bk", body: "no hay un lugar anterior", level: "info", timeout: 2500 });
     run("space.select", { id: prev.space });
     run("tab.select", { id: prev.tab });
+  }
+
+  // alt+p: el detalle de la épica del chat enfocado (si no tiene, la primera de la sección ÉPICAS), el mismo popup
+  // que abre el clic en su tarjeta. Los datos y el alto los deja la barra de agentes en shared "bk.epics".
+  epica(f) {
+    const s = shared("bk.epics") ?? {};
+    const key = s.byTerminal?.[f?.terminal] ?? Object.keys(s.epics ?? {})[0];
+    if (!key) return notify({ title: "bk", body: "ningún chat tiene una épica", level: "info", timeout: 2500 });
+    openOverlay({ mod: "bk-agentes", kind: "dialog", width: 520, height: s.epics?.[key]?.height ?? 400, props: { epic: key } });
   }
 
   // La pestaña n (desde 1) del espacio a la vista cuya terminal cumple `pick`, en el orden de las pestañas

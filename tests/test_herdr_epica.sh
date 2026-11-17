@@ -126,15 +126,15 @@ check_eq "$(ep "$REPO" claude/11-algo "" t9 | jq -c .issue)" '11' "una conversac
 check_eq "$(jq -r 'keys[0]' "$BK_CACHE_DIR/epica-sesiones.json")" "$BK_PROJECTS/p/s9.jsonl" "guarda lo leído de cada conversación (por tamaño: no relee si no creció)"
 unset BK_PROJECTS
 
-# Las épicas debajo de cada espacio (herdr/mods/agentes), con Herdr falso
-node --input-type=module - "$ROOT" <<'JS' && { N=$((N+1)); echo "ok $N - mod: la épica debajo de su espacio"; } || { N=$((N+1)); FAILED=$((FAILED+1)); echo "not ok $N - mod: la épica debajo de su espacio"; }
+# La sección ÉPICAS (herdr/mods/agentes), su popup y alt+p (herdr/mods/bk), con Herdr falso
+node --input-type=module - "$ROOT" <<'JS' && { N=$((N+1)); echo "ok $N - mod: la sección ÉPICAS, su popup, lanzar y alt+p"; } || { N=$((N+1)); FAILED=$((FAILED+1)); echo "not ok $N - mod: la sección ÉPICAS, su popup, lanzar y alt+p"; }
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 const root = process.argv[2];
-const src = fs.readFileSync(`${root}/herdr/mods/agentes/main.js`, 'utf8')
-  .replace(/^import [\s\S]*?;$/gm, '').replace('export default class Agents', 'class Agents');
+const load = (f, name) => fs.readFileSync(`${root}/herdr/mods/${f}/main.js`, 'utf8')
+  .replace(/^import [\s\S]*?;$/gm, '').replace(`export default class ${name}`, `class ${name}`);
 const node = () => {
-  const n = { $id: null, $kids: [], $click: null, $tip: null, $color: [] };
+  const n = { $id: null, $kids: [], $click: null, $tip: null, $color: [], $bg: [], $key: null, $hover: null };
   const p = new Proxy(n, { get: (o, k) => {
     if (typeof k === 'string' && k.startsWith('$')) return o[k];
     if (k === 'then') return undefined;   // que await no lo tome por una promesa
@@ -144,8 +144,10 @@ const node = () => {
       else if (k === 'children') o.$kids.push(...a[0]);
       else if (k === 'when' && a[0]) a[1](p);
       else if (k === 'on_click') o.$click = a[0];
+      else if (k === 'on_key_down') o.$key = a[0];
       else if (k === 'tooltip') o.$tip = a[0];
       else if (k === 'text_color') o.$color.push(a[0]);
+      else if (k === 'bg') o.$bg.push(a[0]);
       return p;
     };
   } });
@@ -153,95 +155,146 @@ const node = () => {
 };
 const walk = (n, out = []) => { if (n && n.$kids) { out.push(n); for (const k of n.$kids) walk(k, out); } return out; };
 const text = (n) => walk(n).flatMap((x) => x.$kids).filter((k) => typeof k === 'string');
-const colors = (b) => walk(b).flatMap((x) => x.$color);
-// La lista de espacios en orden: sp-<id> y epic-<espacio>-<repo>#<n>
-const list = (out) => walk(walk(out).find((x) => x.$id === 'sp-list')).map((x) => x.$id).filter((i) => /^(sp|epic)-/.test(i ?? '') && i !== 'sp-list');
-const row = (out, id) => walk(out).find((x) => x.$id === id);
+const find = (out, id) => walk(out).find((x) => x.$id === id);
+const ids = (out, re) => walk(out).map((x) => x.$id).filter((i) => re.test(i ?? ''));
 
-// abra (s1) tiene dos chats; otro (s2), uno; vacio (s3), ninguno
-let AG = [], narrowNow = false, reply = null, execs = [], store = {};
-const T = { foreground: 'FG', muted: 'MUT', dim: 'DIM', accent: 'ACC', done: 'DONE' };
+let AG = [], narrowNow = false, reply = null, execs = [], store = {}, shared = {}, overlays = [], closed = [], runs = [], P = {}, focusedT = null, notes = [];
+const T = { foreground: 'FG', muted: 'MUT', dim: 'DIM', accent: 'ACC', done: 'DONE', working: 'WORK', raised: 'RAI', blocked: 'BLK' };
 const SP = [{ id: 's1', name: 'abra', tabs: [] }, { id: 's2', name: 'otro', tabs: [] }, { id: 's3', name: 'vacio', tabs: [] }];
+let runReply = { code: 0, stdout: '', stderr: '' };
 const deps = {
   View: class {}, div: node, svg: node, h_flex: node, v_flex: node,
   agents: () => AG, terminals: () => AG.map((a) => ({ address: a.address, state: 'live', labels: a.labels ?? {} })),
-  focused: () => null, panes: () => AG.map((a) => ({ pane: a.pane, cwd: a.cwd, branch: a.branch, title: a.title })),
-  spaces: () => SP, run: () => {}, theme: () => new Proxy(T, { get: (o, k) => o[k] ?? '#000' }), shared: () => undefined, setShared: () => {},
-  setAgentOrder: () => {}, openOverlay: () => {}, closeOverlay: () => {}, props: () => ({}), window: () => ({}), layout: () => ({}),
-  exec: async (cmd, args) => {
-    execs.push([cmd, ...args]);
+  focused: () => focusedT, panes: () => AG.map((a) => ({ pane: a.pane, cwd: a.cwd, branch: a.branch, title: a.title })),
+  spaces: () => SP, run: (...a) => runs.push(a), theme: () => new Proxy(T, { get: (o, k) => o[k] ?? '#000' }),
+  shared: (k) => shared[k], setShared: (k, v) => { shared[k] = JSON.parse(JSON.stringify(v)); },
+  setAgentOrder: () => {}, openOverlay: (o) => { overlays.push(o); return 'ov1'; }, closeOverlay: (id) => closed.push(id), props: () => P, window: () => ({}), layout: () => ({}),
+  exec: async (cmd, args, opts) => {
+    execs.push([cmd, ...args, ...(opts?.cwd ? [`cwd=${opts.cwd}`] : [])]);
     if (args[0] === '_subagents') return { code: 0, stdout: '{"by_terminal":{}}' };
     if (args[0] === '_epica') return reply(JSON.parse(args[2]));
+    if (args[0] === 'run') return runReply;
     return { code: 0, stdout: '' };
   },
-  home: () => '/h', ICONS: '', PROSE: '', RANK: { blocked: 4, done: 3, working: 2, idle: 1 }, al: (c) => c, find: () => null,
+  home: () => '/h', ICONS: '', PROSE: '', RANK: { blocked: 4, done: 3, working: 2, idle: 1 }, al: (c) => c,
+  find: () => ({ size: { px: 300 } }),
   narrow: () => narrowNow, ago: () => '1m', ids: () => new Map(), said: (t) => t, picto: () => null, mark: () => '', keycap: () => '',
-  iconButton: node, rule: node,
+  iconButton: (t, id, icon, action) => node().id(id).on_click(action), rule: (t, label, right = []) => node().id(`rule-${label}`).child(label).children(right),
 };
-const Agents = new Function(...Object.keys(deps), src + '\nreturn Agents;')(...Object.values(deps));
+const Agents = new Function(...Object.keys(deps), load('agentes', 'Agents') + '\nreturn Agents;')(...Object.values(deps));
 globalThis.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; }, removeItem: (k) => { delete store[k]; } };
 let pending = [];
-const cx = { spawn(f) { pending.push(f(cx)); }, timer: { every() {} }, notify() {} };
+const cx = { spawn(f) { pending.push(f(cx)); }, timer: { every() {} }, notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }) };
 const settle = async () => { while (pending.length) await pending.shift(); };
 const epicCalls = () => execs.filter((e) => e[1] === '_epica');
 const draw = async (v) => { v.render(cx); await settle(); return v.render(cx); };
 const agent = (address, space, cwd, branch, title, labels) => ({ address, space, space_name: space, pane: `p-${address}`, tab: `tab-${address}`, status: 'idle', cwd, branch, title, labels, seq: 0 });
 
-const E10 = { repo: 'o/r', number: 10, title: 'La épica', done: 2, total: 5 };
-const E13 = { repo: 'o/r', number: 13, title: 'Otra', done: 3, total: 3 };
-// el falso de bk _epica: por la rama
-const BY = { 'claude/11-a': E10, 'claude/12-b': E10, 'claude/14-c': E13 };
-reply = (qs) => ({ code: 0, stdout: JSON.stringify(qs.map(([, b]) => ({ issue: 1, epic: BY[b] ?? null }))) });
+// #10 cruza dos repos: r#11 tiene agente (t1), r#12 está cerrado, r#15 espera a r#11, r#16 espera a r#15, x#5 está libre
+const sub = (repo, number, state, blocked_by = []) => ({ repo, number, title: `Sub ${number}`, state, blocked_by });
+const E10 = { repo: 'o/r', number: 10, title: 'La épica', done: 1, total: 5, dirs: { 'o/r': '/h/r', 'o/x': '/h/x' },
+  subs: [sub('o/r', 11, 'open'), sub('o/r', 12, 'closed'), sub('o/r', 15, 'open', [{ repo: 'o/r', number: 11 }]),
+    sub('o/r', 16, 'open', [{ repo: 'o/r', number: 15 }]), sub('o/x', 5, 'open')] };
+const E13 = { repo: 'o/r', number: 13, title: 'Otra', done: 2, total: 3 };   // sin subs todavía: la barra con done/total
+const BY = { 'claude/11-a': [11, E10], 'claude/10-e': [10, E10], 'claude/14-c': [14, E13] };
+reply = (qs) => ({ code: 0, stdout: JSON.stringify(qs.map(([, b]) => (BY[b] ? { issue: BY[b][0], repo: 'o/r', epic: BY[b][1] } : { issue: null, repo: null, epic: null }))) });
 
-AG = [agent('t1', 's1', '/abra', 'claude/11-a', 'uno'), agent('t2', 's1', '/abra', 'claude/12-b', 'dos', { 'bk.name': 'Dos #12' }), agent('t3', 's2', '/otro', 'main', 'tres')];
+AG = [agent('t1', 's1', '/abra', 'claude/11-a', 'uno'), agent('t2', 's1', '/abra', 'main', 'dos', { 'bk.name': 'Dos' }), agent('t3', 's2', '/otro', 'main', 'tres')];
 let v = new Agents(); v.init({}, cx); await settle();
 let out = await draw(v);
-assert.deepEqual(epicCalls()[0], ['bk', '_epica', '--json', JSON.stringify([['/abra', 'claude/11-a', 'uno', 't1'], ['/abra', 'claude/12-b', 'Dos #12 dos', 't2'], ['/otro', 'main', 'tres', 't3']])], 'una sola llamada con carpeta, rama y nombre de cada chat');
-assert.deepEqual(list(out), ['sp-s1', 'epic-s1-o/r#10', 'sp-s2', 'sp-s3'], 'la épica va debajo de su espacio, una vez aunque la tengan dos chats; los espacios sin épica, sin línea');
-let b = row(out, 'epic-s1-o/r#10');
-assert.deepEqual(text(b), ['ÉPICA', '#10 La épica', '▓▓░░░░', '2/5'], 'ÉPICA #N título, la barra y el avance');
-assert.deepEqual(colors(b), ['ACC', 'MUT', 'ACC', 'DIM'], 'la actual: rótulo y barra en acento');
-b.$click();
-assert.deepEqual(execs.at(-1), ['open', 'https://github.com/o/r/issues/10'], 'clic: la épica en GitHub');
+assert.deepEqual(epicCalls()[0], ['bk', '_epica', '--json', JSON.stringify([['/abra', 'claude/11-a', 'uno', 't1'], ['/abra', 'main', 'Dos dos', 't2'], ['/otro', 'main', 'tres', 't3']])], 'una sola llamada con carpeta, rama y nombre de cada chat');
+assert.deepEqual(ids(find(out, 'sp-list'), /^epic-/), [], 'las épicas ya no van debajo de los espacios');
+const order = walk(out).map((x) => x.$id).filter((i) => /^(rule-|sp-list|epic-list)/.test(i ?? ''));
+assert.deepEqual(order, ['rule-ESPACIOS', 'sp-list', 'rule-ÉPICAS', 'epic-list', 'rule-AGENTES'], 'la sección ÉPICAS va entre ESPACIOS y AGENTES');
+assert.deepEqual(ids(out, /^epic-o/), ['epic-o/r#10'], 'una tarjeta por épica');
+let c = find(out, 'epic-o/r#10');
+assert.deepEqual(text(c), ['#10', 'La épica', '1/5', 'ahora ', 'r#11 · t1', ' · destraba 2', ' · 1 libre', 'r 1/4 · x 0/1'], 'la tarjeta: #N título k/n, qué corre, qué destraba, cuántos libres y el avance por repo');
+const segs = c.$kids[1].$kids.map((k) => k.$bg[0]);
+assert.deepEqual(segs, ['DONE', 'WORK', 'ACC', 'RAI', 'RAI'], 'la barra: un segmento por sub-issue, hecho / con agente / libre / bloqueado');
+const meta = find(out, 'ag-t1');
+assert.ok(text(meta).includes('#11 de #10'), 'la fila del agente dice «#11 de #10»');
+assert.ok(!text(find(out, 'ag-t2')).some((s) => / de #/.test(s)), 'un chat sin épica no lo dice');
+assert.equal(shared['bk.epics'].byTerminal.t1, 'o/r#10', 'shared bk.epics: la épica de cada terminal (para alt+p)');
+assert.ok(shared['bk.epics'].epics['o/r#10'].height > 200, 'y el alto del popup');
 await draw(v); await draw(v);
 assert.equal(epicCalls().length, 1, 'los mismos chats: no vuelve a preguntar en cada dibujo');
-assert.equal(JSON.parse(store.epics).s1.number, 10, 'guarda la última vista de cada espacio entre reinicios');
 
-// Dos épicas en un espacio: una línea por cada una
-AG.push(agent('t4', 's1', '/abra', 'claude/14-c', 'cuatro'));
+// Clic en la tarjeta: el popup junto a ella
+c.$click();
+assert.deepEqual([overlays.at(-1).mod, overlays.at(-1).kind, overlays.at(-1).props, overlays.at(-1).at.x], ['bk-agentes', 'popup', { epic: 'o/r#10' }, 306], 'clic: el popup de esa épica, a la derecha de la barra');
+
+// Sin libres: «N libres: …» cuando nadie trabaja; la épica sin subs, con done/total
+AG = [agent('t4', 's2', '/otro', 'claude/14-c', 'cuatro'), agent('t1', 's1', '/abra', 'main', 'uno')];
 out = await draw(v);
-assert.equal(epicCalls().length, 2, 'cambiaron los chats: vuelve a preguntar');
-assert.deepEqual(list(out), ['sp-s1', 'epic-s1-o/r#10', 'epic-s1-o/r#13', 'sp-s2', 'sp-s3'], 'dos épicas en abra: dos líneas');
-assert.deepEqual(colors(row(out, 'epic-s1-o/r#13')).slice(2, 3), ['DONE'], 'completa: la barra en el color de listo');
-
-// Los chats de abra dejan de tener épica: queda la última vista ahí, en gris
-AG = [agent('t1', 's1', '/abra', 'main', 'uno'), agent('t3', 's2', '/otro', 'main', 'tres')];
+assert.deepEqual(ids(out, /^epic-o/), ['epic-o/r#13', 'epic-o/r#10'], 'la del chat y la última vista de abra');
+assert.deepEqual(find(out, 'epic-o/r#13').$kids[1].$kids.map((k) => k.$bg[0]), ['DONE', 'DONE', 'RAI'], 'sin sub-issues: la barra con done/total');
+c = find(out, 'epic-o/r#10');
+assert.ok(text(c).includes('la última vista · ningún chat la tiene ahora'), 'la última vista de un espacio lo dice');
+assert.ok(c.$kids[1].$kids.every((k) => ['DIM', 'RAI'].includes(k.$bg[0])) && c.$kids[0].$kids.every((k) => k.$color.every((x) => x === 'DIM')), 'y va en gris');
+AG = [agent('t2', 's1', '/abra', 'claude/10-e', 'dos')];
 out = await draw(v);
-const last = JSON.parse(store.epics).s1.number;
-assert.deepEqual(list(out), ['sp-s1', `epic-s1-o/r#${last}`, 'sp-s2', 'sp-s3'], 'sin épica ahora: la última vista de ese espacio, no se esconde');
-b = row(out, `epic-s1-o/r#${last}`);
-assert.deepEqual(colors(b), ['DIM', 'DIM', 'DIM', 'DIM'], 'la última vista va toda en gris');
-assert.match(b.$tip, /última vista/, 'y el tooltip lo dice');
+assert.deepEqual(text(find(out, 'epic-o/r#10')).slice(3, 4), ['2 libres: r#11, x#5'], 'nadie trabaja en un sub-issue: cuáles están libres');
+assert.ok(text(find(out, 'ag-t2')).includes('épica #10'), 'el chat que trabaja la épica misma: «épica #10»');
 
-// bk falla: no sigue la épica anterior del chat como si fuera actual; las últimas vistas, en gris
-AG = [agent('t1', 's1', '/abra', 'claude/11-a', 'uno')];
+// Plegar la sección
+find(out, 'epicas-fold').$click({}, cx);
 out = await draw(v);
-assert.deepEqual(colors(row(out, 'epic-s1-o/r#10')).slice(0, 1), ['ACC'], 'antes de fallar: la #10, actual');
-AG = [agent('t1', 's1', '/abra', 'claude/14-c', 'uno')];
-reply = () => ({ code: 1, stdout: '' });
-b = row(await draw(v), 'epic-s1-o/r#10');
-assert.deepEqual(colors(b), ['DIM', 'DIM', 'DIM', 'DIM'], 'si bk _epica falla, la última vista en gris');
+assert.deepEqual([ids(out, /^epic-o/), text(find(out, 'rule-ÉPICAS')).includes('2')], [[], true], 'plegada: sin tarjetas, dice cuántas (la de abra y la última vista de otro)');
+find(out, 'epicas-fold').$click({}, cx);
 
-// Reinicio: vuelven las últimas vistas guardadas
-reply = () => ({ code: 0, stdout: '[]' });
-AG = [];
-v = new Agents(); v.init({}, cx); await settle();
-assert.deepEqual(list(await draw(v)), ['sp-s1', 'epic-s1-o/r#10', 'sp-s2', 'sp-s3'], 'después de reiniciar, la última vista de cada espacio');
-assert.equal(epicCalls().filter((e) => e[3] === '[]').length, 0, 'sin chats no llama a bk');
-
-// El riel (angosto): solo los espacios
+// El riel (angosto): sin épicas
 narrowNow = true;
-assert.equal(walk(await draw(v)).filter((x) => /^epic-/.test(x.$id ?? '')).length, 0, 'en el riel no hay épicas');
+assert.equal(ids(await draw(v), /^epic-|rule-ÉPICAS/).length, 0, 'en el riel no hay épicas');
+narrowNow = false;
+
+// El popup: otra copia del mod con props { epic }, los datos de shared
+AG = [agent('t1', 's1', '/abra', 'claude/11-a', 'uno')];
+await draw(v);
+P = { epic: 'o/r#10', overlay: 'ov9' };
+const pop = new Agents(); pop.init(P, cx);
+let o = pop.render(cx);
+const rowsOf = (o) => ids(o, /^er-/);
+assert.deepEqual(text(o).filter((s) => /^(AHORA|LIBRES|BLOQUEADOS|HECHOS)$/.test(s)), ['AHORA', 'LIBRES', 'BLOQUEADOS', 'HECHOS'], 'grupos AHORA, LIBRES, BLOQUEADOS y HECHOS');
+assert.deepEqual(rowsOf(o), ['er-o/r#11', 'er-o/x#5', 'er-o/r#15', 'er-o/r#16'], 'HECHOS empieza plegado');
+assert.ok(text(o).includes('camino más largo: r#11 → r#15 → r#16 · 3 pasos'), 'el camino más largo');
+assert.ok(text(o).includes('espera r#11') && text(o).includes('espera r#15'), 'cada bloqueado dice qué espera');
+assert.ok(text(o).includes('1 · r#12'), 'HECHOS plegado dice cuáles');
+const key = (k) => { o.$key({ key: k }, cx); o = pop.render(cx); };
+key('enter');
+assert.deepEqual([runs.at(-1), closed.at(-1)], [['pane.focus', { terminal: 't1' }], 'ov9'], '⏎ en uno con agente: su pane, y cierra');
+key('down'); key('g');
+assert.deepEqual(execs.at(-1), ['open', 'https://github.com/o/x/issues/5'], 'g: el elegido en GitHub');
+key('down'); key('l');
+assert.equal(find(o, 'epic-confirm'), undefined, 'l en un bloqueado: no lanza');
+key('up'); key('l');
+assert.ok(text(find(o, 'epic-confirm')).includes('bk run 5 · en ~/x'), 'l en un libre: la confirmación con el comando y la carpeta de su repo');
+key('escape');
+assert.equal(find(o, 'epic-confirm'), undefined, 'esc cancela la confirmación (no cierra)');
+key('l'); runReply = { code: 1, stdout: '', stderr: 'algo\nprepare.sh rechazó #5\n' };
+key('enter');
+const shut = closed.length; for (let i = 0; i < 2; i++) { o.$key({ key: 'escape' }, cx); o = pop.render(cx); }
+assert.ok(closed.length === shut && text(o).includes('lanzando…'), 'mientras lanza, esc no cierra y la fila dice «lanzando…»');
+await settle(); o = pop.render(cx);
+assert.deepEqual(execs.at(-1), ['bk', 'run', '5', 'cwd=/h/x'], '⏎ lanza: bk run N en la carpeta de su repo');
+assert.ok(text(o).includes('prepare.sh rechazó #5'), 'si falla, el error queda en la fila');
+runReply = { code: 0, stdout: '', stderr: '' };
+key('l'); key('enter'); await settle(); o = pop.render(cx);
+assert.ok(text(o).includes('lanzado') && !text(o).includes('prepare.sh rechazó #5'), 'si sale bien, «lanzado» y sin el error');
+find(o, 'epic-done').$click({}, cx); o = pop.render(cx);
+assert.deepEqual(rowsOf(o).at(-1), 'er-o/r#12', 'clic en HECHOS: se despliega');
+const before = closed.length; key('escape');
+assert.equal(closed.length, before + 1, 'esc cierra');
+
+// alt+p (mods/bk, handle "epica"): el popup de la épica del chat enfocado
+const Bk = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals', 'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile',
+  load('bk', 'Bk') + '\nreturn Bk;')(class {}, node, async () => ({}), deps.exec, deps.run, () => ({}), deps.openOverlay, deps.closeOverlay, () => focusedT,
+  deps.terminals, deps.spaces, deps.agents, deps.home, (n) => notes.push(n), deps.shared, deps.setShared, async () => null);
+focusedT = { terminal: 't1' };
+await new Bk().handle('epica');
+assert.deepEqual([overlays.at(-1).mod, overlays.at(-1).props, overlays.at(-1).height], ['bk-agentes', { epic: 'o/r#10' }, shared['bk.epics'].epics['o/r#10'].height], 'alt+p: la épica del chat enfocado, del alto justo');
+shared['bk.epics'] = { epics: {}, byTerminal: {} };
+await new Bk().handle('epica');
+assert.match(notes.at(-1).body, /ningún chat tiene una épica/, 'sin épicas: lo dice');
 JS
 
 echo "1..$N"
