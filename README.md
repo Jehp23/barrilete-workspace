@@ -212,7 +212,7 @@ pisan con los del repo (se editan acá).
   `lib/herdr.sh`, el instalador (teclas, mods, paneles, temas, layout y vista previa), los números fijos, la
   adopción y `bk handoff --term/--cerrar`; `tests/test_side.sh`, los datos del lado derecho; `tests/test_hub.sh`,
   los de los paneles. Partes de algunos mods corren en `node`, sin Herdr (`tests/test_herdr_subagents.sh`,
-  `tests/test_herdr_tasks.sh`). Lo que no está probado: apretar las teclas. macOS no deja mandarle teclas a Herdr
+  `tests/test_herdr_tasks.sh`, `tests/test_herdr_lineage.sh`, `tests/test_herdr_epica.sh`). Lo que no está probado: apretar las teclas. macOS no deja mandarle teclas a Herdr
   desde un script, así que ninguna prueba recorre tecla → mod → acción dentro de la app.
 
 ## Sesiones (`bk s` · `C-a s`)
@@ -415,6 +415,16 @@ internos de Claude (`Agent`), con descripción, tipo y número estable como bk-s
 los terminados y los que llevan más de diez minutos sin escribir, igual que bk-shell.
 Se actualiza cada cuatro segundos; el clic abre `bk sub` para seguir el transcript
 en una pestaña de solo lectura. No envía instrucciones al subagente.
+
+### La épica del chat enfocado
+
+Arriba de AGENTES, `bk-agentes` muestra **ÉPICA #N título ▓▓▓▓░░░░░░ 5/7**: la épica del chat enfocado y cuántos
+de sus sub-issues están cerrados; el clic la abre en GitHub. `bk _epica <carpeta> [rama] [texto]`
+(`lib/herdr_epica.py`) saca el issue de la rama (`claude/1152-…`, `claude/<tipo>/1152-…`), de la carpeta (un
+worktree `<repo>-wt/1152`) o de un `#1152` en el nombre del chat, y la épica es su padre en GitHub o el issue
+mismo si tiene sub-issues. Lo de GitHub queda cinco minutos en `~/.cache/bk/epica.json`: la barra pregunta al
+cambiar de chat y cada minuto, nunca en cada dibujo. Si el chat no tiene épica, queda la última vista en gris
+(guardada entre reinicios); sin red, lo último guardado.
 
 La cabecera de Lavanda muestra **BK** y el barrilete de la marca, que cambia según haya quien te espere, quien
 trabaje o nadie (`herdr/mods/marca/bk-wait.svg`, `bk-fly.svg`, `bk-rest.svg`). El mod propio `bk-marca` conserva
