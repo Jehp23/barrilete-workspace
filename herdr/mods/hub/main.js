@@ -17,6 +17,7 @@ import Look from "./look.js";
 import Handoff from "./handoff.js";
 import Branches from "./branches.js";
 import Profiles from "./profiles.js";
+import Todo from "./todo.js";
 
-const VIEWS = { palette: Palette, out: Out, issues: Issues, prs: Prs, tasks: Tasks, new: New, agents: Agents, sessions: Sessions, changes: Changes, stats: Stats, keys: Keys, song: Song, look: Look, handoff: Handoff, branches: Branches, profiles: Profiles };
+const VIEWS = { palette: Palette, out: Out, issues: Issues, prs: Prs, tasks: Tasks, new: New, agents: Agents, sessions: Sessions, changes: Changes, stats: Stats, keys: Keys, song: Song, look: Look, handoff: Handoff, branches: Branches, profiles: Profiles, todo: Todo };
 export default VIEWS[VIEW] ?? Palette;

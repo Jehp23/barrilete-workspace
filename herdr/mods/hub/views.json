@@ -150,5 +150,15 @@
       "width": 760,
       "height": 0.7
     }
+  },
+  "todo": {
+    "title": "TODO",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 640,
+      "height": 0.7
+    }
   }
 }

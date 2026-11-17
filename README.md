@@ -145,6 +145,7 @@ pisan con los del repo (se editan acá).
   | `alt+r` | Revisar o corregir un PR. Enter lanza al reviewer, o lo aprueba si el kit ya lo propuso; Tab pide una instrucción y lanza el fix; ctrl+g vuelve a correr los checks que fallaron; ctrl+o lo abre en GitHub | `bk review`, `bk approve`, `bk fix`, `bk rerun --go` |
   | `alt+e` | Te esperan: tareas y aprobaciones. Enter lanza el reviewer propuesto o va a la pestaña del agente; Tab suma el historial | `bk approve` |
   | `alt+p` | La épica del chat que mirás (si no tiene, la primera de ÉPICAS): sus sub-issues por estado, quién espera a quién y el camino más largo. Enter va al agente (o a GitHub), `g` abre GitHub, `l` lanza uno libre con confirmación | `bk run <n>` |
+  | `alt+t` | TODO: los pasos del issue que trabaja el chat que mirás (el issue sale como en `alt+p`), las casillas `- [ ]` de su cuerpo por sección, tildadas o no. Solo lee; Enter abre el issue en GitHub | `bk _todo` |
   | `alt+a` | Agentes: los que te esperan arriba y, al lado, lo último de la terminal del elegido. Enter va a su pestaña, Tab le escribe, ctrl+x dos veces lo cierra, ctrl+o lo espía | `bk say`, `bk stop` |
   | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, el resumen de este chat para seguir en uno nuevo (abre `alt+h`), terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
   | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta | `bk _hub session-go`, `bk stop` |

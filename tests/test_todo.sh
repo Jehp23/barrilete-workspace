@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# La tarjeta TODO del panel derecho: bk _todo (lib/herdr_todo.py) con un gh falso, y la tarjeta de herdr/mods/lado
-# en node con Herdr falso. HOME y caché en un directorio temporal; no abre ventanas ni sale a la red.
+# La ventana TODO (alt+t): bk _todo (lib/herdr_todo.py) con un gh falso, y la vista herdr/mods/hub/todo.js en node
+# con Herdr falso. HOME y caché en un directorio temporal; no abre ventanas ni sale a la red.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(dirname "$HERE")"
 TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$TMP"' EXIT
@@ -47,77 +47,64 @@ rm -f "$BK_CACHE_DIR/todo.json"
 check_eq "$(td "$TMP/proj-wt/17" w | jq -c '[.issue, .offline]')" '[17,true]' "sin red y sin nada guardado: offline"
 rm -f "$TMP/sin-red"
 
-node --input-type=module - "$ROOT" <<'JS' && { N=$((N+1)); echo "ok $N - mod: la tarjeta TODO del panel derecho"; } || { N=$((N+1)); FAILED=$((FAILED+1)); echo "not ok $N - mod: la tarjeta TODO del panel derecho"; }
+node --input-type=module - "$ROOT" <<'JS' && { N=$((N+1)); echo "ok $N - mod: la ventana TODO (alt+t)"; } || { N=$((N+1)); FAILED=$((FAILED+1)); echo "not ok $N - mod: la ventana TODO (alt+t)"; }
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 const root = process.argv[2];
-const src = fs.readFileSync(`${root}/herdr/mods/lado/main.js`, 'utf8')
-  .replace(/^import [\s\S]*?;$/gm, '').replace('export default class Lado', 'class Lado');
-const node = () => {
-  const n = { $id: null, $kids: [], $click: null };
-  const p = new Proxy(n, { get: (o, k) => {
-    if (typeof k === 'string' && k.startsWith('$')) return o[k];
-    if (k === 'then') return undefined;
-    return (...a) => {
-      if (k === 'id') o.$id = a[0];
-      else if (k === 'child') o.$kids.push(a[0]);
-      else if (k === 'children') o.$kids.push(...a[0]);
-      else if (k === 'when' && a[0]) a[1](p);
-      else if (k === 'on_click') o.$click = a[0];
-      return p;
-    };
-  } });
-  return p;
-};
-const walk = (n, out = []) => { if (n && n.$kids) { out.push(n); for (const k of n.$kids) walk(k, out); } return out; };
-const text = (n) => walk(n).flatMap((x) => x.$kids).filter((k) => typeof k === 'string');
-const card = (t, title, right, body) => node().id(`card-${title}`).child(title).child(right).children(body);
-let execs = [], todoReply = null, focusedT = null;
-const deps = {
-  View: class {}, div: node, svg: node, h_flex: node, v_flex: node,
-  exec: async (cmd, args) => {
-    execs.push([cmd, ...args]);
-    if (args[0] === '_side') return { code: 0, stdout: JSON.stringify({ project: 'r', path: '/h/r', branch: 'w', dirty: 0, profile: [], changes: [], context: null }) };
-    if (args[0] === '_todo') return { code: 0, stdout: JSON.stringify(todoReply) };
-    return { code: 1, stdout: '', stderr: '' };
-  },
-  focused: () => focusedT, panes: () => [{ pane: 'p1', branch: 'claude/17-a', title: 'Claude' }],
-  terminals: () => [{ address: 't1', labels: { 'bk.name': 'Chat de #17' } }],
-  theme: () => new Proxy({}, { get: (o, k) => k }), home: () => '/h', shared: () => null,
-  ICONS: '', PROSE: '', al: (c) => c, card, pill: (t, s) => node().child(s),
-};
-const Lado = new Function(...Object.keys(deps), src + '\nreturn Lado;')(...Object.values(deps));
-let pending = [];
-const cx = { spawn(f) { pending.push(f(cx)); }, timer: { every() {} }, notify() {} };
-const settle = async () => { while (pending.length) await pending.shift(); };
-const todoCard = (o) => walk(o).find((x) => x.$id === 'card-TODO');
+const src = fs.readFileSync(`${root}/herdr/mods/hub/todo.js`, 'utf8')
+  .replace(/^import .*;$/gm, '').replace('export default class Todo', 'class Todo');
+const el = () => new Proxy({}, { get: (_, k) => (...a) => { if (k === 'when' && a[0]) a[1](el()); return el(); } });
+class Panel {
+  constructor() { this.query = ''; this.at = 0; this.setup?.(); }
+  close() { calls.push(['close']); }
+}
+let calls = [], focus = null, reply = null;
+const bk = async (args, opts = {}) => { calls.push(['bk', ...args]); return reply; };
+const Todo = new Function('div', 'h_flex', 'focused', 'panes', 'terminals', 'Panel', 'rank', 'bk', 'openUrl', 'pill', src + '\nreturn Todo;')(
+  el, el, () => focus, () => [{ pane: 'p1', branch: 'claude/17-a', title: 'Claude' }],
+  () => [{ address: 't1', labels: { 'bk.name': 'Chat de #17' } }], Panel,
+  (items, q) => items.filter((x) => !q.trim() || x.text.toLowerCase().includes(q.trim().toLowerCase())).map((item) => ({ item, hits: [] })),
+  bk, (u) => calls.push(['open', u]), el);
+const picks = (v) => v.rows().filter((r) => !r.head);
 
-focusedT = { terminal: 't1', pane: 'p1', cwd: '/h/r' };
-todoReply = { issue: 17, repo: 'o/r', title: 'Elegir la carpeta', state: 'open', url: 'https://github.com/o/r/issues/17',
-  items: [{ text: 'Uno `x`', done: true, section: 'Hecho cuando' }, { text: 'Dos', done: false, section: 'Hecho cuando' }], done: 1, total: 2 };
-const v = new Lado(); v.init({}, cx); await settle();
-let o = v.render(cx), c = todoCard(o);
-assert.ok(c, 'hay tarjeta TODO');
-assert.deepEqual(execs.find((e) => e[1] === '_todo'), ['bk', '_todo', '/h/r', 'claude/17-a', 'Chat de #17 Claude', 't1'], 'le pasa a bk _todo la carpeta, la rama, el nombre y la terminal del chat enfocado');
-const tx = text(c);
-for (const s of ['1/2', '#17', 'Elegir la carpeta', 'Uno x', 'Dos']) assert.ok(tx.includes(s), `muestra «${s}»: ${JSON.stringify(tx)}`);
-assert.ok(!tx.includes('Hecho cuando'), 'con una sola sección no repite su título');
-const titles = walk(o).filter((x) => /^card-/.test(x.$id ?? '')).map((x) => x.$id);
-assert.deepEqual(titles, ['card-SESIÓN', 'card-TODO', 'card-GITHUB', 'card-CAMBIOS'], 'TODO va entre SESIÓN y GITHUB');
+focus = { terminal: 't1', pane: 'p1', cwd: '/h/r' };
+reply = { issue: 17, repo: 'o/r', title: 'Elegir la carpeta', state: 'open', url: 'https://github.com/o/r/issues/17',
+  items: [{ text: 'Uno `x`', done: true, section: 'Hecho cuando' }, { text: 'Dos', done: false, section: 'Hecho cuando' }, { text: 'Tres', done: false, section: 'Después' }], done: 1, total: 3 };
+let v = new Todo(); await v.load();
+assert.deepEqual(calls[0], ['bk', '_todo', '/h/r', 'claude/17-a', 'Chat de #17 Claude', 't1'], 'le pasa a bk _todo la carpeta, la rama, el nombre y la terminal del chat enfocado');
+assert.equal(v.subtitle(), '#17 · 1/3 hechas', 'arriba: el issue y cuántas hechas');
+assert.deepEqual(v.rows().map((r) => r.head ?? [r.kind, r.text, r.done]),
+  [['issue', 'Elegir la carpeta', undefined], 'Hecho cuando', ['item', 'Uno x', true], ['item', 'Dos', false], 'Después', ['item', 'Tres', false]],
+  'el issue primero y una fila por casilla, agrupadas por sección');
+v.query = 'tres';
+assert.deepEqual(v.rows().map((r) => r.head ?? r.text), ['Después', 'Tres'], 'buscar filtra las casillas');
+v.query = '';
+assert.deepEqual(v.hints(), [['enter', 'GitHub'], ['escape', 'cerrar']], 'hints: enter GitHub y esc cerrar');
+calls = []; v.enter(picks(v)[2]);
+assert.deepEqual(calls, [['open', 'https://github.com/o/r/issues/17'], ['close']], 'Enter abre el issue y cierra');
+assert.equal(picks(v)[1].h, 34, 'una casilla corta: una fila');
+reply.items = [{ text: 'x'.repeat(200), done: false, section: '' }];
+v = new Todo(); await v.load();
+assert.ok(picks(v)[1].h > 34, 'una casilla larga ocupa una fila más alta');
 
-const n = execs.length; await v.loadTodo(); assert.equal(execs.length, n, 'el mismo chat: no vuelve a pedir antes de TODO_EVERY');
+reply = { issue: null };
+v = new Todo(); await v.load();
+assert.deepEqual([v.rows(), v.empty(), v.subtitle()], [[], 'Este chat no trabaja un issue', ''], 'sin issue: lo dice');
 
-todoReply = { issue: null };
-focusedT = { terminal: 't1', pane: 'p1', cwd: '/h/otra' }; await v.loadTodo();
-assert.ok(text(todoCard(v.render(cx))).includes('Este chat no trabaja un issue'), 'sin issue: lo dice');
+reply = { issue: 18, repo: 'o/r', title: 'Sin pasos', state: 'closed', url: 'https://github.com/o/r/issues/18', items: [], done: 0, total: 0 };
+v = new Todo(); await v.load();
+assert.deepEqual(picks(v).map((r) => [r.kind, r.text]), [['issue', 'Sin pasos'], ['none', 'El issue no tiene casillas (- [ ])']], 'sin casillas: lo dice');
 
-todoReply = { issue: 18, repo: 'o/r', title: 'Sin pasos', state: 'closed', items: [], done: 0, total: 0 };
-focusedT = { terminal: 't1', pane: 'p1', cwd: '/h/r2' }; await v.loadTodo();
-const t18 = text(todoCard(v.render(cx)));
-assert.ok(t18.includes('El issue no tiene casillas (- [ ])') && t18.includes('cerrado'), `sin casillas y cerrado: ${JSON.stringify(t18)}`);
+calls = []; focus = { terminal: null, pane: null, cwd: '/h/r' };
+v = new Todo(); await v.load();
+assert.deepEqual([calls, v.rows(), v.hints()], [[], [], [['escape', 'cerrar']]], 'sin una terminal enfocada: no le pregunta a bk');
+assert.match(v.empty(), /alt\+t/, 'y dice que te pares en un chat');
 
-focusedT = { terminal: null, pane: null, cwd: '/h/r' }; await v.loadTodo();
-assert.ok(!todoCard(v.render(cx)), 'una pestaña que no es terminal: sin tarjeta TODO');
+const views = JSON.parse(fs.readFileSync(`${root}/herdr/mods/hub/views.json`, 'utf8'));
+assert.deepEqual(views.todo.overlay, { kind: 'popup', at: 'top', offset: 64, width: 640, height: 0.7 }, 'views.json: su popup');
+assert.match(fs.readFileSync(`${root}/herdr/mods/hub/main.js`, 'utf8'), /\btodo: Todo\b/, 'main.js la registra');
+assert.equal(JSON.parse(fs.readFileSync(`${root}/herdr/keys.json`, 'utf8')).global['alt-t'], 'mod.open:bk-todo', 'alt+t la abre');
+assert.doesNotMatch(fs.readFileSync(`${root}/herdr/mods/lado/main.js`, 'utf8'), /_todo|TODO/, 'el panel derecho ya no tiene la tarjeta');
 JS
 
 echo "1..$N"
