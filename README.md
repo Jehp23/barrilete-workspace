@@ -369,9 +369,11 @@ son) en los PRs abiertos antes y después de `accepted`, y, si tiene `check`, cu
 `check_run` de `.barrilete/learning/events.jsonl` (sin eventos: "sin datos"). Al final dice qué parte de los hallazgos
 cae en `other` y qué etiquetas usan las reviews que no están en `classes.yml`. Escribe `agents/efecto.md`; las que dan
 *no baja* son para pasar a check, reescribir o retirar (decide la persona). Tests: `tests/test_effect.sh`.
-`bk bitacora` (alt+k «Bitácora de agentes», `lib/bitacora.py`) arma la sección *Bitácora de agentes* del HTML de estado
-(`~/Downloads/barrilete-estado-2026-11-15.backup.html`; `BK_BITACORA_HTML` lo cambia) con las retros de la rama `agents/retros`
-del kit y los títulos de `gh pr list`: una tarjeta por PR con cada agente que lo tocó. Reemplaza la sección y abre el HTML.
+`bk bitacora [repo...]` (alt+k «Bitácora de agentes», `lib/bitacora.py`) corre en cada repo de `~/.config/bk/retros.json`
+(o en los que le pasás) el `scripts/agents/bitacora.py` de su kit (barrilete-kit#339): una página por repo en
+`.barrilete/bitacora.html`, con una tarjeta por PR y cada agente que lo tocó, en el diseño de barrilete o el del proyecto
+(`.barrilete/bitacora.css`). Imprime `ok: <página>` por cada una y las abre. Un repo con un kit anterior a la bitácora
+se dice en una línea y se sigue; sin ninguna página, termina con 1. Tests: `tests/test_bitacora.sh`.
 
 ## Dotfiles
 - `dotfiles/tmux.conf` → `~/.config/tmux/tmux.conf`
