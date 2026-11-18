@@ -1,28 +1,26 @@
-// El lado derecho de bk en Herdr: lo que mostraba el riel de tmux (lib/rail.py), en tres tarjetas de marco
-// redondeado con el título sobre la línea, como las de la TUI de bk. Arriba, dos pestañas: Estado (las tarjetas) y
-// TODO (los pasos del issue del chat, de `bk _todo`). La pestaña elegida es shared "bk.lado.tab": la cambia el clic
-// o alt+t (mods/bk, comando todo).
+// El lado derecho de bk en Herdr: lo que mostraba el riel de tmux (lib/rail.py), en tarjetas de marco
+// redondeado con el título sobre la línea, como las de la TUI de bk. Arriba, tres pestañas: Estado (las tarjetas),
+// TODO (los pasos del issue del chat, de `bk _todo`) y Cambios (lo sin commitear; el clic abre el diff en un pane).
+// La pestaña elegida es shared "bk.lado.tab": la cambia el clic, alt+t o alt+g (mods/bk, comandos todo y cambios).
 //   SESIÓN   proyecto, rama, cuenta, contexto de la sesión de Claude, uso de hoy y perfil de roles
 //   GITHUB   el repo y sus PRs abiertos, cada uno con su estado en color
-//   CAMBIOS  lo que quedó sin commitear en el proyecto y en sus worktrees, con +/−
 // Los datos salen de `bk _side <carpeta>` (lib/herdr_side.py) para la carpeta de la terminal que mirás, cada
 // 4 s (el uso, cada minuto); los PRs, de `gh pr list`, una vez por minuto y por carpeta. Solo lee, y solo se
 // redibuja cuando algo cambió.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, focused, panes, terminals, theme, home, shared, setShared } from "herdr";
+import { exec, focused, panes, run, terminals, theme, home, shared, setShared } from "herdr";
 import { ICONS, PROSE, al, card, pill } from "./kit.js";
 const ICONS_LADO = "mods/bk-lado/";   // los iconos propios del panel (cuenta.svg), al lado de su main.js
 
 const EVERY = 4000;        // git es barato: el panel sigue lo que pasa
 const TODO_EVERY = 20000; // bk _todo guarda lo de GitHub dos minutos: esto vuelve a leer su caché
-const TAB = "bk.lado.tab";  // "estado" | "todo"
+const TAB = "bk.lado.tab";  // "estado" | "todo" | "cambios"
 const SLOW = 60000;        // el uso lee los transcripts y gh sale a la red: una vez por minuto
 // El largo de la barra de contexto: 1,25 veces el umbral (bk context; 200k por defecto), así el rojo cae al 80%.
 // El ámbar sale en 3/4 del umbral (lib/usage.py). Sin umbral en el dato (un bk viejo), 400k como antes.
 const ctxFull = (c) => (c.limit || 400000) * 1.25;
-const MAX_FILES = 14;      // archivos a la vista por worktree; el resto se cuenta
 const SHORT = { implementer: "impl", "implementer-light": "light", reviewer: "review", planner: "plan", orchestrator: "orq" };
 const BAD = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"];
 const bin = () => shared("bk.bin") || "bk";
@@ -119,7 +117,7 @@ export default class Lado extends View {
     return JSON.stringify([had?.repo, had?.prs, had?.error]) !== JSON.stringify([next.repo, next.prs, next.error]);
   }
 
-  tab() { return shared(TAB) === "todo" ? "todo" : "estado"; }
+  tab() { const v = shared(TAB); return v === "todo" || v === "cambios" ? v : "estado"; }
 
   // Lo que se le pasa a bk _todo: carpeta, rama, el nombre del chat (bk.name, bk.autotitle y el título del pane) y
   // su terminal. El issue sale de ahí como en ÉPICAS. null sin una terminal enfocada.
@@ -162,7 +160,8 @@ export default class Lado extends View {
     };
     return h_flex().flex_none().gap(4).p(2).rounded(8).border_1().border_color(t.input)
       .child(one("estado", "Estado"))
-      .child(one("todo", "TODO", td?.issue && td.total ? `${td.done}/${td.total}` : ""));
+      .child(one("todo", "TODO", td?.issue && td.total ? `${td.done}/${td.total}` : ""))
+      .child(one("cambios", "Cambios", this.data ? String(this.data.changes.reduce((s, c) => s + c.files.length + c.more, 0) || "") : ""));
   }
 
   // TODO: el issue del chat y sus pasos por sección, a todo lo ancho y sin cortar el texto. Solo lee: tildar es
@@ -295,27 +294,39 @@ export default class Lado extends View {
     return card(t, "GITHUB", n ? `${n} PR${n > 1 ? "s" : ""} abierto${n > 1 ? "s" : ""}` : g.prs ? "al día" : "", rows);
   }
 
+  // La pestaña Cambios: lo sin commitear del proyecto y de sus worktrees, todos los archivos que trae bk _side.
+  // El clic en uno abre su diff en un pane al lado del chat (bk-changes con props { diff }).
   cambios(t, d) {
-    const n = d.changes.reduce((s, c) => s + c.files.length + c.more, 0);
-    const rows = [];
-    for (const c of d.changes) {
-      rows.push(h_flex().gap(6).items_center().pt(rows.length ? 4 : 0)
-        .child(div().flex_none().max_w(150).truncate().font_medium().text_color(t.foreground).child(c.name))
+    const say = (s, color = t.dim) => [div().px(4).py(6).text_color(color).child(s)];
+    if (!d) return say("Leyendo…");
+    const out = [];
+    for (const c of d.changes ?? []) {
+      out.push(h_flex().gap(6).items_center().px(4).pt(out.length ? 8 : 0)
+        .child(div().flex_none().max_w(170).truncate().font_medium().text_color(t.foreground).child(c.name))
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(c.branch && c.branch !== c.name ? c.branch : ""))
         .child(div().flex_none().text_size(11).text_color(t.dim).child(String(c.files.length + c.more))));
-      for (const f of c.files.slice(0, MAX_FILES)) {
+      c.files.forEach((f, n) => {
         const color = f.code.includes("U") || f.code === "AA" || f.code === "DD" || f.code === "D" ? t.ansi1 : f.code === "A" ? t.done : t.blocked;
-        rows.push(h_flex().gap(7).items_center().text_size(11.5).h(17)
+        out.push(h_flex().id(`cambio-${c.name}-${n}`).gap(7).items_center().text_size(11.5).h(22).px(4).rounded(5).cursor_pointer()
+          .hover((x) => x.bg(t.hover)).tooltip(`${f.path} · ver el diff`)
+          .on_click(() => this.openDiff(c, f))
           .child(div().w(9).flex_none().font_medium().text_color(color).child(f.code.slice(0, 1)))
           .child(div().flex_1().min_w(0).text_ellipsis_start().text_color(t.muted).child(f.path))
           .child(div().flex_none().min_w(30).text_right().text_color(t.done).child(f.add && f.add !== "0" ? `+${f.add}` : ""))
           .child(div().flex_none().min_w(30).text_right().text_color(t.ansi1).child(f.del && f.del !== "0" ? `−${f.del}` : "")));
-      }
-      const rest = c.more + Math.max(0, c.files.length - MAX_FILES);
-      if (rest) rows.push(div().text_size(11).text_color(t.dim).child(`… y ${rest} más`));
+      });
+      if (c.more) out.push(div().px(4).text_size(11).text_color(t.dim).child(`… y ${c.more} más`));
     }
-    if (!rows.length) rows.push(h_flex().gap(6).items_center().text_color(t.dim).child(svg(ICONS + "check.svg").size(12).flex_none().text_color(t.done)).child("Todo guardado en Git"));
-    return card(t, "CAMBIOS", n ? `${n} archivo${n > 1 ? "s" : ""}` : "", rows);
+    if (!out.length) out.push(h_flex().px(4).gap(6).items_center().text_color(t.dim).child(svg(ICONS + "check.svg").size(12).flex_none().text_color(t.done)).child("Todo guardado en Git"));
+    return out;
+  }
+
+  // El diff de un archivo en un pane a la derecha del que está en foco (sin pane en foco: en una pestaña)
+  openDiff(c, f) {
+    const props = { diff: { root: c.path, path: f.path, code: f.code, add: Number(f.add) || 0, del: Number(f.del) || 0 } };
+    const pane = focused()?.pane;
+    if (pane) run("pane.split", { direction: "right", pane, mod: "bk-changes", props });
+    else run("tab.new", { name: f.path.split("/").pop(), mod: "bk-changes", props });
   }
 
   render(cx) {
@@ -329,12 +340,14 @@ export default class Lado extends View {
         .child(this.tabs(t, tab))
         .child(v_flex().id("lado-todo").flex_1().min_h(0).gap(6).overflow_y_scrollbar().children(this.pasos(t)));
     }
+    if (tab === "cambios") return v_flex().id("lado").size_full().min_h(0).pb(8).gap(10).text_size(12)
+      .child(this.tabs(t, tab))
+      .child(v_flex().id("lado-cambios").flex_1().min_h(0).gap(1).overflow_y_scrollbar().children(this.cambios(t, this.data)));
     const d = this.data;
     const cards = [this.tabs(t, tab)];
     if (this.error) cards.push(card(t, "BK", "", [div().text_color(t.blocked).child(`No pude leer el estado: ${this.error}`)], { color: al(t.blocked, "66") }));
     if (d) cards.push(this.sesion(t, d));
     if (d?.project) cards.push(this.github(t));
-    if (d) cards.push(this.cambios(t, d));
     if (!d && !this.error) cards.push(card(t, "SESIÓN", "", [div().text_color(t.dim).child("Leyendo…")]));
     return v_flex().id("lado").size_full().min_h(0).pb(8).gap(8).text_size(12).overflow_y_scrollbar().children(cards);
   }

@@ -2,6 +2,8 @@
 // ↑/↓ eligen el archivo; ctrl+j / ctrl+k (o shift+↓ / shift+↑) mueven el diff, la rueda también; Enter abre el archivo
 // en un pane visor al lado de la terminal en foco. Un clic elige la fila; otro clic sobre la elegida la abre.
 // Los datos: bk _hub changes y bk _hub diff.
+// Con props { diff: { root, path, code, add, del } } es el pane del diff de un archivo (lo abre la pestaña Cambios del
+// panel derecho, mods/lado): el mismo dibujo del diff, con la rueda para moverlo.
 // El visor es este mismo mod puesto como pane: pane.split { mod: "bk-changes", props: { file } }. Muestra el archivo
 // con el editor de solo lectura de Herdr, como el visor del mod files.
 
@@ -89,6 +91,13 @@ export default class Changes extends Panel {
   init(p, cx) {
     this.file = p?.file ?? props()?.file ?? null;   // con un archivo en las props, esta copia es el visor
     if (this.file) return this.readFile(cx);
+    const d = p?.diff ?? props()?.diff ?? null;      // con un diff, el pane del diff de ese archivo
+    if (d) {
+      this.pane = { key: "diff", root: { path: d.root }, f: { path: d.path, code: d.code ?? "M", add: d.add ?? 0, del: d.del ?? 0 } };
+      this.cache = new Map(); this.shown = "diff";
+      this.dY = 0; this.dX = 0; this.dH = 520; this.dW = 700;
+      return this.readDiff(cx);
+    }
     super.init(p, cx);
   }
 
@@ -309,10 +318,33 @@ export default class Changes extends Panel {
         : div().px(14).py(12).text_size(13).text_color(t.dim).child(this.note ?? "Leyendo…"));
   }
 
-  render() { return this.file ? this.viewer(theme()) : super.render(); }
+  // ---------- el pane del diff: esta copia con props { diff } ----------
+
+  readDiff(cx) {
+    const row = this.pane;
+    cx.spawn(async (cx) => {
+      let d;
+      try { d = prep(await bk(["_hub", "diff", row.root.path, row.f.path], { json: true, timeout: 15000 })); }
+      catch (e) { d = { error: String(e?.message ?? e) }; }
+      this.cache.set("diff", d);
+      cx.notify();
+    });
+  }
+
+  diffPane(t) {
+    return v_flex().id("bk-diff").size_full().min_h(0).bg(t.background).text_size(12.5)
+      .child(v_flex().flex_1().min_h(0).child(this.side(t, this.pane)))
+      .child(h_flex().flex_none().h(26).px(14).gap(12).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
+        .child(div().flex_1().child("la rueda mueve el diff"))
+        .child(div().id("diff-reload").px(8).h(20).flex().items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => { this.cache.delete("diff"); this.dY = 0; this.dX = 0; this.readDiff(cx); cx.notify(); }).child("recargar")));
+  }
+
+  render() { return this.file ? this.viewer(theme()) : this.pane ? this.diffPane(theme()) : super.render(); }
 
   // Herdr llama a close() cuando la copia se va: el visor suelta su editor; el panel cierra su overlay
   close() {
+    if (this.pane) return;   // el pane del diff no tiene overlay que cerrar
     if (!this.file) return super.close();
     this.code?.release();
     this.code = null;

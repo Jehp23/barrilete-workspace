@@ -53,6 +53,7 @@ export default class Bk extends View {
     if (c === "last") return this.last(f);
     if (c === "epica") return this.epica(f);
     if (c === "todo") return this.todo();
+    if (c === "cambios") return this.tab("cambios");
     const g = /^go([1-9])$/.exec(c);
     if (g) return this.go(g[1]);
     const m = /^agent([1-9])$/.exec(c);
@@ -62,8 +63,11 @@ export default class Bk extends View {
 
   // alt+t: el panel derecho en la pestaña TODO (los pasos del issue del chat, mods/lado). Si ya estaba en TODO,
   // vuelve a Estado. Siempre lo muestra: oculto (alt+.), la tecla no haría nada a la vista.
-  todo() {
-    setShared("bk.lado.tab", shared("bk.lado.tab") === "todo" ? "estado" : "todo");
+  todo() { this.tab("todo"); }
+
+  // alt+g: lo mismo con la pestaña Cambios (lo sin commitear; el clic en un archivo abre su diff en un pane)
+  tab(name) {
+    setShared("bk.lado.tab", shared("bk.lado.tab") === name ? "estado" : name);
     run("layout.show", { id: "lado" });
   }
 

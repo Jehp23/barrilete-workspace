@@ -72,16 +72,16 @@ const walk = (n, out = []) => { if (n && n.$kids) { out.push(n); for (const k of
 const text = (n) => walk(n).flatMap((x) => x.$kids).filter((k) => typeof k === 'string');
 const byId = (o, id) => walk(o).find((x) => x.$id === id);
 const card = (t, title, right, body) => node().id(`card-${title}`).child(title).child(right).children(body);
-let execs = [], todoReply = null, focusedT = null, store = {}, runs = [];
+let execs = [], todoReply = null, focusedT = null, store = {}, runs = [], sideChanges = [];
 const deps = {
   View: class {}, div: node, svg: node, h_flex: node, v_flex: node,
   exec: async (cmd, args) => {
     execs.push([cmd, ...args]);
-    if (args[0] === '_side') return { code: 0, stdout: JSON.stringify({ project: 'r', path: '/h/r', branch: 'w', dirty: 0, profile: [], changes: [], context: null }) };
+    if (args[0] === '_side') return { code: 0, stdout: JSON.stringify({ project: 'r', path: '/h/r', branch: 'w', dirty: 0, profile: [], changes: sideChanges, context: null }) };
     if (args[0] === '_todo') return { code: 0, stdout: JSON.stringify(todoReply) };
     return { code: 1, stdout: '', stderr: '' };
   },
-  focused: () => focusedT, panes: () => [{ pane: 'p1', branch: 'claude/17-a', title: 'Claude' }],
+  run: (...a) => runs.push(a), focused: () => focusedT, panes: () => [{ pane: 'p1', branch: 'claude/17-a', title: 'Claude' }],
   terminals: () => [{ address: 't1', labels: { 'bk.name': 'Chat de #17' } }],
   theme: () => new Proxy({}, { get: (o, k) => k }), home: () => '/h',
   shared: (k) => store[k] ?? null, setShared: (k, v) => { store[k] = v; },
@@ -99,7 +99,8 @@ todoReply = { issue: 17, repo: 'o/r', title: 'Elegir la carpeta', state: 'open',
 const v = new Lado(); v.init({}, cx); await settle();
 let o = v.render(cx); await settle();
 assert.ok(byId(o, 'tab-estado') && byId(o, 'tab-todo'), 'arriba, las pestañas Estado y TODO');
-assert.deepEqual(walk(o).filter((x) => /^card-/.test(x.$id ?? '')).map((x) => x.$id), ['card-SESIÓN', 'card-GITHUB', 'card-CAMBIOS'], 'en Estado, las tres tarjetas de siempre');
+assert.deepEqual(walk(o).filter((x) => /^card-/.test(x.$id ?? '')).map((x) => x.$id), ['card-SESIÓN', 'card-GITHUB'], 'en Estado, sesión y GitHub (los cambios tienen su pestaña)');
+assert.ok(byId(o, 'tab-cambios'), 'arriba, también la pestaña Cambios');
 assert.equal(todoCalls().length, 0, 'en Estado no le pregunta a bk _todo');
 
 byId(o, 'tab-todo').$click();
@@ -134,6 +135,22 @@ byId(v.render(cx), 'tab-estado').$click();
 assert.equal(store['bk.lado.tab'], 'estado', 'el clic en Estado vuelve');
 assert.ok(walk(v.render(cx)).some((x) => x.$id === 'card-SESIÓN'), 'y vuelven las tarjetas');
 
+// La pestaña Cambios: todos los archivos (no solo 14) y el clic abre el diff en un pane al lado del enfocado
+sideChanges = [{ name: 'r', branch: 'main', path: '/h/r', more: 2, files: Array.from({ length: 20 }, (_, i) => ({ code: i ? 'M' : 'D', path: `f${i}.js`, add: String(i), del: '0' })) },
+  { name: '7', branch: 'w7', path: '/h/r-wt/7', more: 0, files: [{ code: 'A', path: 'nuevo.py', add: '5', del: '0' }] }];
+v.busy = false; v.data = null; await v.load(); store['bk.lado.tab'] = 'cambios';
+o = v.render(cx);
+assert.ok(!byId(o, 'card-SESIÓN') && byId(o, 'lado-cambios'), 'en Cambios, la lista en lugar de las tarjetas');
+assert.equal(walk(o).filter((x) => /^cambio-/.test(x.$id ?? '')).length, 21, 'todos los archivos de cada worktree');
+assert.ok(text(o).includes('… y 2 más') && text(byId(o, 'tab-cambios')).includes('23'), 'los que bk _side no mandó se cuentan, y la pestaña dice el total');
+const keepF = focusedT; focusedT = null; runs = []; byId(o, 'cambio-7-0').$click();
+assert.deepEqual(runs.map((r) => [r[0], r[1].name, r[1].mod]), [['tab.new', 'nuevo.py', 'bk-changes']], 'sin pane en foco: el diff en una pestaña');
+focusedT = { terminal: 't1', pane: 'p1', cwd: '/h/r' }; runs = []; byId(o, 'cambio-7-0').$click();
+assert.deepEqual(runs, [['pane.split', { direction: 'right', pane: 'p1', mod: 'bk-changes', props: { diff: { root: '/h/r-wt/7', path: 'nuevo.py', code: 'A', add: 5, del: 0 } } }]], 'el clic en un archivo: su diff en un pane a la derecha');
+sideChanges = []; await v.load(); o = v.render(cx);
+assert.ok(text(o).includes('Todo guardado en Git'), 'sin cambios: todo guardado');
+focusedT = keepF; store['bk.lado.tab'] = 'estado';
+
 // alt+t (mods/bk, comando todo): el panel a la vista y en TODO; otra vez, en Estado
 const Bk = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals', 'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile',
   strip('herdr/mods/bk/main.js', 'Bk') + '\nreturn Bk;')(class {}, node, null, null, (...a) => runs.push(a), () => ({}), null, null, () => null, () => [], () => [], () => [], () => '/h',
@@ -145,6 +162,14 @@ runs = []; await bk.handle('todo');
 assert.deepEqual([store['bk.lado.tab'], runs], ['estado', [['layout.show', { id: 'lado' }]]], 'alt+t otra vez: vuelve a Estado');
 
 assert.equal(JSON.parse(fs.readFileSync(`${root}/herdr/keys.json`, 'utf8')).global['alt-t'], 'mod.open:bk-todo', 'alt+t abre bk-todo');
+store = {}; runs = []; await bk.handle('cambios');
+assert.deepEqual([store['bk.lado.tab'], runs], ['cambios', [['layout.show', { id: 'lado' }]]], 'alt+g: muestra el panel derecho en Cambios');
+store['bk.lado.tab'] = 'todo'; runs = []; await bk.handle('cambios');
+assert.equal(store['bk.lado.tab'], 'cambios', 'alt+g desde TODO: va a Cambios');
+await bk.handle('cambios');
+assert.equal(store['bk.lado.tab'], 'estado', 'alt+g otra vez: vuelve a Estado');
+assert.equal(JSON.parse(fs.readFileSync(`${root}/herdr/keys.json`, 'utf8')).global['alt-g'], 'mod.open:bk-cambios', 'alt+g abre bk-cambios');
+assert.ok(!JSON.parse(fs.readFileSync(`${root}/herdr/mods/hub/views.json`, 'utf8')).changes.overlay, 'la ventana grande de Cambios se va: bk-changes queda solo para los panes');
 assert.ok(!('todo' in JSON.parse(fs.readFileSync(`${root}/herdr/mods/hub/views.json`, 'utf8'))), 'bk-todo no es una ventana del hub: es un comando de mods/bk');
 JS
 

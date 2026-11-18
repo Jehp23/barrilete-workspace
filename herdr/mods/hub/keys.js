@@ -33,7 +33,7 @@ const NAMES = {
   "space.prev": [IR, "Espacio anterior"],
   "agent.next": [IR, "Agente siguiente de la lista"],
   "agent.prev": [IR, "Agente anterior de la lista"],
-  "mod.open:bk-changes": [VER, "Cambios sin commitear"],
+  "mod.open:bk-cambios": [VER, "Cambios del panel derecho: lo sin commitear y su diff"],
   "mod.open:bk-branches": [VER, "Ramas de todos los proyectos"],
   "mod.open:bk-stats": [VER, "Uso y costo"],
   "mod.open:bk-term": [VER, "Terminal rápida"],

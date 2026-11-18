@@ -32,7 +32,7 @@ const NATIVE = [
     (p) => goto("bk-handoff", { props: { section: "limit" }, overlay: { kind: "popup", at: "top", offset: 64, width: 640, height: 0.7 } })],
   ["back", "Chats", "Volver al chat de este espacio", "", "mod.open:bk-back", "orquestador", view("back")],
   ["last", "Chats", "Volver a donde estabas", "", "mod.open:bk-last", "anterior atrás", view("last")],
-  ["changes", "Ver", "Cambios sin commitear", "bk changes", "mod.open:bk-changes", "diff git", view("changes")],
+  ["changes", "Ver", "Cambios del panel derecho: lo sin commitear y su diff", "bk changes", "mod.open:bk-cambios", "diff git", herdr("mod.open", { name: "bk-cambios" })],
   ["branches", "Ver", "Ramas de todos los proyectos", "", "mod.open:bk-branches", "ramas branch worktree limpiar borrar", view("branches")],
   ["stats", "Ver", "Uso y costo", "bk stats · tokens", "mod.open:bk-stats", "estadísticas tokens modelos", view("stats")],
   ["term", "Ver", "Terminal rápida", "bk term", "mod.open:bk-term", "shell", view("term")],

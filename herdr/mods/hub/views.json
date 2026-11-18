@@ -76,12 +76,7 @@
     }
   },
   "changes": {
-    "title": "Cambios",
-    "overlay": {
-      "kind": "dialog",
-      "width": 0.92,
-      "height": 0.88
-    }
+    "title": "Cambios"
   },
   "stats": {
     "title": "Uso",

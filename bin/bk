@@ -79,7 +79,7 @@ uso: bk [comando] [--dry-run]
   go <agente>       saltar a un agente. <agente>: la ventana (i42, pr57), un número (#240) o una palabra del título
                     Con Herdr, un número de una o dos cifras es primero el número fijo de la ventana de un chat
                     o un agente (bk go 3, lo mismo que alt+3); si nadie lo tiene, vale como antes
-  changes           lo que los agentes dejaron sin commitear, con diff (alt+g; con Herdr, alt+g abre su panel)
+  changes           lo que los agentes dejaron sin commitear, con diff (alt+g; con Herdr, alt+g muestra la pestaña Cambios del panel derecho)
   palette | k       todos los comandos con búsqueda (alt+k; con Herdr, alt+k abre el panel Comandos)
   monitor           pantalla para el otro monitor: qué te espera, agentes, tareas, costo y desvíos en vivo (los graves suenan)
                     (c o bk monitor --clear limpian los desvíos: lo anterior no vuelve aunque relea los transcripts)

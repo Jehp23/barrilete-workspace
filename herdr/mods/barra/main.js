@@ -125,7 +125,7 @@ export default class Barra extends View {
       .child(seg("b-project", "bk-new", "Proyecto de la terminal que mirás · abrir otro")
         .child(id ? keycap(t, id, true) : div().size(7).rounded_full().bg(t.accent))
         .child(div().font_medium().text_color(t.foreground).child(project)))
-      .when(Boolean(branch), (el) => el.child(seg("b-branch", "bk-changes", "Rama y cambios sin commitear").child(icon("git-branch")).child(div().max_w(260).truncate().child(branch ?? ""))
+      .when(Boolean(branch), (el) => el.child(seg("b-branch", "bk-cambios", "Rama y cambios sin commitear: la pestaña Cambios").child(icon("git-branch")).child(div().max_w(260).truncate().child(branch ?? ""))
         .when(Boolean(d?.dirty), (x) => x.child(div().text_color(t.blocked).child("±" + d.dirty)))))
       .when(Boolean(d?.account || d?.email), (el) => el.child(seg("b-account", null, `Cuenta de Claude de esta terminal${d?.account ? ` (bk account ${d.account})` : ""}`)
         .child(svg("mods/bk-barra/cuenta.svg").size(12).flex_none().text_color(d?.account ? t.working : t.dim))

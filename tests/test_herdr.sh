@@ -262,7 +262,7 @@ faltan=$(jq -r '.global[] | select(type == "string" and startswith("mod.open:bk-
 check_eq "$faltan$(ls "$APP/mods" | grep -c '^bk$') $(ls "$APP/mods" | grep -cE '^bk-(aviso|seguir)$')" "0 2" "atajos: una carpeta con main.js y mod.json por cada tecla que abre un mod, más los dos sin tecla (bk-aviso, bk-seguir), y se va la versión anterior (mods/bk)"
 check_eq "$(jq -r '.global["alt-s"] + " " + .global["alt-shift-3"] + " " + .global["alt-9"]' "$APP/keys.json")" "mod.open:bk-sessions mod.open:bk-agent3 mod.open:bk-go9" "atajos: suma las teclas alt+…; alt+N va a la ventana con ese número"
 check_eq "$(jq -r '.global["alt-k"] + " " + .global["cmd-t"] + " " + .terminal["cmd-c"]' "$APP/keys.json")" "tab.close tab.new terminal.copy" "atajos: no pisa una tecla que ya hace otra cosa ni las demás"
-check_eq "$(jq -r '.global["alt-g"] + " " + .global["alt-0"] + " " + (.global["alt-f9"] // "sin")' "$APP/keys.json")" "mod.open:bk-changes mod.open:bk-last sin" "atajos: actualiza las teclas de la versión anterior de bk y saca la que ya no existe"
+check_eq "$(jq -r '.global["alt-g"] + " " + .global["alt-0"] + " " + (.global["alt-f9"] // "sin")' "$APP/keys.json")" "mod.open:bk-cambios mod.open:bk-last sin" "atajos: actualiza las teclas de la versión anterior de bk y saca la que ya no existe"
 check_eq "$(jq -r '.global["alt-2"] + " " + .global["alt-3"] + " " + .global["alt-,"]' "$APP/keys.json")" "mod.open:bk-go2 space.select:5 mod.open:bk-look" "atajos: una tecla que sigue como la dejó una versión anterior de bk se actualiza; una que cambiaste vos, no"
 # El mod de las acciones se abre y se cierra solo: su popup mide en px. Hasta 1 es una fracción de la ventana
 # (1×1 era un popup invisible a pantalla completa que se comía los clics mientras la acción corría)
@@ -279,7 +279,7 @@ cp "$APP/keys.json" "$TMP/keys.despues"; echo otra >"$APP/keys.json.antes-de-bk"
 bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$TMP/keys.despues" "$APP/keys.json" && echo igual)" "igual" "atajos: instalar de nuevo no cambia las teclas"
 jq 'del(.global["alt-g"])' "$TMP/keys.despues" >"$APP/keys.json"; bk backend herdr >/dev/null 2>&1
-check_eq "$(jq -r '.global["alt-g"]' "$APP/keys.json") $(cat "$APP/keys.json.antes-de-bk")" "mod.open:bk-changes otra" "atajos: repone una tecla que falta y no pisa el primer respaldo"
+check_eq "$(jq -r '.global["alt-g"]' "$APP/keys.json") $(cat "$APP/keys.json.antes-de-bk")" "mod.open:bk-cambios otra" "atajos: repone una tecla que falta y no pisa el primer respaldo"
 echo '{roto' >"$APP/keys.json"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cat "$APP/keys.json")" "{roto" "atajos: un keys.json inválido no se toca"
 
@@ -301,7 +301,7 @@ check_eq "$(cmp -s "$PVS" "$PVD" && echo igual) $(has "$out" "layout bk-lavanda:
 # no se puede copiar (hay una carpeta con su nombre): avisa y lo que viene después, las teclas, se instala igual
 rm -f "$PVD"; mkdir "$PVD"; jq 'del(.global["alt-g"])' "$APP/keys.json" >"$TMP/k" && mv "$TMP/k" "$APP/keys.json"
 out=$(bk backend herdr 2>&1)
-check_eq "$(has "$out" "no pude copiar la vista previa") $(jq -r '.global["alt-g"]' "$APP/keys.json") $(ls "$APP/layouts" | grep -c 'tmp$')" "si mod.open:bk-changes 0" "layout: si la vista previa no se puede copiar, avisa, no deja restos y el resto se instala igual"
+check_eq "$(has "$out" "no pude copiar la vista previa") $(jq -r '.global["alt-g"]' "$APP/keys.json") $(ls "$APP/layouts" | grep -c 'tmp$')" "si mod.open:bk-cambios 0" "layout: si la vista previa no se puede copiar, avisa, no deja restos y el resto se instala igual"
 rmdir "$PVD"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$PVS" "$PVD" && echo igual)" "igual" "layout: cuando se puede de nuevo, la vista previa vuelve"
 check_eq "$(log | grep -c 'layout.switch')" "0" "layout: instalar no cambia el layout que se muestra"
