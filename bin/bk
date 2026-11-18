@@ -128,9 +128,11 @@ uso: bk [comando] [--dry-run]
                     new <claude|codex> <nombre> · use <nombre> [--relaunch] · --account <nombre> en
                     cualquier lanzamiento
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
-  learn             registra desvíos de los agentes en Obsidian y propone lecciones
+  learn             registra desvíos de los agentes en Obsidian y propone lecciones; los de proyectos con el kit
+                    (y los hallazgos de review) van también a su store (.barrilete/learning, ADR-007)
   lessons           lecciones por revisar (status: proposed) en el vault
-  bitacora [repo] [html]  regenera la «Bitácora de agentes» del HTML de estado (retros del kit) y lo abre
+  bitacora [repo...]  regenera la «Bitácora de agentes» de cada repo (los de ~/.config/bk/retros.json) con el
+                    scripts/agents/bitacora.py de su kit y la abre (.barrilete/bitacora.html)
   learn effect      ¿las reglas que aplica cada proyecto (rules.lock + .barrilete/rules/) bajan los hallazgos que
                     dicen evitar? antes/después por ronda de review y fallos de su check (agents/efecto.md)
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
@@ -1852,7 +1854,8 @@ case "${1:-}" in
                exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
   bitacora)    shift; out=$(python3 -I "$WS/lib/bitacora.py" "$@") || exit 1
-               echo "$out"; [ -n "${BK_NO_OPEN:-}" ] || open "${out#ok: }" ;;
+               echo "$out"
+               [ -n "${BK_NO_OPEN:-}" ] || while IFS= read -r l; do open "${l#ok: }"; done <<<"$out" ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
   font)        shift; font "${1:-status}" ;;

@@ -363,6 +363,16 @@ e interrupciones (para leer en el resumen del día). Un patrón repetido ≥3 ve
 las que marcás `accepted` con su regla pasan a `agents/INDEX.md`, que Claude Code importa desde `~/.claude/CLAUDE.md`.
 `bk lessons` lista las que esperan revisión; también salen en `bk checkpoints` y en *Te esperan* de `bk monitor`.
 `bk learn` se corre a mano: lo corría cada ~2 minutos la barra de Sketchybar, que ya no está.
+Además, cada desvío de una sesión de un proyecto con el kit, y cada hallazgo de las reviews de los repos de
+`~/.config/bk/retros.json`, va al store de ese proyecto como evento v1 (ADR-007 del kit, `lib/learn_store.py`). Lo
+escribe el `scripts/agents/learning.py` del proyecto, así que el store (`local` o `branch`), el nombre y el validador
+son los del kit; un proyecto sin ese script no recibe nada. Solo metadatos: el tipo del desvío en `class`
+(`guardrail-block`, `user-correction`…), el modelo de la sesión (en un hallazgo, el de la sesión que abrió el PR; si no
+se sabe, `unknown`), `harness: claude-code`, el rol, el `area:` del issue de la rama y `evidence_ref` (la ruta del
+transcript, solo su nombre con store `branch` porque la ruta lleva tu usuario, o la URL del PR); nunca texto del transcript, tuyo o de la review. El vault queda como vista personal y sus
+eventos viejos no se migran. No manda lo de antes de su primera corrida ni repite eventos, tampoco con `--rebuild`
+(estado en `~/.cache/barrilete/learn-store.json`). Con store `branch`, subirlo es `learning.py push` del proyecto.
+Tests: `tests/test_learn_store.sh` (usa el `learning.py` del main de `~/barrilete-kit`, o `BK_KIT_REPO`).
 `bk learn effect` mide si cada regla que aplica un proyecto baja los hallazgos de review que dice evitar (ADR-006 D10
 del kit). Las reglas son las `accepted` de barrilete-rules en el SHA del `.barrilete/rules.lock` de cada repo de
 `~/.config/bk/retros.json` (se clona una vez por SHA en `~/.cache/bk/rules/`) más las de `.barrilete/rules/`, según su
@@ -371,9 +381,11 @@ son) en los PRs abiertos antes y después de `accepted`, y, si tiene `check`, cu
 `check_run` de `.barrilete/learning/events.jsonl` (sin eventos: "sin datos"). Al final dice qué parte de los hallazgos
 cae en `other` y qué etiquetas usan las reviews que no están en `classes.yml`. Escribe `agents/efecto.md`; las que dan
 *no baja* son para pasar a check, reescribir o retirar (decide la persona). Tests: `tests/test_effect.sh`.
-`bk bitacora` (alt+k «Bitácora de agentes», `lib/bitacora.py`) arma la sección *Bitácora de agentes* del HTML de estado
-(`~/Downloads/barrilete-estado-2026-11-15.backup.html`; `BK_BITACORA_HTML` lo cambia) con las retros de la rama `agents/retros`
-del kit y los títulos de `gh pr list`: una tarjeta por PR con cada agente que lo tocó. Reemplaza la sección y abre el HTML.
+`bk bitacora [repo...]` (alt+k «Bitácora de agentes», `lib/bitacora.py`) corre en cada repo de `~/.config/bk/retros.json`
+(o en los que le pasás) el `scripts/agents/bitacora.py` de su kit (barrilete-kit#339): una página por repo en
+`.barrilete/bitacora.html`, con una tarjeta por PR y cada agente que lo tocó, en el diseño de barrilete o el del proyecto
+(`.barrilete/bitacora.css`). Imprime `ok: <página>` por cada una y las abre. Un repo con un kit anterior a la bitácora
+se dice en una línea y se sigue; sin ninguna página, termina con 1. Tests: `tests/test_bitacora.sh`.
 
 ## Dotfiles
 - `dotfiles/tmux.conf` → `~/.config/tmux/tmux.conf`
