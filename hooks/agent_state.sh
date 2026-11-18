@@ -204,4 +204,10 @@ if [ -n "${BK_TASK_DIR:-}" ] && [ -n "$PANE" ] && [ -s "$BK_TASK_DIR/queue.jsonl
    && [ "$(jq -r '.state // ""' "$F" 2>/dev/null)" = done ]; then
   (sleep "${BK_DRAIN_DELAY:-1}"; "$HOME/barrilete-workspace/bin/bk" _drain "$BK_TASK_DIR" "$PANE") </dev/null >/dev/null 2>&1 &
 fi
+
+# Nombres vivos (lib/names.py): al terminar un turno en una terminal de Herdr, el título de la pestaña y el estado
+# de la barra se rehacen con lo último del chat. Espera a que el chat se quede quieto y sale solo si no es un chat.
+if [ "$EVENT" = Stop ] && [ -n "${HC_TERMINAL_ID:-}" ] && [ "$TRANSCRIPT" != "-" ] && [ "${BK_NAMES_OFF:-}" != 1 ]; then
+  ( python3 "${BK_NAMES_PY:-$HOME/barrilete-workspace/lib/names.py}" update "$SID" "$TRANSCRIPT" "$HC_TERMINAL_ID" ) </dev/null >/dev/null 2>&1 &
+fi
 exit 0

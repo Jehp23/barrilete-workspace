@@ -18,7 +18,7 @@ const TRIES = 3;       // y si Herdr no lo toma o otra pantalla lo devuelve, no 
 const SETTLE = 2000;  // un space.move puede perder contra otro cambio: no se repite el mismo pedido antes de esto
 
 // El menú del clic derecho (mods/bk-menu), del alto de sus opciones (6 px arriba y abajo, 32 por opción, 9 por raya)
-const MENU_H = { space: 12 + 9 * 32 + 9, closed: 12 + 3 * 32 + 9, folder: 12 + 4 * 32 + 9, pane: 12 + 5 * 32 + 2 * 9 };
+const MENU_H = { space: 12 + 9 * 32 + 9, closed: 12 + 3 * 32 + 9, folder: 12 + 4 * 32 + 9, pane: 12 + 6 * 32 + 2 * 9 };
 export const menu = (tab, target) => openOverlay({ mod: "bk-menu", kind: "popup", width: 300, height: MENU_H[tab], props: { tab, target } });
 // El diálogo de una carpeta o de un espacio: nombre (la carpeta), color e imagen
 export const edit = (ref) => openOverlay({ mod: "bk-agentes", kind: "popup", width: 340, height: ref.startsWith("c:") ? 318 : 268, props: { editar: ref } });

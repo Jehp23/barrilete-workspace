@@ -196,24 +196,25 @@ let mTerms = [], mPanes = [], mKeys = [], opened = [], mSpaces = [], store = {};
 fs.copyFileSync(`${root}/herdr/mods/menu/espacios.js`, `${home}/espacios.mjs`);
 const E = await import(`${home}/espacios.mjs`);
 const M = new Function('View', 'div', 'svg', 'v_flex', 'h_flex', 'run', 'props', 'closeOverlay', 'openOverlay', 'theme', 'keys',
-  'terminals', 'spaces', 'panes', 'exec', 'shared', 'setShared', 'E', menuSrc + '\nreturn { items, height, shortcut, keyParts, openMenu, arrange, WIDTH };')(
+  'terminals', 'spaces', 'panes', 'exec', 'shared', 'setShared', 'E', menuSrc + '\nreturn { items, height, shortcut, keyParts, arrange, WIDTH };')(
   class {}, () => ({}), () => ({}), () => ({}), () => ({}), () => {}, () => ({}), () => {}, (o) => opened.push(o), () => ({}),
   () => mKeys, () => mTerms, () => mSpaces, () => mPanes, async () => ({ code: 1 }), (k) => store[k] ?? null, (k, v) => { store[k] = v; }, E);
 mTerms = [{ address: 't1', labels: {} }, { address: 't2', parent: 't1', labels: { 'herdr.right-click': 'program' } }];
-mPanes = [{ pane: 'p1' }];
+mPanes = [{ pane: 'p1', tab: 'c1' }];
 const pane = M.items({ tab: 'pane', target: { pane: 'p1', terminal: 't1' } });
-assert.deepEqual(pane.map((x) => x[1]), ['pane.split', 'pane.split', 'pane.zoom', 'terminal.right_click', 'pane.close']);
-assert.deepEqual(pane.map((x) => x[0]), ['Dividir a la derecha', 'Dividir abajo', 'Agrandar', 'Clic derecho: al programa', 'Cerrar']);
-assert.ok(pane.every((x) => x[2].pane === 'p1' || x[2].terminal === 't1'), 'actúa sobre la terminal del clic');
+assert.deepEqual(pane.map((x) => x[1]), ['tab.rename', 'pane.split', 'pane.split', 'pane.zoom', 'terminal.right_click', 'pane.close']);
+assert.deepEqual(pane.map((x) => x[0]), ['Renombrar', 'Dividir a la derecha', 'Dividir abajo', 'Agrandar', 'Clic derecho: al programa', 'Cerrar']);
+assert.ok(pane.every((x) => x[2].pane === 'p1' || x[2].terminal === 't1' || x[2].id === 'c1'), 'actúa sobre la terminal del clic');
+assert.deepEqual(pane[0][2], { id: 'c1' }, 'Renombrar es el de la pestaña de esa terminal');
 ok('menú: las opciones de una terminal en una pestaña, en castellano, sobre la terminal del clic');
 const sub = M.items({ tab: 'pane', target: { pane: 'bloque', terminal: 't2' } });
 assert.deepEqual(sub.map((x) => x[0]), ['Clic derecho: menú de Herdr', 'Devolver a t1']);
 ok('menú: una terminal fuera de una pestaña no se divide ni se cierra; un sub-agente se devuelve a su padre');
 assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, 'linked').map((x) => x[1]), ['space.rename', 'worktree', 'worktree', 'worktree', 'space.close']);
 assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, null).map((x) => x[1]), ['space.rename', 'space.close']);
-assert.deepEqual(M.items({ tab: 'tab', target: { id: 'c', space: 's' } }).map((x) => x[1]), ['tab.rename', 'tab.new', 'tab.close']);
-ok('menú: espacio (con los worktrees si es un repo) y pestaña');
-assert.equal(M.height(pane), 12 + 5 * 32 + 2 * 9);
+assert.deepEqual(M.items({ tab: 'tab', target: { id: 'c', space: 's' } }).map((x) => x[1]), ['space.new', 'app.help'], 'las pestañas ya no tienen menú propio');
+ok('menú: espacio (con los worktrees si es un repo); las pestañas no tienen menú propio');
+assert.equal(M.height(pane), 12 + 6 * 32 + 2 * 9);
 assert.equal(JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.height, M.height(pane));
 assert.ok(M.WIDTH >= 280 && JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.width === M.WIDTH);
 ok('menú: el alto justo para las opciones de una terminal, y ancho para el texto y las teclas');
@@ -221,12 +222,15 @@ mKeys = [{ section: 'global', keys: 'cmd-d', action: 'pane.split:right' }, { sec
 assert.deepEqual([M.keyParts(M.shortcut('pane.split', { direction: 'right', pane: 'p1' })), M.keyParts(M.shortcut('pane.close', { pane: 'p1' })), M.shortcut('pane.zoom', {})],
   [['⌘', 'D'], ['⌘', '⇧', 'W'], '']);
 ok('menú: las teclas en símbolos (⌘ ⇧ D), solo las globales');
-M.openMenu('pane', { pane: 'p1', terminal: 't1' });
-assert.deepEqual([opened[0].mod, opened[0].width, opened[0].height], ['bk-menu', M.WIDTH, M.height(pane)]);
 const lay = JSON.parse(fs.readFileSync(`${root}/herdr/layouts/bk-lavanda.json`, 'utf8'));
-const users = ['agentes/lista', 'pestanas/main'].map((m) => fs.readFileSync(`${root}/herdr/mods/${m}.js`, 'utf8'));
-assert.deepEqual([lay.terminal_menu, users.map((u) => u.includes('mod: "bk-menu"') && !u.includes('mod: "menu"'))], ['bk-menu', [true, true]]);
-ok('menú: el layout, la lista de agentes y las pestañas usan bk-menu, no el de Herdr');
+const users = ['agentes/lista'].map((m) => fs.readFileSync(`${root}/herdr/mods/${m}.js`, 'utf8'));
+assert.deepEqual([lay.terminal_menu, users.map((u) => u.includes('mod: "bk-menu"') && !u.includes('mod: "menu"'))], ['bk-menu', [true]]);
+ok('menú: el layout y la lista de agentes usan bk-menu, no el de Herdr');
+// El alto de bk-menu para el más largo de cada tipo, en lista.js: el de una terminal y, más abajo, los de la lista de espacios
+const menuH = new Function(`${users[0].match(/^const MENU_H = .*;$/m)[0]}\nreturn MENU_H;`)();
+assert.equal(menuH.pane, M.height(pane));
+assert.ok(!/overflow_y_scroll/.test(menuSrc), 'bk-menu sin scroll: en el popup se ve como una raya');
+ok('menú: la lista de agentes lo abre con el alto justo para sus opciones, sin scroll');
 
 // El menú de la lista de espacios: carpetas, orden, color e imagen (el estado, en shared "bk.espacios")
 mSpaces = [{ id: 's', name: 'abra', folder: '/p/abra', machine: null }, { id: 'r', name: 'bk', folder: '/p/bk', machine: null }];
@@ -275,10 +279,14 @@ console.log(`1..${n}`);
 JS
 # La lista de agentes (herdr/mods/agentes): la antigüedad de la fila no va en una caja de ancho fijo. En 28 px
 # entraba «12m» y «ahora» se partía en dos renglones (2026-11-15).
-row=$(grep -c 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js")
+row=$(grep -c 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js" || true)
 fit=$(grep 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js" | grep -c 'div()\.flex_none()\.min_w(28)\.whitespace_nowrap()\.text_right()[^()]*(timeColor)\.child(ago(now - when))')
 [ "$row $fit" = "1 1" ] || { echo "not ok - agentes: la antigüedad de la fila va en una caja de ancho fijo o se puede partir ($row $fit)"; exit 1; }
 echo "ok - agentes: la antigüedad de la fila no se parte (ancho mínimo, sin salto de renglón)"
+# Doble clic en una fila de la lista de agentes abre Renombrar de su pestaña (como las pestañas de arriba)
+dbl=$(grep -c 'on_mouse_down("left", (e) => { if (e.click_count === 2 && a.tab) run("tab.rename", { id: a.tab }); })' "$ROOT/herdr/mods/agentes/main.js" || true)
+[ "$dbl" = 1 ] || { echo "not ok - agentes: el doble clic en una fila no abre Renombrar ($dbl)"; exit 1; }
+echo "ok - agentes: doble clic en una fila abre Renombrar de su pestaña"
 # La cuenta en la barra y en el panel lado: el mail que dan bk _hub status y bk _side (--account de la terminal)
 B="$ROOT/herdr/mods/barra/main.js"; LD="$ROOT/herdr/mods/lado/main.js"
 c1=$(grep -c 'when(Boolean(d?.account || d?.email)' "$B"); c2=$(grep -c 'child(d.email)' "$B"); c3=$(grep -c 'svg("mods/bk-barra/cuenta.svg")' "$B")

@@ -45,8 +45,8 @@ export function describe(a, x, tasks) {
     return { kind: "agent", win, name: [L["bk.role"] || "agente", ref || win].filter(Boolean).join(" "), detail: taskOf(tasks, L)?.title || title || win };
   }
   if (L["bk.kind"] === "chat") {
-    const name = L["bk.name"] || title || win || prog;
-    return { kind: "chat", win, name, detail: L["bk.name"] && title && title !== name ? title : [prog, win].filter(Boolean).join(" · ") };
+    const name = L["bk.name"] || L["bk.autotitle"] || title || win || prog;
+    return { kind: "chat", win, name, detail: L["bk.status"] || (L["bk.name"] && title && title !== name ? title : [prog, win].filter(Boolean).join(" · ")) };
   }
   const tab = a?.tab_name && !/^\d+$/.test(a.tab_name) && a.tab_name !== prog ? a.tab_name : "";
   const name = x?.name || x?.template || title || prog || x?.address || a?.address || "";

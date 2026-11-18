@@ -10,7 +10,8 @@ bk ls              bk go <ventana>  bk stop <ventana>  bk clean [--yes]
 bk peek [ventana]  bk say <ventana> "…"   bk watch [ventana|--all]
 bk monitor         bk checkpoints   bk tasks         bk done <resultado>   bk approve <tarea>
 bk account         bk account use <cuenta> [--relaunch]   bk run … --account <cuenta>
-bk roles           bk mode <rol>    bk song [estación]   bk theme [day|night|auto]
+bk roles           bk mode <rol>    bk profile [perfil]  bk song [estación]   bk theme [day|night|auto]
+bk ask [tarea "…"] bk models [provider]
 ```
 
 ## Workspace (`bk`)
@@ -49,15 +50,18 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   espera o pide permiso · `?` te pregunta · `⚠` ¿trabado? · `✓` listo · `○` libre. La tira, el riel, el monitor,
   `bk ls` y los overlays dicen lo mismo.
 - **Contexto de cada sesión**: cada llamada vuelve a leer todo el contexto, así que una sesión larga sale cara.
-  La tira marca `▪` (ámbar desde 200k, rojo desde 400k; el número en el tooltip), el riel lo muestra por agente y
+  La tira marca `▪` (rojo desde el umbral, 200k por defecto; ámbar desde 3/4 del umbral; el número en el tooltip), el riel lo muestra por agente y
   para este chat, `bk monitor` en la columna CTX, y `bk land` sugiere `/clear` o un chat nuevo si el chat que lo
-  corrió pasa los 200k. Sale del último turno del transcript (`usage.context_of`), sin llamar a ningún modelo.
+  corrió pasa el ámbar. Sale del último turno del transcript (`usage.context_of`), sin llamar a ningún modelo.
   Al agente se lo dice un hook de Claude Code (`lib/context_hook.py`, en `UserPromptSubmit` y `PostToolUse`): un mensaje
-  en su contexto al cruzar 200k (recomendar `/clear` o un chat nuevo), al cruzar 400k (cerrar en un punto estable y dejar
+  en su contexto al cruzar el ámbar (recomendar `/clear` o un chat nuevo: con Herdr, `alt+h`, que pide el resumen; con tmux, `alt+n`), al cruzar el umbral (cerrar en un punto estable y dejar
   el resumen para seguir, abajo; un agente de bk termina con su `bk done`) y después cada +100k. No repite (estado en `~/.cache/bk/context_hook/`),
   no corre en subagentes y ante cualquier error no dice nada. Se instala en `~/.claude/settings.json`, en `hooks`:
   `{"type": "command", "command": "python3 ~/barrilete-workspace/lib/context_hook.py", "timeout": 5}` en
   `UserPromptSubmit` y en `PostToolUse` (con `"matcher": "*"`).
+  **El umbral lo elegís vos**: `bk context 300k` (o en `alt+h`, «Con cuánto contexto seguir en un chat nuevo») lo
+  guarda en `~/.config/bk/context` para todos los chats; `bk context default` vuelve a 200k, la ventana estándar de
+  contexto de Claude. El ámbar va en 3/4 del umbral.
 - **Seguir en un chat nuevo (handoff)**: el resumen tiene siempre el mismo formato (`lib/handoff.py`): de dónde viene
   (sesión, workspace y número, rama, cuenta: lo completa bk, no el agente), hecho, falta (empezando por el primer paso),
   te espera a vos, no tocar y archivos y comandos; como mucho 40 líneas. Queda en
@@ -77,6 +81,12 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   se cierra cuando el nuevo abre: bk anota la terminal en `<session_id>.cerrar`, junto al resumen, y
   `bk handoff --listo` la cierra solo si sigue siendo la de esa sesión y la marca tiene menos de media hora. Un
   pedido sin `--cerrar` borra la marca de uno anterior. Es lo que corre `alt+h`, con sus dos opciones.
+  **Con Herdr el chat nuevo sigue siendo el mismo trabajo**: nace con el nombre del viejo (uno puesto a mano pasa
+  como puesto a mano, y `bk name` o el doble clic lo cambian; uno automático lo sigue actualizando `lib/names.py`) o,
+  si el viejo no tenía, con el título del resumen; su estado es «sigue: <primer paso de Falta>». Queda unido al viejo
+  (etiquetas `bk.from` en el nuevo y `bk.next` en el viejo) y en la barra de agentes el viejo no tiene fila propia:
+  va debajo del nuevo, en una línea «antes» plegada que se despliega con un clic y se cierra con su cruz. Plegada
+  igual lleva la marca si el viejo te espera o sigue trabajando, y el nuevo se ordena por lo más urgente de los dos.
 
 ## Herdr en vez de tmux (`bk backend herdr`)
 `bk backend herdr` hace que los chats y los agentes vivan en la app [Herdr](https://herdr.dev) y no en tmux
@@ -92,6 +102,11 @@ pisan con los del repo (se editan acá).
   `<proyecto>-<x>` en su worktree y `bk chat --suelto` va al espacio `chats`.
 - **Una pestaña por agente**: `bk run`, `fix`, `review`, `plan` y `orchestrate` lanzan al agente en una pestaña
   del espacio de su proyecto (`i42`, `pr57`…) sin sacarte de la que estás mirando. Herdr muestra su estado.
+- **Nombres vivos** (`lib/names.py`): el título que Claude le pone a un chat sale del primer mensaje y no cambia más.
+  Al terminar cada turno, cuando el chat queda 20 s quieto, haiku lee lo último (el recap, tus pedidos y su
+  respuesta) y la pestaña pasa a llamarse por el tema de ahora; el segundo renglón de la barra de agentes dice en qué
+  quedó (✓ terminó, ? te espera). Un nombre tuyo (`bk name`, «Renombrar» en el clic derecho de la terminal, `/rename`) manda: solo cambia el
+  estado. `BK_NAMES_OFF=1` lo apaga.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
   su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`) avisa y no
   corre: herdr-core ya mantiene vivas las terminales. `bk account use` sigue siendo de tmux; `--account X` anda.
@@ -141,11 +156,13 @@ pisan con los del repo (se editan acá).
   | `alt+i` | Implementar un issue: los abiertos del proyecto que mirás. Enter lanza al agente (o va a su pestaña si ya corre); Tab cambia el rol | `bk run <n>` |
   | `alt+r` | Revisar o corregir un PR. Enter lanza al reviewer, o lo aprueba si el kit ya lo propuso; Tab pide una instrucción y lanza el fix; ctrl+g vuelve a correr los checks que fallaron; ctrl+o lo abre en GitHub | `bk review`, `bk approve`, `bk fix`, `bk rerun --go` |
   | `alt+e` | Te esperan: tareas y aprobaciones. Enter lanza el reviewer propuesto o va a la pestaña del agente; Tab suma el historial | `bk approve` |
+  | `alt+p` | La épica del chat que mirás (si no tiene y hay varias, una lista para elegir): sus sub-issues por estado, quién espera a quién y el camino más largo. Enter va al agente o, sobre uno libre, lo lanza con confirmación; `g` abre GitHub | `bk run <n>` |
+  | `alt+t` | El panel derecho en la pestaña TODO: los pasos del issue que trabaja el chat que mirás (el issue sale como en `alt+p`), las casillas `- [ ]` de su cuerpo por sección, tildadas o no. Solo lee; el clic en el issue lo abre en GitHub. Otra vez `alt+t` vuelve a Estado | `bk _todo` |
   | `alt+a` | Agentes: los que te esperan arriba y, al lado, lo último de la terminal del elegido. Enter va a su pestaña, Tab le escribe, ctrl+x dos veces lo cierra, ctrl+o lo espía | `bk say`, `bk stop` |
-  | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
+  | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, el resumen de este chat para seguir en uno nuevo (abre `alt+h`), terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
   | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta | `bk _hub session-go`, `bk stop` |
   | `alt+h` | Resumen y seguir en un chat nuevo: se lo pide al chat que mirás, dejándolo abierto o cerrándolo cuando el nuevo abre. Abajo, los resúmenes listos | `bk handoff --term <t> [--cerrar]`, `bk chat --desde` |
-  | `alt+g` | Cambios sin commitear del proyecto y de los worktrees de los agentes, con el diff al lado. Enter abre el archivo en un pane | |
+  | `alt+g` | El panel derecho en la pestaña Cambios: lo sin commitear del proyecto y de los worktrees de los agentes. El clic en un archivo abre su diff en un popup (esc lo cierra). Otra vez `alt+g` vuelve a Estado | |
   | `alt+b` | Ramas de todos los proyectos, separadas por proyecto (el que mirás primero): si ya entró (PR mergeado o `bk land`), su PR, su worktree y lo sin commitear. Enter abre un chat en su worktree (o le crea uno); ctrl+x dos veces la borra, solo si no se pierde nada; ctrl+o abre su PR | `bk chat --carpeta`, `bk _hub branch-rm` |
   | `alt+u` | Uso y costo: hoy, el mes, los últimos 30 días, por modelo y por proyecto | |
   | `alt+/` | Hoja de teclas: lee el `keys.json` de Herdr y dice qué hace cada una; Enter la corre | |
@@ -163,6 +180,7 @@ pisan con los del repo (se editan acá).
 
   Las catorce primeras abren un panel; las siete que siguen son acciones sin panel; las dos últimas, comandos de Herdr.
   Sin tecla: `bk-out` (la salida de un comando que solo imprime: tokens, roles, cuentas…; lo abre `alt+k`),
+  `bk-profiles` (perfiles de modelos y tareas; lo abre «Perfiles de modelos y tareas…» de `alt+k`),
   `bk-aviso` (muestra los avisos que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic del aviso «Resumen
   listo»). El rastro de `alt+0` y la adopción los lleva el mod `bk-barra`, que está en `bk-lavanda`: en un layout
   que no lo tenga, `alt+0` no tiene a dónde volver y adoptar queda para `bk _adopt <terminal>` o `bk handoff --term`.
@@ -182,17 +200,22 @@ pisan con los del repo (se editan acá).
 - **Los paneles del layout**: `bk backend herdr` copia cada carpeta de `herdr/mods` (menos `bk` y `hub`) a
   `mods/bk-<nombre>`, y el layout que las muestra, uno solo: `bk-lavanda` (ver *Estética Lavanda*). `agentes` es
   la barra izquierda (espacios y agentes, cada uno con el chip de su número), `marca` su cabecera y su pie,
-  `pestanas` las pestañas, `cabecera` la de cada pane, `lado` el panel derecho y `barra` la barra de estado.
+  `pestanas` la franja de arriba (el contexto del chat enfocado en un renglón: proyecto, épica, issue y rol, y los agentes que te esperan), `cabecera` la de cada pane, `lado` el panel derecho y `barra` la barra de estado.
   `agentes`, `pestanas`, `cabecera`, `lado` y `marca` comparten las piezas de dibujo de `kit.js`: un mod no puede
   importar de otra carpeta, así que cada uno lleva su copia y un test falla si dejan de ser iguales. El lado
   derecho sale de `bk _side` (proyecto, rama, perfil de roles, contexto de la sesión de Claude de la carpeta, uso
   de hoy y lo que quedó sin commitear en el proyecto y sus worktrees). Instalar no cambia el layout que ves.
 - **Temas**: `herdr/themes/*.json` van a `themes/` de Herdr y se eligen en `alt+,` o en los ajustes de Herdr. Los
   de bk: `bk-neon` (violeta oscuro, acento lavanda; antes se llamaba `bk-noche`), `bk-pastel` (oscuro suave, con
-  rosa, menta, lila y durazno) y `bk-dia` (claro, papel cálido con acento lavanda, para usar de día); además
+  rosa, menta, lila y durazno), `bk-gentleman` (casi negro, acento rosa fuerte y champán; sale del tema
+  Gentleman-Sexy de pi), `bk-gentleman-cute` (el mismo fondo con rosa suave, menta y celeste; del tema
+  Gentleman-Cute), `bk-dia` (claro, papel cálido con acento lavanda, para usar de día),
+  `bk-papel` (claro, papel blanco y tinta negra con amarillo, coral e índigo, del estilo de Paperfolio) y
+  `bk-papel-night` (su versión de noche: tinta casi negra, texto blanco cálido, bordes suaves y acento amarillo); además
   `catppuccin-mocha`, `rose-pine` y `tokyo-night`. Siguen al repo mientras no los retoques: bk anota qué instaló
   (`bk-temas.json`) y solo pisa una copia que sigue igual a esa; un tema tuyo con el mismo nombre queda como está y
-  se avisa. El `bk-noche` que instaló una versión anterior se borra si nadie lo tocó.
+  se avisa. El `bk-noche` y el `bk-tinta` que instalaron versiones anteriores (ahora `bk-neon` y `bk-papel-night`) se
+  borran si nadie los tocó.
   En `alt+,`, elegir un tema de la otra claridad (`bk-dia` con la apariencia oscura, o uno oscuro con la clara)
   cambia también la apariencia (`appearance` en `settings.json`); si no, Herdr no lo mostraría.
 - Cómo está hecho (`lib/herdr.sh`): `herdr-app` crea espacios y pestañas y `hc` (herdr-core) lee, escribe y cierra
@@ -203,7 +226,7 @@ pisan con los del repo (se editan acá).
   `lib/herdr.sh`, el instalador (teclas, mods, paneles, temas, layout y vista previa), los números fijos, la
   adopción y `bk handoff --term/--cerrar`; `tests/test_side.sh`, los datos del lado derecho; `tests/test_hub.sh`,
   los de los paneles. Partes de algunos mods corren en `node`, sin Herdr (`tests/test_herdr_subagents.sh`,
-  `tests/test_herdr_tasks.sh`). Lo que no está probado: apretar las teclas. macOS no deja mandarle teclas a Herdr
+  `tests/test_herdr_tasks.sh`, `tests/test_herdr_lineage.sh`, `tests/test_herdr_epica.sh`). Lo que no está probado: apretar las teclas. macOS no deja mandarle teclas a Herdr
   desde un script, así que ninguna prueba recorre tecla → mod → acción dentro de la app.
 
 ## Sesiones (`bk s` · `C-a s`)
@@ -226,6 +249,26 @@ en zsh, que expande el `=`).
 
 - `bk run` reusa el kit: `routing.py` elige el rol y `prepare.sh --worktree` asigna el issue y crea el worktree.
 - `roles.yml` dice qué provider/modelo corre cada rol; un proyecto lo pisa con `.barrilete/roles.yml`.
+- Perfiles de modelos (`bk profile`, `profiles.yml`): un juego de provider/modelo por rol (`normal`, `barato`, `a-fondo`)
+  que se cambia de una vez y vale para todos los proyectos. `bk profile barato` lo elige y `bk profile off` vuelve a
+  `roles.yml`; en `alt+k` hay un renglón «Usar el perfil …» por perfil y «Perfiles de modelos y tareas…» abre el panel
+  (→ edita un perfil, enter en un rol elige el modelo, «Otro…» acepta cualquier `provider/modelo`, así un perfil mezcla
+  `claude/…` y `codex/…`). Editar copia los de fábrica a `~/.config/bk/profiles.yml`, que desde ahí manda.
+  Solo cambia modelos: el modo sale de `roles.yml`. Orden: `.barrilete/roles.yml` del proyecto, el perfil y `roles.yml`.
+  Los agentes que ya corren siguen con el modelo con el que arrancaron.
+- Tareas (`bk ask`, `tareas.yml`): un modelo de cualquier proveedor (claude, codex, gemini) para un trabajo puntual,
+  con una descripción que lee el orquestador para saber cuándo usarla. De fábrica: `imagenes` → `codex/gpt-6.1-sol`
+  y `investigar` → `codex/gpt-6.1-sol` (codex corre con `--search`: búsqueda web). Antes era Gemini, pero su CLI
+  busca siempre con `gemini-3.5-flash`, sea cual sea el modelo, y con la cuota gratis da 429. `bk ask imagenes "…"` corre sin pantalla en
+  `~/.cache/bk/ask/<fecha>-<tarea>/` (codex escribe solo ahí; gemini sin `--yolo`; claude solo texto), imprime la
+  respuesta y los archivos que dejó, y corta a los 10 min (`--timeout`); si el proveedor se quedó sin cuota (429) lo
+  dice. `bk ask set <tarea> <provider>/<modelo> <para qué>` y `bk ask rm` las editan (en `~/.config/bk/tareas.yml`).
+  Gemini es solo para tareas: no puede ocupar un rol (no tiene las barandas de Claude Code).
+- `bk models [provider]`: los modelos para elegir. Codex sale de su CLI (`codex debug models`, guardado un día);
+  Claude Code y Gemini no listan los suyos, así que salen de `models.yml` más `~/.config/bk/models.yml`.
+  El panel «Perfiles de modelos y tareas» de `alt+k` los muestra agrupados por proveedor, y solo los proveedores con
+  sesión iniciada (`bk models --providers`): claude y codex según sus cuentas (`bk account`), gemini si tiene clave
+  (variable de entorno, `~/.gemini/oauth_creds.json` o el llavero; solo se mira que exista).
 - `--dry-run` en cualquier comando de agentes, y en `bk ws` y `bk chat` (también `--rama`, `--suelto` y `--desde`), muestra qué haría sin lanzar ni abrir nada.
 - Provider `codex`: preparado pero sin probar. Las barandas y los eventos de las tareas le llegan por el `.codex/hooks.json`
   del proyecto (los trae el kit), pero no está verificado que Codex los dispare igual que Claude Code.
@@ -255,8 +298,9 @@ eventos, en `~/.local/state/bk/tasks/<proyecto>/<id>/` (`task.json` y `events.js
 `herdr-app do layout.switch --name bk-lavanda`.
 A la izquierda, la marca, los espacios y los agentes, cada uno con el chip de su número de ventana y su marca de
 estado; angosta queda en un riel con solo los chips. En el centro, las pestañas y los panes, cada pane con su
-cabecera (número, programa, qué hace, carpeta y rama). A la derecha, tres tarjetas: sesión, GitHub y cambios
-(`alt+.` las esconde). Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, CPU y memoria de cada computadora, radio y las
+cabecera (número, programa, qué hace, carpeta y rama). A la derecha, tres pestañas: Estado, con dos tarjetas
+(sesión y GitHub); TODO, los pasos del issue del chat que mirás (`alt+t`); y Cambios, lo sin commitear, con el diff de
+cada archivo en un popup al hacerle clic (`alt+g`). `alt+.` esconde el panel. Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, CPU y memoria de cada computadora, radio y las
 teclas de comandos y de la hoja de teclas. La cuenta es la de Claude de la terminal que mirás: su mail (de su
 `.claude.json`, sin preguntarle a Claude) y, si no es la de siempre, el nombre de `bk account` delante; el panel
 derecho muestra lo mismo. La marca de estado es la misma en todos, con los colores `blocked`, `done` y `working`
@@ -285,7 +329,8 @@ svg, hasta 1 MB); `bk _logo` la copia a `mods/bk-agentes/logos/` de Herdr, que e
 El layout nombra un par de temas, `bk-neon` con la apariencia oscura y `bk-dia` con la clara, y la fuente de la
 interfaz, SF Mono; la
 de la terminal es la tuya (`alt+,` la cambia, y también el tema, el tamaño y qué paneles se ven).
-El perfil de roles va en un renglón que sigue abajo si no entra; fuera de un proyecto, el panel lo dice.
+El perfil de roles va en un renglón que sigue abajo si no entra, encabezado por el perfil de modelos activo (`bk profile`);
+fuera de un proyecto, el panel lo dice.
 
 GitHub muestra hasta cinco PRs abiertos con enlaces al navegador, borrador,
 revisión y CI. Requiere `gh` autenticado (`gh auth status`) y un remoto GitHub;
@@ -352,9 +397,29 @@ e interrupciones (para leer en el resumen del día). Un patrón repetido ≥3 ve
 las que marcás `accepted` con su regla pasan a `agents/INDEX.md`, que Claude Code importa desde `~/.claude/CLAUDE.md`.
 `bk lessons` lista las que esperan revisión; también salen en `bk checkpoints` y en *Te esperan* de `bk monitor`.
 `bk learn` se corre a mano: lo corría cada ~2 minutos la barra de Sketchybar, que ya no está.
-`bk learn effect` mide si cada regla aceptada baja los hallazgos de review que dice evitar: hallazgos de su clase por
-ronda (y qué parte del total son) en los PRs abiertos antes y después de aceptarla. Escribe `agents/efecto.md`; las
-que dan *no baja* son para reescribir o retirar. Usa `accepted:` y `mide:` del frontmatter de la lección.
+Además, cada desvío de una sesión de un proyecto con el kit, y cada hallazgo de las reviews de los repos de
+`~/.config/bk/retros.json`, va al store de ese proyecto como evento v1 (ADR-007 del kit, `lib/learn_store.py`). Lo
+escribe el `scripts/agents/learning.py` del proyecto, así que el store (`local` o `branch`), el nombre y el validador
+son los del kit; un proyecto sin ese script no recibe nada. Solo metadatos: el tipo del desvío en `class`
+(`guardrail-block`, `user-correction`…), el modelo de la sesión (en un hallazgo, el de la sesión que abrió el PR; si no
+se sabe, `unknown`), `harness: claude-code`, el rol, el `area:` del issue de la rama y `evidence_ref` (la ruta del
+transcript, solo su nombre con store `branch` porque la ruta lleva tu usuario, o la URL del PR); nunca texto del transcript, tuyo o de la review. El vault queda como vista personal y sus
+eventos viejos no se migran. No manda lo de antes de su primera corrida ni repite eventos, tampoco con `--rebuild`
+(estado en `~/.cache/barrilete/learn-store.json`). Con store `branch`, subirlo es `learning.py push` del proyecto.
+Tests: `tests/test_learn_store.sh` (usa el `learning.py` del main de `~/barrilete-kit`, o `BK_KIT_REPO`).
+`bk learn effect` mide si cada regla que aplica un proyecto baja los hallazgos de review que dice evitar (ADR-006 D10
+del kit). Las reglas son las `accepted` de barrilete-rules en el SHA del `.barrilete/rules.lock` de cada repo de
+`~/.config/bk/retros.json` (se clona una vez por SHA en `~/.cache/bk/rules/`) más las de `.barrilete/rules/`, según su
+`scope`; ya no lee las lecciones del vault. Por regla: hallazgos de sus `classes` por ronda (y qué parte del total
+son) en los PRs abiertos antes y después de `accepted`, y, si tiene `check`, cuántas corridas fallan según los eventos
+`check_run` de `.barrilete/learning/events.jsonl` (sin eventos: "sin datos"). Al final dice qué parte de los hallazgos
+cae en `other` y qué etiquetas usan las reviews que no están en `classes.yml`. Escribe `agents/efecto.md`; las que dan
+*no baja* son para pasar a check, reescribir o retirar (decide la persona). Tests: `tests/test_effect.sh`.
+`bk bitacora [repo...]` (alt+k «Bitácora de agentes», `lib/bitacora.py`) corre en cada repo de `~/.config/bk/retros.json`
+(o en los que le pasás) el `scripts/agents/bitacora.py` de su kit (barrilete-kit#339): una página por repo en
+`.barrilete/bitacora.html`, con una tarjeta por PR y cada agente que lo tocó, en el diseño de barrilete o el del proyecto
+(`.barrilete/bitacora.css`). Imprime `ok: <página>` por cada una y las abre. Un repo con un kit anterior a la bitácora
+se dice en una línea y se sigue; sin ninguna página, termina con 1. Tests: `tests/test_bitacora.sh`.
 
 ## Dotfiles
 - `dotfiles/tmux.conf` → `~/.config/tmux/tmux.conf`
@@ -366,7 +431,8 @@ que dan *no baja* son para reescribir o retirar. Usa `accepted:` y `mide:` del f
 ## Hook de estado (`hooks/agent_state.sh`)
 Un hook de Claude Code anota el estado de cada sesión (trabajando, te espera, terminó, en segundo plano), su rol, modelo,
 issue y pane en `~/.cache/sketchybar/agents/<sesión>.json`; de ahí leen `bk ls`, la tira, el riel, `bk monitor`, `bk s` y
-los paneles de Herdr. También escribe el `bk say` encolado cuando el agente termina el turno. La carpeta conserva el
+los paneles de Herdr. También escribe el `bk say` encolado cuando el agente termina el turno y, en Herdr, lanza los
+nombres vivos de los chats (`lib/names.py`). La carpeta conserva el
 nombre de cuando el estado era de la barra de Sketchybar, que ya no está: las sesiones vivas escriben ahí.
 
 Va registrado en `~/.claude/settings.json` en `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
@@ -398,10 +464,48 @@ los terminados y los que llevan más de diez minutos sin escribir, igual que bk-
 Se actualiza cada cuatro segundos; el clic abre `bk sub` para seguir el transcript
 en una pestaña de solo lectura. No envía instrucciones al subagente.
 
+### Las épicas en la barra
+
+Entre ESPACIOS y AGENTES, `bk-agentes` tiene la sección **ÉPICAS** (plegable): una tarjeta por cada épica en la que
+trabajan los chats (una aunque la tengan varios, aunque estén en espacios distintos) con **#N título k/n**, una barra
+con un segmento por sub-issue (hecho, con agente, libre o bloqueado, en ese orden) y una línea con lo que importa:
+**ahora #324 · t75 · destraba 5 · 1 libre** si un chat trabaja en uno (destraba: los abiertos que lo esperan, directa
+o indirectamente), si no **2 libres: kit#325, workspace#11**. Si la épica cruza repos, el número lleva el repo y una
+línea dice cuánto lleva cada uno (`kit 2/4 · workspace 1/5`). La fila de cada agente dice **#324 de #321**. Van
+primero las épicas con algo libre (donde podés lanzar), después las demás en curso. Si los chats de algún espacio ya
+no tienen épica, queda una sola en gris al final: la última que tuvo el espacio que la dejó más recientemente
+(guardada entre reinicios).
+
+El clic en la tarjeta, o `alt+p` (la épica del chat que mirás; si no tiene, la única en curso o, con varias, una lista para elegirla con ↑↓ y ⏎), abre el detalle: AHORA,
+LIBRES, BLOQUEADOS (cada uno con lo que espera) y HECHOS plegado, con el camino más largo de esperas. ↑↓ mueven, ⏎ (o el
+clic) va al agente de los de AHORA, `g` abre GitHub, `esc` cierra. ⏎ sobre un libre pide
+confirmación mostrando `bk run N · en <carpeta>` y el segundo ⏎ lo lanza ahí, suelto (`bk _do`: sigue aunque se
+cierre el popup y avisa al terminar, con el error si falló; el rol lo decide bk). Los datos los deja la barra en `shared("bk.epics")`.
+
+`bk _epica <carpeta> [rama] [texto] [terminal]` (`lib/herdr_epica.py`; `bk _epica --json '[[carpeta, rama, texto,
+terminal], …]'` para todos los chats en una llamada) saca el issue de la carpeta (un worktree `<repo>-wt/1152` o `<repo>-wt/1152-algo`), de
+la conversación de Claude de esa terminal (el último `<repo>-wt/N` o `prepare.sh N` en los comandos que corrió: un
+chat abierto en el checkout principal implementa en un worktree sin mover su carpeta, y la rama del checkout
+puede ser de otro chat), de la rama (`claude/1152-…`, `claude/<tipo>/1152-…`) o de un `#1152` en el nombre del
+chat; el repo, del remoto `origin` (o del único remoto de GitHub). La épica es su padre en GitHub (puede estar en
+otro repo) o el issue mismo si tiene sub-issues. De cada épica trae los sub-issues (`/sub_issues`, de cualquier
+repo) y, de los abiertos, los issues abiertos que los bloquean (`/dependencies/blocked_by`), y en `dirs` dónde
+lanzar los de cada repo: el checkout principal de sus chats, si no `~/<nombre del repo>`. A GitHub le pregunta una
+vez por issue y por épica, en paralelo, y lo guarda cinco minutos en `~/.cache/bk/epica.json` y
+`~/.cache/bk/epica-subs.json`: la barra pregunta cuando cambian los chats y cada minuto, nunca en cada dibujo. Sin
+red, lo último guardado.
+
 La cabecera de Lavanda muestra **BK** y el barrilete de la marca, que cambia según haya quien te espere, quien
 trabaje o nadie (`herdr/mods/marca/bk-wait.svg`, `bk-fly.svg`, `bk-rest.svg`). El mod propio `bk-marca` conserva
 los controles de búsqueda y de la barra lateral sin editar Herdr, y en su pie van ajustes, aspecto y agregar una
 máquina.
+
+Entre la marca y la lupa van tus **accesos directos** (`herdr/mods/marca/accesos.js`): una página, una carpeta, un
+archivo o una app, que el clic abre con `open`. Se agregan soltando archivos o apps sobre la cabecera, o con el +
+(aparece al pasar por encima; siempre, si no hay ninguno), que abre un popup para pegar una URL o una ruta
+(`github.com/x`, `localhost:3000`, `~/Documents`, `obsidian://…`) o elegir una carpeta. El clic derecho sobre uno
+abre esa lista, donde se sacan con ×. Entran los que caben en el ancho de la barra; los demás, en un +N. Se guardan
+en `~/.config/herdr-app/bk-accesos.json`.
 
 ### Datos para los paneles nativos (`bk _hub`) y acciones sueltas (`bk _do`)
 

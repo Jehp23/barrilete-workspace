@@ -4,6 +4,7 @@
 Lee los transcripts de Claude Code (~/.claude/projects/**/*.jsonl) de forma incremental y registra
 eventos de desvío en el vault de Obsidian. Nunca escribe reglas: propone lecciones (status: proposed)
 y solo las que la persona marca `accepted` y completa pasan a agents/INDEX.md, que leen los agentes.
+Los desvíos de un proyecto con el kit, y los hallazgos de review, van además a su store (learn_store.py, ADR-007).
 
 Eventos:
   guardrail_block   una baranda (guardrails.py/barandas.py) frenó un comando
@@ -31,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from deviations import (FREEFORM, RE_APPROVE, RE_CONTRACT, RE_CORRECT, RE_FIELD, RISK_HINTS,  # noqa: E402,F401
                         agent_risks, assistant_events, ev, finding_class, norm, review_findings, text_of,
                         user_events)
+import learn_store  # noqa: E402
 
 PROJECTS = os.path.expanduser("~/.claude/projects")
 VAULT = os.path.expanduser(os.environ.get("BARRILETE_VAULT", "~/Documents/Obsidian Vault"))
@@ -82,7 +84,7 @@ def load_state(rebuild):
     return {"offsets": {}, "model": {}, "tools": {}, "plan": {}}, True
 
 
-def scan(state, since_ts):
+def scan(state, since_ts, store=None):
     offsets, models, tools, plan = state["offsets"], state["model"], state["tools"], state["plan"]
     events = []
     for path in glob.glob(os.path.join(PROJECTS, "**", "*.jsonl"), recursive=True):
@@ -113,6 +115,16 @@ def scan(state, since_ts):
                     models[path] = m.group(1)
                 for tid, name in RE_TOOLUSE.findall(line):
                     tools[tid] = name
+                if store and "gh pr create" in line:   # la sesión que abre el PR: su modelo va en los hallazgos
+                    try:
+                        o = json.loads(line)
+                    except ValueError:
+                        o = {}
+                    content = (o.get("message") or {}).get("content")
+                    if any(isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "Bash"
+                           and "gh pr create" in str((b.get("input") or {}).get("command", ""))
+                           for b in (content if isinstance(content, list) else [])):   # correrlo, no nombrarlo
+                        store.note_pr_opener(o.get("cwd"), o.get("gitBranch"), models.get(path))
                 interesting = any(k in line for k in ("red.sh", "verify.py", "planner.py", "result:") + RISK_HINTS)
                 if not interesting:
                     continue
@@ -125,12 +137,14 @@ def scan(state, since_ts):
                 continue
             if e.get("type") not in ("user", "assistant") or e.get("isMeta"):
                 continue
-            if (e.get("cwd") or "").startswith(FIXTURE_CWD):   # sesiones de los tests (fixtures): no cuentan
-                continue
+            if (e.get("cwd") or "").startswith(FIXTURE_CWD) and not os.environ.get("BK_LEARN_TEST_CWD"):
+                continue   # sesiones de los tests (fixtures): no cuentan, salvo en el test de learn
             ctx = {
                 "ts": e.get("timestamp", ""), "project": project_name(e.get("cwd")),
                 "session": (e.get("sessionId") or "")[:8], "model": models.get(path, "-"),
                 "role": role_for(e.get("sessionId") or ""),
+                # internos: para el store del proyecto (learn_store); no van al vault
+                "_cwd": e.get("cwd") or "", "_branch": e.get("gitBranch") or "", "_path": path,
             }
             content = (e.get("message") or {}).get("content")
             blocks = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
@@ -367,7 +381,7 @@ def git(repo, *args):
 REVIEWS_EVERY = 900   # s: learn corre cada ~2 min; GitHub, cada 15
 
 
-def import_reviews(state):
+def import_reviews(state, store=None):
     """Hallazgos (bloqueantes y "para corregir") de las reviews publicadas en los repos con retros.
     Cada ítem es un evento review_finding con su clase; el proyecto es el repo, para que se agrupen."""
     if time.time() - state.get("reviews_t", 0) < REVIEWS_EVERY:
@@ -385,7 +399,7 @@ def import_reviews(state):
         slug_ = m.group(1)
         try:
             raw = subprocess.run(["gh", "pr", "list", "--repo", slug_, "--state", "all", "--limit", "60",
-                                  "--json", "number,reviews"], capture_output=True, text=True, timeout=60, env=env).stdout
+                                  "--json", "number,reviews,headRefName"], capture_output=True, text=True, timeout=60, env=env).stdout
             prs = json.loads(raw or "[]")
         except (OSError, ValueError, subprocess.SubprocessError):
             continue
@@ -395,8 +409,11 @@ def import_reviews(state):
                 if not rid or rid in seen or ts[:10] < since:
                     continue
                 seen.add(rid)
-                ctx = {"ts": ts, "project": slug_.split("/")[-1], "session": rid[-8:], "model": "-",
-                       "role": "implementer"}
+                head = p.get("headRefName") or ""
+                ctx = {"ts": ts, "project": slug_.split("/")[-1], "session": rid[-8:],
+                       "model": (store.opener_model(repo, head) if store else "") or "-", "role": "implementer",
+                       "_main": repo, "_pr": p.get("number"), "_head": head,
+                       "_url": f"https://github.com/{slug_}/pull/{p.get('number')}"}
                 for item in review_findings(r.get("body")):
                     out.append(ev(ctx, "review_finding", finding_class(item), f"#{p['number']}: {item}"))
     state["reviews_seen"] = sorted(seen)[-5000:]
@@ -590,8 +607,9 @@ def main():
     if fresh:  # reconstrucción: evitar eventos duplicados
         for f in glob.glob(os.path.join(AG, "data", "events-*.jsonl")):
             os.remove(f)
-    new = scan(state, since)
-    new += import_reviews(state)
+    store = learn_store.Store()
+    new = scan(state, since, store)
+    new += import_reviews(state, store)
 
     touched = set()
     for e in new:
@@ -599,7 +617,15 @@ def main():
         touched.add(e["day"])
         os.makedirs(os.path.join(AG, "data"), exist_ok=True)
         with open(month_file(e["day"]), "a", encoding="utf-8") as f:
-            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+            f.write(json.dumps({k: v for k, v in e.items() if not k.startswith("_")}, ensure_ascii=False) + "\n")
+
+    # El store de cada proyecto (ADR-007 del kit): un error de un proyecto nunca frena a learn
+    for e in new:
+        try:
+            store.send(e)
+        except Exception:   # noqa: BLE001
+            store.failed += 1
+    store.save()
 
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
     with open(STATE + ".tmp", "w") as f:
@@ -631,6 +657,9 @@ def main():
             print(f"  nueva lección propuesta: agents/lessons/{n}.md")
         if retros:
             print(f"  {len(retros)} retros nuevas en agents/retros/")
+        if store.ok or store.failed:
+            print(f"  {store.ok} eventos al store de {len(store.projects)} proyecto(s)"
+                  + (f" · {store.failed} no se pudieron escribir" if store.failed else ""))
 
 
 if __name__ == "__main__":

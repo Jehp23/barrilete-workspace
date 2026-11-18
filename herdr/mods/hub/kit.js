@@ -75,9 +75,10 @@ export async function launch(title, args, dir) {
 }
 
 // Otra vista de bk (issues, prs…) o un mod de Herdr, en lugar de esta.
+// Con props abre un overlay (dialog, salvo que extra.overlay diga otra forma: la de views.json de ese panel).
 export function goto(name, extra = {}) {
   closeOverlay(props().overlay);
-  if (extra.props) openOverlay({ mod: name, props: extra.props, kind: "dialog", width: extra.width ?? 0.86, height: extra.height ?? 0.82 });
+  if (extra.props) openOverlay({ mod: name, props: extra.props, kind: "dialog", width: extra.width ?? 0.86, height: extra.height ?? 0.82, ...(extra.overlay ?? {}) });
   else run("mod.open", { name });
 }
 
@@ -206,16 +207,20 @@ export class Panel extends View {
     this.input.focus();
   }
 
+  // Enter: lo que haga la vista (abrir una pregunta, cambiar de nivel) se redibuja siempre. Si el buscador estaba
+  // vacío, set_value("") no avisa nada y una pregunta nueva quedaba sin verse (pasó con «Nueva tarea…»)
   submit(cx, e) {
     if (this.ask) {
       const a = this.ask, text = (a.value ?? "").trim();
       if (!text && !a.optional) return;
       this.ask = null;
       this.input.set_value("");
-      return a.run(text, cx);
+      a.run(text, cx);
+    } else {
+      const row = this.current();
+      if (row) this.enter(row, cx, e);
     }
-    const row = this.current();
-    if (row) this.enter(row, cx, e);
+    if (!this.closed) cx.notify();
   }
 
   // Corre algo corto mostrando "…" y deja el error a la vista si falla

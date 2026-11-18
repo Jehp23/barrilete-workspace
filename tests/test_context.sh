@@ -4,6 +4,7 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(dirname "$HERE")"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+export BK_CONTEXT_FILE="$TMP/context"   # el umbral: sin archivo, el por defecto; nunca el de ~/.config
 N=0; FAILED=0
 check_eq() { N=$((N+1)); if [ "$1" = "$2" ]; then echo "ok $N - $3"; else echo "not ok $N - $3 (got '$1', want '$2')"; FAILED=$((FAILED+1)); fi; }
 
@@ -52,9 +53,25 @@ check_eq "$(ctx of "$TMP/no-existe.jsonl")" "None" "sin archivo: None"
 turn 0 0 0 420000 >"$TMP/more.jsonl"
 check_eq "$(ctx grow "$T" "$TMP/more.jsonl")" "150505 420000" "si el transcript crece, vuelve a leerlo"
 
-check_eq "$(ctx level 199999)" "-" "por debajo de 200k: sin aviso"
-check_eq "$(ctx level 200000)" "warn" "desde 200k: ámbar"
-check_eq "$(ctx level 400000)" "high" "desde 400k: rojo"
+check_eq "$(ctx level 149999)" "-" "umbral por defecto (200k): por debajo de 150k sin aviso"
+check_eq "$(ctx level 150000)" "warn" "umbral por defecto: ámbar desde 150k (3/4)"
+check_eq "$(ctx level 199999)" "warn" "umbral por defecto: 199k sigue ámbar"
+check_eq "$(ctx level 200000)" "high" "umbral por defecto: rojo desde 200k"
+echo 400k >"$BK_CONTEXT_FILE"
+check_eq "$(ctx level 299999) $(ctx level 300000) $(ctx level 400000)" "- warn high" "umbral 400k (escrito «400k»): ámbar desde 300k, rojo desde 400k"
+for bad in 40k 3m abc ''; do printf '%s' "$bad" >"$BK_CONTEXT_FILE"
+  check_eq "$(ctx level 199999) $(ctx level 200000)" "warn high" "umbral «${bad}» (fuera de rango o no es número): el por defecto"; done
+rm -f "$BK_CONTEXT_FILE"
+
+# bk context: muestra, cambia y vuelve al por defecto (solo escribe en BK_CONTEXT_FILE)
+BK="$ROOT/bin/bk"
+check_eq "$("$BK" context --json | jq -c .)" '{"limit":200000,"warn":150000,"default":200000,"custom":false}' "bk context --json: sin archivo, 200k por defecto"
+"$BK" context 350k >/dev/null
+check_eq "$(cat "$BK_CONTEXT_FILE") $("$BK" context --json | jq -c '[.limit, .warn, .custom]')" "350000 [350000,262500,true]" "bk context 350k: lo guarda en tokens y vale"
+check_eq "$("$BK" context 10k 2>&1 >/dev/null; echo "rc=$?")" "$(printf '«10k» no es un umbral: un número de tokens entre 50k y 2000k (200k, 350000, 1m)\nrc=1')" "bk context 10k: rechazado, código 1"
+check_eq "$(cat "$BK_CONTEXT_FILE")" "350000" "un valor rechazado no pisa el umbral guardado"
+"$BK" context default >/dev/null
+check_eq "$([ -e "$BK_CONTEXT_FILE" ] && echo queda || echo borrado) $("$BK" context --json | jq -c .limit)" "borrado 200000" "bk context default: borra el archivo y vuelve a 200k"
 
 echo "1..$N"
 [ "$FAILED" -eq 0 ]

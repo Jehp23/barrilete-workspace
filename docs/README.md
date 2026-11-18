@@ -1,0 +1,103 @@
+# Documentación de barrilete-workspace
+
+barrilete-workspace es `bk`, la herramienta de línea de comandos que maneja los chats y los agentes de Claude Code de los proyectos Barrilete Kit, sobre tmux o sobre Herdr. Todavía no tiene un ADR propio que lo defina: la spec es el [README](../README.md) y las decisiones que aplica son las del kit ([`decisions/kit/`](decisions/kit/)).
+
+Esta carpeta es el mapa. El código es la verdad de lo que corre; acá se dice **dónde leer** y **qué no mezclar**.
+
+---
+
+## Cómo leer (elegí un camino)
+
+| Quién | Empezá acá | Después |
+|---|---|---|
+| Persona nueva en el equipo | Este archivo → [glosario](reference/glossary.md) → [recorridos](reference/journeys.md) | [setup](development/setup.md) y a correr |
+| Producto / negocio | [Visión](development/vision.md) → [Spec](../README.md) → [roadmap](development/roadmap.md) | [horizonte](development/horizon.md) (no es el próximo ticket) |
+| Ingeniería (qué hay hoy) | [arquitectura](development/architecture.md) → [módulos](reference/modules.md) → [dominio](reference/domain.md) | [superficies](reference/surfaces.md) |
+| Deploy | [deploy](development/deploy.md) | ADRs de infraestructura |
+| Agente / LLM | [`llms.txt`](llms.txt) y [`AGENTS.md`](../AGENTS.md) | No inventar schema ni roadmap |
+
+Regla: si un documento de producto y el código no coinciden, **gana** [architecture.md](development/architecture.md). El [README](../README.md) es spec (incluye lo que viene). La [visión](development/vision.md) resume qué es, qué hay y qué viene. El [horizonte](development/horizon.md) es conversación de largo plazo.
+
+---
+
+## Capas de verdad
+
+| Capa | Archivo | Sirve para |
+|---|---|---|
+| Spec | [`README.md`](../README.md) | Qué queremos que el producto sea |
+| Visión | [`development/vision.md`](development/vision.md) | Qué es / qué hay / qué viene (narrativa) |
+| Ahora | [`development/architecture.md`](development/architecture.md) | Qué está implementado |
+| Orden | [`development/roadmap.md`](development/roadmap.md) | Qué se construye y en qué orden |
+| Después | [`development/horizon.md`](development/horizon.md) | Ideas de largo plazo — **no implementar** |
+| Por qué | [`decisions/`](decisions/) | ADRs |
+| Cómo se levanta | [`development/setup.md`](development/setup.md) | Dev local |
+| Cómo se publica | [`development/deploy.md`](development/deploy.md) | Entornos y deploy |
+| Cómo se integra | [`guides/`](guides/) | Integraciones con terceros |
+| Mapa | [`reference/`](reference/) | Glosario, datos, pantallas, módulos, recorridos |
+
+---
+
+## Índice
+
+### Referencia
+
+- [Glosario](reference/glossary.md) — palabras que no se cambian
+- [Contextos](reference/contexts.md) — contextos delimitados, sus términos propios y cómo se relacionan
+- [Dominio y datos](reference/domain.md) — tablas, IDs, estados
+- [Superficies](reference/surfaces.md) — URLs y quién entra
+- [Módulos](reference/modules.md) — dónde vive cada cosa en el código
+- [Recorridos](reference/journeys.md) — de punta a punta, con archivos
+
+### Desarrollo
+
+- [Setup](development/setup.md)
+- [Arquitectura implementada](development/architecture.md)
+- [Visión](development/vision.md)
+- [Roadmap](development/roadmap.md)
+- [Horizonte](development/horizon.md)
+- [Deploy](development/deploy.md)
+- Auditorías: `development/audit-<tema>-<AAAA-MM-DD>.md`. Cada hallazgo con ID estable (`AUD-01`…) para poder abrir un issue por hallazgo.
+
+### Decisiones
+
+- [Cómo se escribe un ADR](decisions/README.md)
+- [ADR-002](decisions/kit/ADR-002-structured-red-validation.md) — el rojo se valida solo con un reporte estructurado (JUnit XML)
+- [ADR-003](decisions/kit/ADR-003-minimal-ddd-glossary-and-contexts.md) — cada proyecto recibe un glosario del dominio y un mapa de contextos, con las reglas que los agentes aplican
+- [ADR-004](decisions/kit/ADR-004-orchestrate-launch-mode-per-role.md) — `/orchestrate` lanza cada rol como agente `bk` o como subagente, según `roles.yml` (aceptado)
+- [ADR-005](decisions/kit/ADR-005-tasks-and-events-for-bk-agents.md) — un agente `bk` trabaja sobre una tarea con estado y registro de eventos, y declara su cierre con `bk done` (aceptado)
+- [ADR-006](decisions/kit/ADR-006-rules-store-for-agents.md) — un solo store de reglas para los agentes (`barrilete-rules`) que reemplazó el archivo de lecciones del kit y las lecciones de `bk learn` (aceptado)
+- [ADR-007](decisions/kit/ADR-007-per-project-learning.md) — los datos de aprendizaje viven en el store de cada proyecto (local por defecto), con un solo evento de metadatos, las propuestas primero al proyecto y la medición por celda (regla × modelo × harness × rol); reemplaza a ADR-006 en D1, D5, D6 y D10 (propuesto)
+- Todavía no hay ADRs propios del proyecto (`decisions/ADR-001-…`). Pendiente: lo decide la persona.
+
+### Guías
+
+- [Comando del rojo por runner](guides/red-per-runner.md) — entradas para la sección `red` de `agents-map.json`
+- [Línea del flujo en la terminal](guides/flow-line.md) — en qué paso del flujo está la rama actual
+- Las integraciones propias (Herdr, la GitHub App de los agentes `bk bot`, el vault de Obsidian de `bk learn`, Ghostty) se cuentan por ahora en el [README](../README.md), sin guía aparte.
+
+### Agentes
+
+- [`AGENTS.md`](../AGENTS.md) — convenciones cortas para quien toca el repo
+- [`llms.txt`](llms.txt) — índice compacto para modelos
+- [`github-naming-convention.md`](github-naming-convention.md) — ramas, commits, PRs, issues y labels ([`.github/labels.yml`](../.github/labels.yml))
+- [`agents-map.json`](agents-map.json) — qué docs revisar según lo que cambia, rutas sensibles y docs obligatorios
+- [`agents/subagent-contract.md`](agents/subagent-contract.md) — reglas y formato de salida de los subagentes de `.claude/agents/` (implementador, implementador liviano, revisor)
+- [`agents/bitacora.md`](agents/bitacora.md) — la página de bitácora de agentes (`scripts/agents/bitacora.py`): el contrato de retros que lee y sus tokens de diseño
+- [`agents/learning-event.md`](agents/learning-event.md) — el evento de aprendizaje v1, su validador y el store (`.barrilete/learning.json`, ADR-007)
+- [`agents/classes.yml`](agents/classes.yml) — las clases con que `review-pr` etiqueta los hallazgos (la genera `scripts/agents/sync-rules` desde barrilete-rules, ADR-006)
+- Skills en [`../.claude/skills/`](../.claude/skills/): `plan-feature`, `create-issue`, `implement-issue`, `debug`, `db-migration`, `update-docs`, `review-pr`, `project-status`, `git-workflow`, `improve-skills`, `orchestrate`
+- Los docs se validan en CI: [`../scripts/agents/check-docs.py`](../scripts/agents/check-docs.py)
+
+---
+
+## Cómo mantener esta sección
+
+- Cambio de **comportamiento que ya corre** → `architecture.md` y, si aplica, `reference/*`.
+- Cambio de **orden de producto** → `roadmap.md`.
+- Cambio de **narrativa qué es / qué hay / qué viene** → `vision.md`.
+- Idea de **algún día** → `horizon.md`, no al código.
+- Decisión irreversible → ADR nuevo en `decisions/`.
+- Un ADR y el código no coinciden → actualizar el ADR o el código; no dejar los dos.
+- Documento nuevo → sumarlo a este índice. A `llms.txt` se suma recién cuando tiene contenido (no solo `TODO:`).
+
+No duplicar listas canónicas (endpoints, tablas): viven en un solo archivo y el resto enlaza.

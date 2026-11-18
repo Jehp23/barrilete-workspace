@@ -1,6 +1,6 @@
 {
   "place": "none",
-  "title": "Pestañas",
+  "title": "Contexto",
   "cloned_from": {
     "name": "tabs",
     "version": "0.1.15"

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """bk monitor: pantalla para dejar abierta en otro monitor y vigilar a todos los agentes.
 
-  Agentes   los de bk y los chats: título, estado, herramienta, minutos, contexto (ámbar desde 200k, rojo desde
-            400k), costo de la sesión y sus subagentes
+  Agentes   los de bk y los chats: título, estado, herramienta, minutos, contexto (rojo desde el umbral de
+            bk context, 200k por defecto; ámbar desde 3/4), costo de la sesión y sus subagentes
   Desvíos   en vivo, apenas pasan: los que detecta `bk learn` (hooks, barandas, red.sh/verify.py, correcciones,
             interrupciones, permisos rechazados, bloqueantes del contrato) y otros propios del monitor:
             agente trabado, el mismo error repetido, force push, otra credencial, "CI en verde" con el CI rojo,

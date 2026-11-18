@@ -32,8 +32,14 @@ export default class Bk extends View {
       } catch (e) {
         notify({ title: "bk", body: String(e?.message ?? e), level: "error" });
       }
-      if (mine) closeOverlay(mine);
+      this.closeSelf();
     });
+  }
+
+  closeSelf() {
+    const mine = props()?.overlay;
+    if (mine && !this.closed) closeOverlay(mine);
+    this.closed = true;
   }
 
   async handle(c) {
@@ -45,11 +51,24 @@ export default class Bk extends View {
     if (c === "chat") return this.chat(f);
     if (c === "next") return this.next(f);
     if (c === "last") return this.last(f);
+    if (c === "epica") return this.epica(f);
+    if (c === "todo") return this.todo();
+    if (c === "cambios") return this.tab("cambios");
     const g = /^go([1-9])$/.exec(c);
     if (g) return this.go(g[1]);
     const m = /^agent([1-9])$/.exec(c);
     if (m) return this.show(f, (t) => label(t, "bk.kind") === "agent", Number(m[1]), `no hay agente ${m[1]} en este espacio`);
     notify({ title: "bk", body: `comando desconocido: ${c}`, level: "warning" });
+  }
+
+  // alt+t: el panel derecho en la pestaña TODO (los pasos del issue del chat, mods/lado). Si ya estaba en TODO,
+  // vuelve a Estado. Siempre lo muestra: oculto (alt+.), la tecla no haría nada a la vista.
+  todo() { this.tab("todo"); }
+
+  // alt+g: lo mismo con la pestaña Cambios (lo sin commitear; el clic en un archivo abre su diff en un popup)
+  tab(name) {
+    setShared("bk.lado.tab", shared("bk.lado.tab") === name ? "estado" : name);
+    run("layout.show", { id: "lado" });
   }
 
   // Cierra el popup anterior, viva o no su terminal (uno cuyo comando ya terminó puede quedar abierto y es
@@ -176,6 +195,21 @@ export default class Bk extends View {
     if (!prev) return notify({ title: "bk", body: "no hay un lugar anterior", level: "info", timeout: 2500 });
     run("space.select", { id: prev.space });
     run("tab.select", { id: prev.tab });
+  }
+
+  // alt+p: el detalle de la épica del chat enfocado (si no tiene, la primera de la sección ÉPICAS), el mismo popup
+  // que abre el clic en su tarjeta. Los datos y el alto los deja la barra de agentes en shared "bk.epics".
+  epica(f) {
+    const s = shared("bk.epics") ?? {};
+    const keys = Object.keys(s.epics ?? {});
+    const key = s.byTerminal?.[f?.terminal] ?? (keys.length === 1 ? keys[0] : null);
+    if (!keys.length) return notify({ title: "bk", body: "ningún chat tiene una épica", level: "info", timeout: 2500 });
+    // Este mod (un popup invisible) se cierra antes de abrir el de la épica: si se cierra después, Herdr le
+    // devuelve el teclado a la terminal de abajo y el popup no recibe ↑↓ ⏎ g l esc (2026-11-17).
+    this.closeSelf();
+    // Este chat no tiene épica y hay varias: elegir cuál (el selector está en bk-agentes)
+    if (!key) return openOverlay({ mod: "bk-agentes", kind: "dialog", width: 420, height: s.pickHeight ?? 34 + keys.length * 30 + 10, props: { epicPick: true } });
+    openOverlay({ mod: "bk-agentes", kind: "dialog", width: 780, height: s.epics?.[key]?.height ?? 400, props: { epic: key } });
   }
 
   // La pestaña n (desde 1) del espacio a la vista cuya terminal cumple `pick`, en el orden de las pestañas

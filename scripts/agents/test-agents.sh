@@ -1,0 +1,569 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2319  # "<condición>; tap_check $?" es el patrón de los tests (tap.sh)
+# Tests de los subagentes (.claude/agents/) y de su validación en check-docs.py.
+# Corre sobre una copia del repo (git archive), así no toca el working tree.
+# Uso: bash scripts/agents/test-agents.sh
+set -uo pipefail
+RAIZ=$(cd "$(dirname "$0")/../.." && pwd)
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/test-agents-XXXXXX")
+# shellcheck source=/dev/null
+. "$RAIZ/scripts/agents/tap.sh"
+tap_begin "$0"
+tap_at_exit "rm -rf \"\$TMP\""
+# Uso: <condición>; tap_check $? "descripción"
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=t@t
+CONTRATO=docs/agents/subagent-contract.md
+AGENTES=".claude/agents"
+
+# Copia del repo con lo commiteado y lo que está en el working tree.
+copia() {
+  rm -rf "$TMP/r" || true  # best effort: the copy of an earlier case may have read-only files
+  mkdir -p "$TMP/r"
+  (cd "$RAIZ" && git ls-files -co --exclude-standard -z | tar --null -T - -cf - 2>/dev/null || true) | tar -xf - -C "$TMP/r"  # a file the index lists and the tree lost only warns
+  (cd "$TMP/r" && git init -q && git add -A && git commit -qm base)
+}
+check() {
+  local o c=0
+  o=$(trap - ERR; cd "$TMP/r" && python3 scripts/agents/check-docs.py 2>&1) || c=$?
+  tap_status "$c" 1
+  tap_no_traceback "$o"
+  printf '%s\n' "$o"
+}
+# check-docs sin errores de los subagentes. En un proyecto recién inicializado check-docs falla
+# igual por los TODO del mapa, así que se mira solo lo de los subagentes.
+# (only the missing Spanish sibling of the throwaway x.md is filtered: it is the parity check, not the subagent's frontmatter or contract)
+errores_agentes() { local o; o=$(check); o=$(sed "\#^- $AGENTES/x\.md: missing its Spanish sibling#d" <<<"$o"); sed -nE "\#$AGENTES|subagent-contract#p" <<<"$o"; }
+sin_errores_agentes() { local o; o=$(errores_agentes); [ -z "$o" ]; }
+frontmatter() { awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1{print}' "$1"; }
+
+# 1. Los tres roles existen con su modelo y herramientas acotadas.
+for par in implementer:sonnet implementer-light:haiku; do
+  rol=${par%%:*}; modelo=${par##*:}; f="$RAIZ/$AGENTES/$rol.md"
+  fm=$(frontmatter "$f" 2>/dev/null)
+  grep -qx "name: $rol" <<<"$fm"; tap_check $? "<rol>: existe con name: <rol>" "$rol: existe con name: $rol"
+  grep -qx "model: $modelo" <<<"$fm"; tap_check $? "<rol>: model: <modelo>" "$rol: model: $modelo"
+  grep -q "^tools: " <<<"$fm"; tap_check $? "<rol>: lista sus herramientas (tools:)" "$rol: lista sus herramientas (tools:)"
+  grep -q "$CONTRATO" "$f" 2>/dev/null; tap_check $? "<rol>: remite al contrato de salida común" "$rol: remite al contrato de salida común"
+done
+# El reviewer corre en Sonnet (enmienda de ADR-004 D2, #263); sus otras comprobaciones son las del bucle.
+f="$RAIZ/$AGENTES/reviewer.md"; fm=$(frontmatter "$f" 2>/dev/null)
+grep -qx "name: reviewer" <<<"$fm"; tap_check $? "reviewer: existe con name: reviewer"
+grep -qx "model: sonnet" <<<"$fm"; tap_check $? "reviewer: model: sonnet"
+grep -q "^tools: " <<<"$fm"; tap_check $? "reviewer: lista sus herramientas (tools:)"
+grep -q "$CONTRATO" "$f" 2>/dev/null; tap_check $? "reviewer: remite al contrato de salida común"
+! grep -q "Edit" <<<"$(frontmatter "$RAIZ/$AGENTES/reviewer.md" 2>/dev/null | grep '^tools:')"; tap_check $? "revisor: no puede editar código (Write solo para la revisión y la retro)"
+
+# 2. El contrato de salida está en un solo lugar, con todos los resultados.
+for r in pr question escalate dropped blockers; do
+  grep -q "\`$r\`" "$RAIZ/$CONTRATO" 2>/dev/null; tap_check $? "el contrato define el resultado <r>" "el contrato define el resultado $r"
+done
+for k in result issue pr model role ci self-review summary "for the reviewer" questions reason retro; do
+  grep -q "^$k: " "$RAIZ/$CONTRATO" 2>/dev/null; tap_check $? "el bloque de salida del contrato tiene la clave <k>" "el bloque de salida del contrato tiene la clave $k"
+done
+grep -Eq "agrega al final .review:.|adds .review:. at the end" "$RAIZ/$CONTRATO" 2>/dev/null; tap_check $? "el contrato dice que el revisor agrega review:"
+! grep -Eq '^(resultado|modelo|rol|autorevision|resumen|para el revisor|consultas|motivo|revision):' "$RAIZ/$CONTRATO" 2>/dev/null; tap_check $? "el contrato no conserva claves de salida en español"
+grep -q "retro.sh" "$RAIZ/$CONTRATO" 2>/dev/null; tap_check $? "el contrato dice que cada subagente guarda su retro con retro.sh"
+
+# 3. El liviano dice exactamente cuándo escalar.
+f="$RAIZ/$AGENTES/implementer-light.md"
+grep -q "agents_map.py" "$f" 2>/dev/null && grep -Eq "rutas sensibles|sensitive paths" "$f" && grep -q "business-logic" "$f"
+tap_check $? "implementer-light: escala por rutas sensibles (agents_map.py) o lógica de negocio"
+f="$RAIZ/$AGENTES/implementer-light.md"
+grep -q "agents_map.py.*error\|error.*agents_map.py" "$f" 2>/dev/null; tap_check $? "implementer-light: escala si agents_map.py no corre o sale con error"
+grep -Eq "prioridad|take priority" "$f" 2>/dev/null; tap_check $? "implementer-light: dice qué tiene prioridad sobre consulta y soltado del contrato"
+grep -q "BASE" "$RAIZ/$CONTRATO" 2>/dev/null; tap_check $? "el contrato dice cómo pasar BASE a los scripts"
+f="$RAIZ/$AGENTES/reviewer.md"
+! grep -q "FETCH_HEAD" "$f" 2>/dev/null && grep -q "headRefOid" "$f" 2>/dev/null; tap_check $? "revisor: trae el PR a una ref propia (no FETCH_HEAD) y comprueba headRefOid"
+
+# 4. check-docs.py valida los subagentes.
+copia
+sin_errores_agentes; tap_check $? "check-docs no reporta errores en los subagentes del repo"
+mkdir -p "$TMP/r/$AGENTES"
+printf -- '---\nname: x\ndescription: d\ntools: Read\nmodel: gpt-4\n---\nVer %s.\n' "$CONTRATO" >"$TMP/r/$AGENTES/x.md"
+salida=$(check); grep -q "$AGENTES/x.md.*model" <<<"$salida"; tap_check $? "check-docs rechaza un model que no es opus, sonnet ni haiku"
+printf -- '---\nname: x\ndescription: d\nmodel: haiku\n---\nVer %s.\n' "$CONTRATO" >"$TMP/r/$AGENTES/x.md"
+salida=$(check); grep -q "$AGENTES/x.md.*tools" <<<"$salida"; tap_check $? "check-docs rechaza un subagente sin tools"
+printf -- '---\nname: x\ndescription: d\ntools: Read\nmodel: haiku\n---\nSin contrato.\n' >"$TMP/r/$AGENTES/x.md"
+salida=$(check); grep -q "$AGENTES/x.md.*contract" <<<"$salida"; tap_check $? "check-docs rechaza un subagente que no remite al contrato"
+printf -- '---\r\nname: x\r\ndescription: d\r\ntools: Read\r\nmodel: haiku\r\n---\r\nVer %s.\r\n' "$CONTRATO" >"$TMP/r/$AGENTES/x.md"
+sin_errores_agentes; tap_check $? "check-docs acepta un subagente con fin de línea CRLF"
+printf -- '---\nname: "x"\ndescription: d\ntools: Read\nmodel: "haiku"\n---\nVer %s.\n' "$CONTRATO" >"$TMP/r/$AGENTES/x.md"
+sin_errores_agentes; tap_check $? "check-docs acepta valores entre comillas"
+printf -- '---\nname: y\ndescription: d\ntools: Read\nmodel: haiku\n---\nVer %s.\n' "$CONTRATO" >"$TMP/r/$AGENTES/y.es.md"
+errores_agentes >"$TMP/errs"; grep -q "second agent" "$TMP/errs"; tap_check $? "el filtro de sin_errores_agentes deja pasar el error de un .es.md dentro de .claude/agents"
+rm -f "$TMP/r/$AGENTES/y.es.md"
+
+# 5. En un repo con .agent-kit.json, check-docs y los listados solo miran los archivos del kit.
+copia
+python3 - "$TMP/r" <<'PY'
+import json, subprocess, sys
+r = sys.argv[1]
+archivos = subprocess.run(["git", "-C", r, "ls-files"], capture_output=True, text=True).stdout.split()
+json.dump({"files": {a: "x" for a in archivos}}, open(r + "/.agent-kit.json", "w"))
+PY
+mkdir -p "$TMP/r/ajeno"
+printf '# Ajeno\n\n[roto](no-existe.md)\n' >"$TMP/r/ajeno/README.md"
+printf '#!/bin/sh\necho [ -z a ]\n' >"$TMP/r/ajeno/malo.sh"
+printf '#!/bin/sh\nexit 1\n' >"$TMP/r/ajeno/test-propio.sh"
+listar() { (cd "$TMP/r" && python3 scripts/agents/check-docs.py --list "$1" 2>/dev/null); }
+# En un proyecto recién inicializado el check falla por los TODO del mapa: se mira solo lo ajeno.
+salida=$(check); grep -q "^Docs\|^Warning" <<<"$salida" && ! grep -q "ajeno/README.md" <<<"$salida"; tap_check $? "con .agent-kit.json, un .md ajeno con link roto no falla el check"
+lista=$(listar '*.sh'); grep -qx "scripts/agents/test-agents.sh" <<<"$lista"; tap_check $? "con .agent-kit.json, --list '*.sh' devuelve los scripts del kit"
+! grep -q "^ajeno/" <<<"$lista"; tap_check $? "con .agent-kit.json, --list '*.sh' no devuelve los .sh ajenos"
+lista=$(listar '*test-*.sh'); grep -qx "scripts/agents/test-agents.sh" <<<"$lista" && ! grep -q "^ajeno/" <<<"$lista"
+tap_check $? "con .agent-kit.json, --list '*test-*.sh' no devuelve los tests propios del proyecto"
+codigo=0; (trap - ERR; cd "$TMP/r" && python3 scripts/agents/check-docs.py --list >/dev/null 2>&1) || codigo=$?; tap_status "$codigo" 2
+if [ "$codigo" -eq 2 ]; then tap_ok "--list sin glob es un error de uso (no corre el check completo)"; else tap_fail "--list sin glob es un error de uso (no corre el check completo)"; fi
+cp "$TMP/r/.agent-kit.json" "$TMP/kit.bak"; echo '{roto' >"$TMP/r/.agent-kit.json"
+codigo=0; (trap - ERR; cd "$TMP/r" && python3 scripts/agents/check-docs.py --list '*.sh' >/dev/null 2>&1) || codigo=$?; tap_status "$codigo" 1
+if [ "$codigo" -ne 0 ]; then tap_ok "un .agent-kit.json inválido hace fallar --list (no devuelve una lista vacía)"; else tap_fail "un .agent-kit.json inválido hace fallar --list (no devuelve una lista vacía)"; fi
+salida=$(check); grep -q "\.agent-kit.json" <<<"$salida" && ! grep -q Traceback <<<"$salida"; tap_check $? "un .agent-kit.json inválido es un error claro del check, sin traceback"
+cp "$TMP/kit.bak" "$TMP/r/.agent-kit.json"
+printf '# Doc\n\n[roto](no-existe.md)\n' >"$TMP/r/docs/ajeno-en-docs.md"
+salida=$(check); grep -q "docs/ajeno-en-docs.md.*broken link" <<<"$salida"; tap_check $? "con .agent-kit.json, un link roto en docs/ sigue fallando"
+rm "$TMP/r/docs/ajeno-en-docs.md"
+printf '\n[roto](no-existe.md)\n' >>"$TMP/r/README.md"
+salida=$(check); grep -q "^- README.md:.*broken link" <<<"$salida"; tap_check $? "con .agent-kit.json, un link roto en un archivo del kit sigue fallando"
+rm "$TMP/r/.agent-kit.json"; git -C "$TMP/r" add -A  # sin manifiesto, el kit es lo que git rastrea
+salida=$(check); grep -q "ajeno/README.md.*broken link" <<<"$salida"; tap_check $? "sin .agent-kit.json (la plantilla), se revisa todo"
+lista=$(listar '*.sh'); grep -qx "ajeno/malo.sh" <<<"$lista"; tap_check $? "sin .agent-kit.json, --list devuelve todos los archivos del repo"
+# El kit lleva un .agent-kit.json con su proyecto (para sync-rules): "template": true lo deja tratarse como la plantilla.
+printf '{"project": "x", "template": true}\n' >"$TMP/r/.agent-kit.json"
+salida=$(check); grep -q "ajeno/README.md.*broken link" <<<"$salida"; tap_check $? "297: con un .agent-kit.json de la plantilla (template: true), se revisa todo"
+
+# 6. El modo chico no deja los subagentes (solo en la plantilla: el init borra profiles/).
+if [ -f "$RAIZ/profiles/small/DELETE" ]; then
+  grep -qx "$AGENTES" "$RAIZ/profiles/small/DELETE"; tap_check $? "el modo chico borra <AGENTES>" "el modo chico borra $AGENTES"
+  grep -qx "scripts/agents/test-agents.sh" "$RAIZ/profiles/small/DELETE"; tap_check $? "el modo chico borra test-agents.sh (sin agentes no tiene qué probar)"
+fi
+
+# 7. Sin restos en español en lo que no tiene hermano en otro idioma (#143): el `_help` y los `reason` del mapa, el `_help` del
+# equipo y los `id:` de los formularios (los hermanos de los formularios usan los mismos ids).
+# Solo en el kit (donde está el init): un proyecto instalado en español escribe los reason del mapa y los ids de sus formularios en su idioma.
+if [ -f "$RAIZ/scripts/init-template.sh" ]; then
+! grep -Eq 'Mapa para agentes|Integrantes del equipo|cambió|cambiaron|Se edita con|qué documento|por ejemplo:|TODO: (comando|tests,|verificar|comparar)' "$RAIZ/docs/agents-map.json" "$RAIZ/.github/team.json" 2>/dev/null; tap_check $? "el _help, los reason y los TODO de docs/agents-map.json y de .github/team.json están en inglés"
+ids_viejos='que-pasa|esperado|pasos|contexto|que|porque|criterios|objetivo|alcance|negocio|documento|hallazgo|riesgo|propuesta|herramienta|modo|hasta|trabas|dudas|agente|tiempo|cambiaria'
+! grep -rEq "^ *(- )?id: *($ids_viejos) *$" "$RAIZ/.github/ISSUE_TEMPLATE" "$RAIZ/.github/i18n" 2>/dev/null; tap_check $? "los id: de los formularios de issues (y de sus hermanos en español) están en inglés"
+fi
+# 7. verify.py corre antes del PR cada test-*.sh que corre el CI (#143): si no, el error recién aparece en CI.
+# Para cada script, hay una verificación del mapa que lo corre y que se dispara cuando cambia el propio script.
+mapa_verify=$(cd "$RAIZ" && python3 - <<'PY'
+import json, re, subprocess, sys
+sys.path.insert(0, "scripts/agents")
+from agents_map import coincide
+reglas = json.load(open("docs/agents-map.json", encoding="utf-8"))["verify"]
+lista = subprocess.run(["python3", "scripts/agents/check-docs.py", "--list", "*test-*.sh"], capture_output=True, text=True)
+tests = lista.stdout.split()
+if lista.returncode != 0 or not tests:
+    print("check-docs.py --list failed or listed nothing")
+for t in tests:
+    if not any(re.search(r"(?:^|[;&| ])bash " + re.escape(t) + r"(?: |$)", r["run"]) and coincide(t, r.get("when", [])) for r in reglas):
+        print(t)
+PY
+)
+[ -z "$mapa_verify" ]
+tap_check $? "verify: cada test-*.sh que corre el CI está en el mapa y se dispara al cambiar él mismo" "${mapa_verify:+faltan: $(echo "$mapa_verify" | tr '
+' ' ')}"
+# Solo en la plantilla: el init borra test-renames.sh y su verificación.
+if [ -f "$RAIZ/scripts/test-renames.sh" ]; then
+(cd "$RAIZ" && python3 - <<'PY'
+import json, sys
+sys.path.insert(0, "scripts/agents")
+from agents_map import coincide
+reglas = {r["name"]: r for r in json.load(open("docs/agents-map.json", encoding="utf-8"))["verify"]}
+r = reglas.get("renames", {})
+# Los literales viejos recién aparecían en CI: el test de renames corre cuando cambian scripts, tests o docs.
+cambios = ["scripts/agents/verify.py", "docs/github-naming-convention.md", ".claude/skills/implement-issue/SKILL.md", "docs/agents-map.json", ".github/workflows/labels.yml"]
+sys.exit(0 if all(coincide(c, r.get("when", [])) for c in cambios) else 1)
+PY
+); tap_check $? "verify: renames corre cuando cambian scripts, docs, skills, el mapa o los workflows"
+fi
+
+# 6. check-docs.py valida la sección red del mapa (ADR-002 D2, #152). En un proyecto inicializado check-docs falla
+# igual por los TODO del mapa, así que se miran solo sus líneas de la sección red ("docs/agents-map.json: red ...").
+# Reemplaza la sección red del mapa de la copia por el JSON que se pasa (o la borra con DEL).
+poner_red() {
+  local c=0
+  RED_JSON="$1" python3 - "$TMP/r/docs/agents-map.json" <<'PY' || c=$?
+import json, os, sys
+ruta = sys.argv[1]
+m = json.load(open(ruta, encoding="utf-8"))
+if os.environ["RED_JSON"] == "DEL":
+    m.pop("red", None)
+else:
+    m["red"] = json.loads(os.environ["RED_JSON"])
+open(ruta, "w", encoding="utf-8").write(json.dumps(m, ensure_ascii=False, indent=2) + "\n")
+PY
+  tap_status "$c" 0
+}
+errores_red() { local o; o=$(check); grep '^- docs/agents-map.json: red' <<<"$o" || [ $? -eq 1 ]; }
+OK='{"name":"py","when":["**/test_*.py"],"run":"pytest --junitxml={out}","format":"junit","timeout":600}'
+# Una entrada inválida: check-docs informa un error de red con todos los fragmentos. Se usa como:
+# rechaza <entrada JSON> <fragmento>...; tap_check $? "id literal"
+# Cada aserción suma su estado (0 o 1) a r: un crash (estado 2 de grep) lo corta tap.sh.
+rechaza() {
+  local entrada="$1"; shift
+  poner_red "[$entrada]"
+  local salida f r=0
+  salida=$(errores_red)
+  [ -n "$salida" ]; r=$((r + $?))
+  for f in "$@"; do grep -q -- "$f" <<<"$salida"; r=$((r + $?)); done
+  [ "$r" -eq 0 ]
+}
+
+copia
+poner_red "[$OK]"
+[ -z "$(errores_red)" ]; tap_check $? "check-docs acepta una entrada red válida (pytest, junit, timeout)"
+poner_red '[{"name":"b","when":["**/test-*.sh"],"run":"TAP_OUT={out} bash t.sh","format":"junit"}]'
+[ -z "$(errores_red)" ]; tap_check $? "check-docs acepta una entrada red válida sin timeout (es opcional)"
+poner_red DEL
+[ -z "$(errores_red)" ]; tap_check $? "check-docs acepta un mapa sin sección red (se lee como vacía)"
+
+rechaza '{"name":"sinout","when":["**/*.py"],"run":"pytest","format":"junit"}' "red 'sinout'" '{out}'; tap_check $? "check-docs rechaza una entrada red sin {out} en run"
+rechaza '{"name":"fmt","when":["**/*.py"],"run":"pytest --junitxml={out}","format":"xml"}' "red 'fmt'" 'junit'; tap_check $? "check-docs rechaza un format que no es junit ni tap"
+rechaza '{"name":"nofmt","when":["**/*.py"],"run":"pytest --junitxml={out}"}' "red 'nofmt'" 'format'; tap_check $? "check-docs rechaza una entrada red sin format"
+rechaza '{"name":"nowhen","run":"pytest --junitxml={out}","format":"junit"}' "red 'nowhen'" 'when'; tap_check $? "check-docs rechaza una entrada red sin when"
+rechaza '{"name":"vacio","when":[],"run":"pytest --junitxml={out}","format":"junit"}' "red 'vacio'" 'when'; tap_check $? "check-docs rechaza un when vacío"
+rechaza '{"name":"textos","when":"**/*.py","run":"pytest --junitxml={out}","format":"junit"}' "red 'textos'" 'when'; tap_check $? "check-docs rechaza un when que no es una lista de textos"
+rechaza '{"name":"tout","when":["**/*.py"],"run":"pytest --junitxml={out}","format":"junit","timeout":"600"}' "red 'tout'" 'timeout'; tap_check $? "check-docs rechaza un timeout que no es un entero"
+rechaza '{"name":"cero","when":["**/*.py"],"run":"pytest --junitxml={out}","format":"junit","timeout":0}' "red 'cero'" 'timeout'; tap_check $? "check-docs rechaza un timeout cero o negativo"
+rechaza '{"name":"bool","when":["**/*.py"],"run":"pytest --junitxml={out}","format":"junit","timeout":true}' "red 'bool'" 'timeout'; tap_check $? "check-docs rechaza un timeout booleano (true no es un entero)"
+rechaza '{"name":"rep","when":["**/*.py"],"run":"pytest --junitxml={out}","format":"junit","report":"{out}"}' "red 'rep'" 'report'; tap_check $? "check-docs rechaza el campo report, que no existe (el camino va en {out})"
+rechaza '{"when":["**/*.py"],"run":"pytest --junitxml={out}","format":"junit"}' "red\[0\]" 'name'; tap_check $? "check-docs rechaza una entrada red sin name"
+rechaza '"pytest"' "red\[0\]" 'object'; tap_check $? "check-docs rechaza una entrada red que no es un objeto"
+
+# 2.0.0 sacó format "tap" (ADR-002 D8, #227): una entrada tap del mapa es un error con el texto de red.sh, no un aviso.
+rechaza '{"name":"nodo","when":["**/*.test.js"],"run":"node --test > {out}","format":"tap"}' "red stack 'nodo'" 'format "tap" was removed in 2.0.0; use "junit" (docs/guides/red-per-runner.md)'; tap_check $? "227: check-docs rechaza una entrada red con format tap con el texto de ADR-002 D8"
+poner_red '[{"name":"nodo","when":["**/*.test.js"],"run":"node --test > {out}","format":"tap"}]'
+salida=$(check)
+grep -qxF -- "- docs/agents-map.json: red stack 'nodo': format \"tap\" was removed in 2.0.0; use \"junit\" (docs/guides/red-per-runner.md)" <<<"$salida"; tap_check $? "227: el error de check-docs por tap es el literal de red.sh, sin repetir el nombre"
+[[ "$salida" != *'which 2.0.0 removes'* ]]; tap_check $? "227: check-docs ya no imprime el aviso de 1.x por format tap"
+copia
+[ -z "$(errores_red)" ]; tap_check $? "check-docs acepta la entrada bash del kit (junit)"
+
+# red.sh solo acepta names con [A-Za-z0-9._-]+ (van en el camino de {out}) y una sección red no vacía: check-docs falla antes.
+rechaza '{"name":"unit tests","when":["**/*.py"],"run":"pytest --junitxml={out}","format":"junit"}' "red 'unit tests'" 'name'; tap_check $? "check-docs rechaza un name con espacios (red.sh lo rechaza)"
+rechaza '{"name":"py/unit","when":["**/*.py"],"run":"pytest --junitxml={out}","format":"junit"}' "red 'py/unit'" 'name'; tap_check $? "check-docs rechaza un name con barra (red.sh lo rechaza)"
+rechaza '{"name":" py","when":["**/*.py"],"run":"pytest --junitxml={out}","format":"junit"}' "red ' py'" 'name'; tap_check $? "check-docs rechaza un name con espacio al borde (red.sh lo rechaza)"
+poner_red '[]'
+errores_red | grep -q "empty"; tap_check $? "check-docs rechaza una sección red vacía (red.sh la rechaza)"
+poner_red "[$OK,$OK]"
+errores_red | grep -q "more than once"; tap_check $? "check-docs rechaza dos entradas red con el mismo name (red.sh <stack> sería ambiguo)"
+poner_red '{"name":"py"}'
+errores_red | grep -q "array"; tap_check $? "check-docs rechaza una sección red que no es un arreglo"
+poner_red '[{"name":"a","when":["**/*.py"],"run":"x","format":"zzz"}]'
+[ "$(errores_red | grep -c "red 'a'")" -ge 2 ]; tap_check $? "check-docs informa todos los problemas de una entrada, no solo el primero"
+
+# 7. La guía por runner (en y es): sus entradas tienen que ser seguras de copiar.
+guia_entrada() { # guia_entrada <archivo> <name>: el bloque json de la entrada, o nada
+  python3 - "$1" "$2" <<'PY'
+import json, re, sys
+for b in re.findall(r"```json\n(.*?)\n```", open(sys.argv[1], encoding="utf-8").read(), re.S):
+    e = json.loads(b)
+    if e.get("name") == sys.argv[2]:
+        print(e["run"])
+        break
+PY
+}
+guia_seccion() { # guia_seccion <archivo> <título>: el texto de la sección ## <título>
+  awk -v t="## $2" '$0==t{p=1;next} /^## /{p=0} p' "$1"
+}
+# (en la plantilla están las dos; un proyecto instalado tiene una sola, en su idioma, como red-per-runner.md)
+for idioma in en es; do
+  if [ "$idioma" = en ]; then g="$RAIZ/docs/guides/red-per-runner.md"; else g="$RAIZ/docs/guides/red-per-runner.es.md"; fi
+  [ -f "$g" ] || continue
+  run=$(guia_entrada "$g" bash)
+  grep -qF '<testsuites>' <<<"$run"; tap_check $? "[<idioma>] la entrada bash de la guía envuelve los testsuites en <testsuites> (#225)" "[$idioma] la entrada bash de la guía envuelve los testsuites en <testsuites> (#225)"
+  # shellcheck disable=SC2016
+  grep -qF 'TAP_OUT=$tmp' <<<"$run"; tap_check $? "[<idioma>] la entrada bash de la guía le da a cada script un TAP_OUT temporal (#225)" "[$idioma] la entrada bash de la guía le da a cada script un TAP_OUT temporal (#225)"
+  grep -qE '(^|[ ;|&(])grep ' <<<"$run"; [ $? -eq 1 ]; tap_check $? "[<idioma>] la entrada bash de la guía no revisa {out} con grep (#225)" "[$idioma] la entrada bash de la guía no revisa {out} con grep (#225)"
+  run=$(guia_entrada "$g" cargo-nextest)
+  grep -q 'rm -f target/nextest/red/junit.xml' <<<"$run"; tap_check $? "[<idioma>] la entrada nextest de la guía borra el reporte viejo antes de correr" "[$idioma] la entrada nextest de la guía borra el reporte viejo antes de correr"
+  grep -qi 'unverified\|sin verificar' <(guia_seccion "$g" "cargo (nextest)"); tap_check $? "[<idioma>] la guía marca la entrada nextest como sin verificar" "[$idioma] la guía marca la entrada nextest como sin verificar"
+done
+
+# 3. La retro se guarda con el retro.sh de la rama base, no con el del worktree (#132).
+for f in "$CONTRATO" "${CONTRATO%.md}.es.md" .claude/skills/orchestrate/SKILL.md .claude/skills/orchestrate/SKILL.es.md \
+  .claude/skills/implement-issue/SKILL.md .claude/skills/implement-issue/SKILL.es.md \
+  "$AGENTES/implementer.md" "$AGENTES/implementer-light.md" .claude/i18n/agents/implementer.es.md .claude/i18n/agents/implementer-light.es.md; do
+  [ -e "$RAIZ/$f" ] || continue  # the Spanish sibling does not exist in a project installed with --lang es
+  grep -q 'retro_sh' "$RAIZ/$f" 2>/dev/null; tap_check $? "<f>: nombra retro_sh (la ruta del retro.sh del checkout del orquestador)" "$f: nombra retro_sh (la ruta del retro.sh del checkout del orquestador)"
+done
+for f in .claude/skills/orchestrate/SKILL.md .claude/skills/orchestrate/SKILL.es.md; do
+  [ -e "$RAIZ/$f" ] || continue
+  grep -Eq '(In the prompt|En el prompt):.*retro_sh' "$RAIZ/$f" 2>/dev/null; tap_check $? "<f>: el prompt de los implementadores incluye retro_sh" "$f: el prompt de los implementadores incluye retro_sh"
+done
+for f in .claude/skills/implement-issue/SKILL.md .claude/skills/implement-issue/SKILL.es.md; do
+  [ -e "$RAIZ/$f" ] || continue
+  grep -Eq '^retro_dir=.*git -C <worktree> archive origin/<base> ' "$RAIZ/$f" 2>/dev/null; tap_check $? "<f>: sin orquestador usa el retro.sh de origin/<base> (git archive a un temporal)" "$f: sin orquestador usa el retro.sh de origin/<base> (git archive a un temporal)"
+done
+for f in "$CONTRATO" "${CONTRATO%.md}.es.md"; do
+  [ -e "$RAIZ/$f" ] || continue
+  # La viñeta de la retro, no cualquier línea del contrato (la del revisor ya habla de retro.sh y del worktree).
+  vi=$(grep -Ei 'You save the retro yourself|La retro la guardás vos' "$RAIZ/$f" 2>/dev/null)
+  grep -q 'retro_sh' <<<"$vi"; tap_check $? "<f>: la viñeta de la retro nombra retro_sh" "$f: la viñeta de la retro nombra retro_sh"
+  grep -Eiq 'never|nunca' <<<"$vi"; tap_check $? "<f>: la viñeta de la retro dice que nunca se corre el del worktree (never/nunca)" "$f: la viñeta de la retro dice que nunca se corre el del worktree (never/nunca)"
+  grep -Eiq "worktree" <<<"$vi"; tap_check $? "<f>: la viñeta de la retro nombra el worktree" "$f: la viñeta de la retro nombra el worktree"
+done
+for f in .claude/skills/implement-issue/SKILL.md .claude/skills/implement-issue/SKILL.es.md; do
+  [ -e "$RAIZ/$f" ] || continue
+  grep -q '^``` ' "$RAIZ/$f"; [ $? -eq 1 ]; tap_check $? "<f>: el cierre del bloque de código de la retro está solo en su línea" "$f: el cierre del bloque de código de la retro está solo en su línea"
+  # shellcheck disable=SC2016  # the backticks are part of the regex, not an expansion
+  grep -Eq '`retro\.sh` (with no arguments|sin argumentos)' "$RAIZ/$f"; [ $? -eq 1 ]; tap_check $? "<f>: no manda a correr retro.sh sin argumentos (sería el del worktree)" "$f: no manda a correr retro.sh sin argumentos (sería el del worktree)"
+  grep -Eq '^retro_dir=.*git -C <worktree> fetch -q origin <base> && ' "$RAIZ/$f"; tap_check $? "<f>: el comando sin orquestador trae origin/<base> antes del archive" "$f: el comando sin orquestador trae origin/<base> antes del archive"
+  grep -Eq 'git archive. (command )?fails|el comando .git archive. falla' "$RAIZ/$f"; tap_check $? "<f>: dice qué hacer si el git archive falla" "$f: dice qué hacer si el git archive falla"
+  grep -Eq 'left on purpose|queda a propósito' "$RAIZ/$f"; tap_check $? "<f>: dice que el directorio temporal queda a propósito" "$f: dice que el directorio temporal queda a propósito"
+  grep -Eq 'your worktree \(or your checkout\)|tu worktree \(o tu checkout\)' "$RAIZ/$f"; tap_check $? "<f>: sin orquestador habla del worktree o del checkout" "$f: sin orquestador habla del worktree o del checkout"
+done
+
+# 8. Glosario y mapa de contextos en --small (ADR-003 D2, D5, #217). El mapa solo tiene `red`: el glosario y el mapa de
+# contextos son docs/glossary.md y docs/contexts.md, fijos, y tienen que estar enlazados desde docs/README.md. Los casos corren
+# sobre un repo mínimo (minimo): el resto de la plantilla tiene errores propios que ensucian el resultado. Cada caso mira el
+# mensaje que nombra el archivo o el contexto: un error que no lo nombra no cuenta.
+minimo() {
+  rm -rf "$TMP/r"
+  mkdir -p "$TMP/r/scripts/agents" "$TMP/r/docs" "$TMP/r/src/ventas" "$TMP/r/src/pagos"
+  cp "$RAIZ/scripts/agents/check-docs.py" "$RAIZ/scripts/agents/agents_map.py" "$TMP/r/scripts/agents/"
+  printf '# Docs\n\nIndex.\n' >"$TMP/r/docs/README.md"
+  printf 'x\n' >"$TMP/r/src/ventas/x.ts"
+  printf 'y\n' >"$TMP/r/src/pagos/y.ts"
+  printf '#!/bin/sh\n' >"$TMP/r/scripts/init-template.sh"  # el repo del kit: ahí el glosario es un error; en un proyecto, un aviso
+  git -C "$TMP/r" init -q
+  git -C "$TMP/r" add -A
+  git -C "$TMP/r" commit -qm base
+}
+modo_small() {
+  printf '%s\n' '{"red": [{"name": "bash", "when": ["**/test-*.sh"], "format": "junit", "run": "true {out}"}]}' >"$TMP/r/docs/agents-map.json"
+  printf '# Glossary\n\nDomain words.\n' >"$TMP/r/docs/glossary.md"
+  printf '# Contexts\n\nBounded contexts.\n' >"$TMP/r/docs/contexts.md"
+  printf '\n- [Glossary](glossary.md)\n- [Contexts](contexts.md)\n' >>"$TMP/r/docs/README.md"
+}
+# Quita de docs/README.md la línea que enlaza el destino dado (por ejemplo glossary.md).
+sin_enlace() {
+  python3 - "$TMP/r/docs/README.md" "$1" <<'PY'
+import sys
+ruta, destino = sys.argv[1], sys.argv[2]
+lineas = [l for l in open(ruta, encoding="utf-8") if f"({destino})" not in l]
+open(ruta, "w", encoding="utf-8").writelines(lineas)
+PY
+}
+minimo
+modo_small
+salida=$(check); grep -q "^Docs OK\.$" <<<"$salida"; tap_check $? "--small: con el glosario y el mapa de contextos enlazados, check-docs pasa"
+minimo
+modo_small
+rm "$TMP/r/docs/glossary.md"; sin_enlace glossary.md
+salida=$(check); grep -q "docs/glossary.md" <<<"$salida"; tap_check $? "--small: sin docs/glossary.md, check-docs falla y lo nombra"
+minimo
+modo_small
+sin_enlace glossary.md
+salida=$(check); grep -q "glossary.md" <<<"$salida"; tap_check $? "--small: docs/glossary.md sin enlace desde docs/README.md, check-docs falla y lo nombra"
+minimo
+modo_small
+rm "$TMP/r/docs/contexts.md"; sin_enlace contexts.md
+salida=$(check); grep -q "docs/contexts.md" <<<"$salida"; tap_check $? "--small: sin docs/contexts.md, check-docs falla y lo nombra"
+minimo
+modo_small
+sin_enlace contexts.md
+salida=$(check); grep -q "contexts.md" <<<"$salida"; tap_check $? "--small: docs/contexts.md sin enlace desde docs/README.md, check-docs falla y lo nombra"
+
+# 9. El mapa de contextos (full, ADR-003 D3): name único; depends_on solo nombres de la sección y sin autodependencia; paths
+# no vacío y con globs que matchean archivos (salvo los opcionales con ?). Cada caso nombra el contexto o el glob que falla.
+con_contextos() {
+  python3 - "$TMP/r/docs/agents-map.json" "$1" <<'PY'
+import json, sys
+ruta, contextos = sys.argv[1], json.loads(sys.argv[2])
+json.dump({"contexts": contextos}, open(ruta, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+}
+minimo
+con_contextos '[{"name": "ventas", "paths": ["src/ventas/**"], "depends_on": []}, {"name": "pagos", "paths": ["src/pagos/**"], "depends_on": ["ventas"]}]'
+# Con el glosario y el mapa de contextos de docs/reference/ enlazados, un mapa válido da exactamente "Docs OK.": cualquier error
+# (de contextos o de otra cosa) rompe el caso. Que la validación corre lo prueban los casos de abajo, cada uno con su error.
+mkdir -p "$TMP/r/docs/reference"
+printf '# Glossary\n' >"$TMP/r/docs/reference/glossary.md"
+printf '# Contexts\n' >"$TMP/r/docs/reference/contexts.md"
+printf '\n- [Glossary](reference/glossary.md)\n- [Contexts](reference/contexts.md)\n' >>"$TMP/r/docs/README.md"
+printf '# Index\n\n- [Glossary](reference/glossary.md)\n- [Contexts](reference/contexts.md)\n' >"$TMP/r/docs/llms.txt"
+git -C "$TMP/r" add -A
+git -C "$TMP/r" commit -qm "docs de referencia"
+salida=$(check); [ "$salida" = "Docs OK." ]; tap_check $? "contextos: un mapa válido con sus docs de referencia da Docs OK" "contextos: un mapa válido con sus docs de referencia da Docs OK (salida: $salida)"
+minimo
+con_contextos '[{"name": "dup-ventas", "paths": ["src/ventas/**"], "depends_on": []}, {"name": "dup-ventas", "paths": ["src/pagos/**"], "depends_on": []}]'
+salida=$(check); grep -q "dup-ventas" <<<"$salida"; tap_check $? "contextos: un name repetido es un error que lo nombra"
+minimo
+con_contextos '[{"name": "ventas", "paths": ["src/ventas/**"], "depends_on": ["fantasma-dep"]}]'
+salida=$(check); grep -q "fantasma-dep" <<<"$salida"; tap_check $? "contextos: depends_on con un nombre que no está en la sección es un error que lo nombra"
+minimo
+con_contextos '[{"name": "ctx-yo", "paths": ["src/ventas/**"], "depends_on": ["ctx-yo"]}]'
+salida=$(check); grep -q "ctx-yo" <<<"$salida"; tap_check $? "contextos: un contexto que depende de sí mismo es un error que lo nombra"
+minimo
+con_contextos '[{"name": "ctx-vacio", "paths": [], "depends_on": []}]'
+salida=$(check); grep -q "ctx-vacio" <<<"$salida"; tap_check $? "contextos: paths vacío es un error que nombra el contexto"
+minimo
+con_contextos '[{"name": "ctx-fantasma", "paths": ["src/fantasma/**"], "depends_on": []}]'
+salida=$(check); grep -q "src/fantasma" <<<"$salida"; tap_check $? "contextos: un glob de paths que no matchea ningún archivo es un error que lo nombra"
+minimo
+con_contextos '[{"name": "ctx-opcional", "paths": ["?src/opcional/**"], "depends_on": []}]'
+salida=$(check); [[ "$salida" != *ctx-opcional* && "$salida" != *src/opcional* ]]; tap_check $? "contextos: un glob opcional (?) que no matchea no es error"
+minimo
+con_contextos '[{"name": "ctx-lista", "paths": ["src/ventas/**"], "depends_on": [["ventas"]]}]'
+salida=$(check); [[ "$salida" == *"ctx-lista"*"depends_on must list context names"* ]]; tap_check $? "contextos: un depends_on con una lista adentro es un error claro que nombra el contexto, sin traceback" "contextos: un depends_on con una lista adentro es un error claro (salida: $salida)"
+minimo
+con_contextos '[{"paths": ["src/ventas/**"], "depends_on": [null]}]'
+salida=$(check); [[ "$salida" == *"depends_on must list context names"* && "$salida" != *"depends on itself"* ]]; tap_check $? "contextos: un depends_on con null en un contexto sin name es un error claro y no una autodependencia" "contextos: un depends_on con null en un contexto sin name es un error claro (salida: $salida)"
+
+# 10. agents_map.py dice qué contextos toca el diff (ADR-003 D3): el JSON trae los contextos que tocó el cambio, con su nombre
+# (como clave de "contexts" o como elemento de la lista).
+m="$TMP/m"
+mkdir -p "$m/scripts/agents" "$m/docs" "$m/src/ventas" "$m/src/pagos"
+cp "$RAIZ/scripts/agents/agents_map.py" "$m/scripts/agents/"
+printf '%s\n' '{"docs": [], "sensitive": [], "contexts": [{"name": "ventas", "paths": ["src/ventas/**"], "depends_on": []}, {"name": "pagos", "paths": ["src/pagos/**"], "depends_on": ["ventas"]}]}' >"$m/docs/agents-map.json"
+printf 'base\n' >"$m/README.md"
+git -C "$m" init -q
+git -C "$m" symbolic-ref HEAD refs/heads/main
+git -C "$m" add -A
+git -C "$m" commit -qm base
+git -C "$m" switch -q -c claude/1-contextos
+printf 'x\n' >"$m/src/ventas/x.ts"
+printf 'y\n' >"$m/src/pagos/y.ts"
+git -C "$m" add -A
+git -C "$m" commit -qm "feat: dos contextos"
+out=$(cd "$m" && python3 scripts/agents/agents_map.py --base main --json 2>/dev/null)
+# La forma de "contexts" en --json es un mapa nombre → archivos tocados (ADR-003 D3): sin excepciones tragadas, un JSON mal
+# formado o sin "contexts" es un crash, no "ningún contexto".
+nombres=$(printf '%s' "$out" | python3 -c '
+import json, sys
+print(" ".join(sorted(json.load(sys.stdin)["contexts"])))
+')
+[ "$nombres" = "pagos ventas" ]; tap_check $? "agents_map: el JSON trae los dos contextos que tocó el diff" "agents_map: el JSON trae los contextos tocados (\"contexts\"): $nombres"
+archivos=$(printf '%s' "$out" | python3 -c '
+import json, sys
+print(" ".join(json.load(sys.stdin)["contexts"]["ventas"]))
+')
+[ "$archivos" = "src/ventas/x.ts" ]; tap_check $? "agents_map: contexts es un mapa de nombre a los archivos tocados" "agents_map: archivos de ventas: $archivos"
+# Dos contextos con el mismo nombre (check-docs.py lo rechaza, pero agents_map.py lo lee igual): se juntan los archivos, no se pisan.
+printf '%s\n' '{"docs": [], "sensitive": [], "contexts": [{"name": "ventas", "paths": ["src/ventas/**"], "depends_on": []}, {"name": "ventas", "paths": ["src/pagos/**"], "depends_on": []}]}' >"$m/docs/agents-map.json"
+out=$(cd "$m" && python3 scripts/agents/agents_map.py --base main --json 2>/dev/null)
+archivos=$(printf '%s' "$out" | python3 -c '
+import json, sys
+print(" ".join(sorted(json.load(sys.stdin)["contexts"]["ventas"])))
+')
+[ "$archivos" = "src/pagos/y.ts src/ventas/x.ts" ]; tap_check $? "agents_map: dos contextos con el mismo nombre juntan sus archivos" "agents_map: archivos de ventas repetido: $archivos"
+
+# Un contexto con name vacío (check-docs.py lo rechaza): agents_map.py no lo cuenta como un contexto tocado.
+printf '%s\n' '{"docs": [], "sensitive": [], "contexts": [{"name": "", "paths": ["src/ventas/**"], "depends_on": []}, {"name": "pagos", "paths": ["src/pagos/**"], "depends_on": []}]}' >"$m/docs/agents-map.json"
+out=$(cd "$m" && python3 scripts/agents/agents_map.py --base main --json 2>/dev/null)
+nombres=$(printf '%s' "$out" | python3 -c '
+import json, sys
+print(" ".join(sorted(json.load(sys.stdin)["contexts"])))
+')
+[ "$nombres" = "pagos" ]; tap_check $? "agents_map: un contexto con name vacío no cuenta como tocado" "agents_map: contextos con un name vacío en el mapa: $nombres"
+
+# "contexts": null (o un número) no es un crash: es el error de check-docs.py, y acá no hay contextos tocados.
+printf '%s\n' '{"docs": [], "sensitive": [], "contexts": null}' >"$m/docs/agents-map.json"
+out=$(cd "$m" && python3 scripts/agents/agents_map.py --base main --json 2>&1)
+nombres=$(printf '%s' "$out" | python3 -c '
+import json, sys
+print(len(json.load(sys.stdin)["contexts"]))
+')
+[ "$nombres" = "0" ]; tap_check $? "agents_map: contexts null no es un crash y no trae contextos" "agents_map: con contexts null, salida: $out"
+
+# 11. Los enlaces del glosario y del mapa de contextos se leen con el parser de links de check-docs: ./x.md y <x.md> cuentan,
+# y un texto dentro de un bloque de código o de `código` no es un enlace.
+con_indice() {
+  printf '%s\n' "$1" >"$TMP/r/docs/README.md"
+}
+minimo
+modo_small
+con_indice "$(printf '# Docs\n\n- [Glossary](./glossary.md)\n- [Contexts](./contexts.md)')"
+salida=$(check); [ "$salida" = "Docs OK." ]; tap_check $? "--small: un enlace ./glossary.md cuenta como enlace" "--small: un enlace ./glossary.md cuenta como enlace (salida: $salida)"
+minimo
+modo_small
+con_indice "$(printf '# Docs\n\n- [Glossary](<glossary.md>)\n- [Contexts](<contexts.md>)')"
+salida=$(check); [ "$salida" = "Docs OK." ]; tap_check $? "--small: un enlace <glossary.md> cuenta como enlace" "--small: un enlace <glossary.md> cuenta como enlace (salida: $salida)"
+minimo
+modo_small
+# shellcheck disable=SC2016  # los backticks son parte del texto de prueba
+con_indice "$(printf '# Docs\n\n```\n- [Glossary](glossary.md)\n- [Contexts](contexts.md)\n```')"
+salida=$(check); [[ "$salida" == *"does not link docs/glossary.md"* ]]; tap_check $? "--small: un enlace dentro de un bloque de código no cuenta" "--small: un enlace dentro de un bloque de código no cuenta (salida: $salida)"
+minimo
+modo_small
+# shellcheck disable=SC2016  # los backticks son parte del texto de prueba
+con_indice "$(printf '# Docs\n\nEscribí `[Glossary](glossary.md)` y `[Contexts](contexts.md)` para enlazar.')"
+salida=$(check); [[ "$salida" == *"does not link docs/glossary.md"* ]]; tap_check $? "--small: un enlace dentro de código en línea no cuenta" "--small: un enlace dentro de código en línea no cuenta (salida: $salida)"
+
+# 12. Los índices en español (docs/README.es.md, docs/llms.es.txt) también tienen que enlazar el glosario y el mapa de contextos
+# (en el kit enlazan al archivo en inglés, igual que el resto de sus enlaces).
+minimo
+modo_small
+printf '# Docs\n\n- [Glosario](glossary.md)\n- [Contextos](contexts.md)\n' >"$TMP/r/docs/README.es.md"
+salida=$(check); [ "$salida" = "Docs OK." ]; tap_check $? "--small: docs/README.es.md que enlaza el glosario y los contextos pasa" "--small: docs/README.es.md que enlaza el glosario y los contextos pasa (salida: $salida)"
+minimo
+modo_small
+printf '# Docs\n\nSin enlaces.\n' >"$TMP/r/docs/README.es.md"
+salida=$(check); [[ "$salida" == *"docs/README.es.md: does not link docs/glossary.md"* ]]; tap_check $? "--small: docs/README.es.md sin el enlace al glosario falla y lo nombra" "--small: docs/README.es.md sin el enlace al glosario falla y lo nombra (salida: $salida)"
+minimo
+modo_small
+mkdir -p "$TMP/r/docs/reference"
+printf '# Glossary\n' >"$TMP/r/docs/reference/glossary.md"
+printf '# Contexts\n' >"$TMP/r/docs/reference/contexts.md"
+printf '{"contexts": []}\n' >"$TMP/r/docs/agents-map.json"
+printf '\n- [Glossary](reference/glossary.md)\n- [Contexts](reference/contexts.md)\n' >>"$TMP/r/docs/README.md"
+printf '# Index\n\n- [Glossary](reference/glossary.md)\n- [Contexts](reference/contexts.md)\n' >"$TMP/r/docs/llms.txt"
+printf '# Indice\n\nSin enlaces.\n' >"$TMP/r/docs/llms.es.txt"
+salida=$(check); [[ "$salida" == *"docs/llms.es.txt: does not link docs/reference/glossary.md"* ]]; tap_check $? "perfil completo: docs/llms.es.txt sin el enlace al glosario falla y lo nombra" "perfil completo: docs/llms.es.txt sin el enlace al glosario falla y lo nombra (salida: $salida)"
+
+# El glosario que falta en el perfil completo (docs/reference/) es un error que lo nombra, igual que en --small.
+minimo
+modo_small
+mkdir -p "$TMP/r/docs/reference"
+printf '# Contexts\n' >"$TMP/r/docs/reference/contexts.md"
+printf '{"contexts": []}\n' >"$TMP/r/docs/agents-map.json"
+printf '\n- [Contexts](reference/contexts.md)\n' >>"$TMP/r/docs/README.md"
+printf '# Index\n\n- [Contexts](reference/contexts.md)\n' >"$TMP/r/docs/llms.txt"
+salida=$(check); [[ "$salida" == *"docs/reference/glossary.md is missing"* ]]; tap_check $? "perfil completo: sin docs/reference/glossary.md check-docs falla y lo nombra" "perfil completo: sin docs/reference/glossary.md check-docs falla y lo nombra (salida: $salida)"
+
+# 11. La categoría `agents` de sensitive (#188): lo que define qué corren los agentes y desde dónde es sensible (AGENTS.md, autonomía).
+# Un repo chico con el mapa real del kit y un cambio en cada ruta; agents_map.py --json dice con qué tipo se marcó.
+m="$TMP/sens"
+mkdir -p "$m/scripts/agents" "$m/docs"
+cp "$RAIZ/scripts/agents/agents_map.py" "$m/scripts/agents/"
+cp "$RAIZ/docs/agents-map.json" "$m/docs/agents-map.json"
+printf 'base\n' >"$m/README.md"
+git -C "$m" init -q
+git -C "$m" symbolic-ref HEAD refs/heads/main
+git -C "$m" add -A
+git -C "$m" commit -qm base
+git -C "$m" switch -q -c claude/188-agents
+tipo_sensible() { # tipo_sensible <ruta>: los tipos sensibles con que agents_map.py marca un cambio en <ruta>
+  mkdir -p "$m/$(dirname "$1")"; printf 'x\n' >"$m/$1"
+  git -C "$m" add -A; git -C "$m" commit -qm "cambio en $1" || { echo "commit-failed"; return; }
+  local o; o=$(cd "$m" && python3 scripts/agents/agents_map.py --base main --json 2>&1)
+  # "-" = agents_map.py corrió y no marcó nada; un JSON ilegible o sin "sensitive" imprime otra cosa y rompe el caso.
+  printf '%s' "$o" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(" ".join(sorted(s["type"] for s in d["sensitive"] if sys.argv[1] in s["files"])) or "-")
+except Exception as e:
+    print("ilegible:", e)
+' "$1"
+  git -C "$m" reset -q --hard HEAD^
+}
+[ "$(tipo_sensible .claude/skills/orchestrate/routing.py)" = agents ]; tap_check $? "agents: un cambio en .claude/skills/orchestrate/ se marca como sensible (agents)"
+[ "$(tipo_sensible .claude/agents/implementer.md)" = agents ]; tap_check $? "agents: un cambio en .claude/agents/ se marca como sensible (agents)"
+[ "$(tipo_sensible docs/agents/subagent-contract.md)" = agents ]; tap_check $? "agents: un cambio en docs/agents/subagent-contract.md se marca como sensible (agents)"
+[ "$(tipo_sensible docs/agents/subagent-contract.es.md)" = agents ]; tap_check $? "agents: un cambio en docs/agents/subagent-contract.es.md se marca como sensible (agents)"
+[ "$(tipo_sensible .claude/i18n/agents/implementer.es.md)" = agents ]; tap_check $? "agents: un cambio en .claude/i18n/agents/ se marca como sensible (agents)"
+[ "$(tipo_sensible .claude/settings.json)" = infra ]; tap_check $? "agents: control, el helper ve un archivo sensible que ya estaba en el mapa (infra)"
+[ "$(tipo_sensible docs/agents/classes.yml)" = - ]; tap_check $? "agents: un cambio en docs/agents/classes.yml no se marca como sensible (el contrato sí, las clases generadas no)"
+# 12. #303: las reglas de autonomía y las skills que dicen cómo trabaja un agente también son `agents`.
+[ "$(tipo_sensible .claude/skills/implement-issue/prepare.sh)" = agents ]; tap_check $? "303: un cambio en .claude/skills/implement-issue/ se marca como sensible (agents)"
+[ "$(tipo_sensible .claude/skills/review-pr/SKILL.md)" = agents ]; tap_check $? "303: un cambio en .claude/skills/review-pr/ se marca como sensible (agents)"
+[ "$(tipo_sensible scripts/agents/task_events.py)" = agents ]; tap_check $? "303: un cambio en scripts/agents/task_events.py se marca como sensible (agents)"
+[ "$(tipo_sensible AGENTS.md)" = agents ]; tap_check $? "303: un cambio en AGENTS.md se marca como sensible (agents)"
+[ "$(tipo_sensible AGENTS.es.md)" = agents ]; tap_check $? "303: un cambio en AGENTS.es.md se marca como sensible (agents)"
+[ "$(tipo_sensible README.md)" = - ]; tap_check $? "303: un cambio en README.md sigue sin ser sensible"
+
+tap_done

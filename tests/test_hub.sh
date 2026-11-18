@@ -122,13 +122,13 @@ out=$(hub nada 2>"$TMP/err"); check_eq "$? [$out] $(lines "$(cat "$TMP/err")") $
 # ---------- status: una llamada barata para la barra ----------
 c0=$(calls)
 S=$(hub status "$REPO")
-check_eq "$(jq -c '[.project, .branch, .dirty, .account, .mode, .waiting, .pending, .working]' <<<"$S")" '["proj","main",12,"trabajo",null,1,1,3]' "status: proyecto, rama, sin commitear, cuenta del chat principal y las tareas de todos los proyectos por estado"
-check_eq "$(jq -c '[.tokens_today, .cost_today, .song, .focus]' <<<"$S")" '[null,null,null,null]' "status: sin estado de uso, sin música y sin pomodoro, null"
+check_eq "$(jq -c '[.project, .branch, .dirty, .account, .waiting, .pending, .working]' <<<"$S")" '["proj","main",12,"trabajo",1,1,3]' "status: proyecto, rama, sin commitear, cuenta del chat principal y las tareas de todos los proyectos por estado"
+check_eq "$(jq -c '[.tokens_today, .cost_today, .song]' <<<"$S")" '[null,null,null]' "status: sin estado de uso y sin música, null"
+check_eq "$(jq -c '[has("focus"), has("mode")]' <<<"$S")" '[false,false]' "status: sin el pomodoro ni el modo de Sketchybar, que ya no están"
 espera 10 test -f "$HOME/.cache/barrilete/usage-$TODAY.json"; check_eq "$?" "0" "status sin estado de uso: lo pide en segundo plano"
 check_eq "$(hub status "$WT" | jq -c '[.project, .branch, .dirty]')" '["proj","w7",1]' "status desde un worktree: el proyecto es el repo principal y la rama la del worktree"
 check_eq "$(hub status "$TMP/otro" | jq -c '[.project, .branch, .dirty]') $(hub status "$TMP/proj-wt/limpio" | jq -c '[.project, .branch, .dirty]')" '["otro","main",1] ["proj","",0]' "status de un repo sin commits (su rama) y de un worktree con el HEAD suelto (sin rama)"
-echo uni >"$HOME/.cache/sketchybar/mode"
-check_eq "$(hub status "$TMP/suelta" | jq -c '[.project, .branch, .dirty, .account, .mode]')" '["suelta","",0,null,"uni"]' "status fuera de un repo: la carpeta, sin rama ni cuenta; el modo de la barra"
+check_eq "$(hub status "$TMP/suelta" | jq -c '[.project, .branch, .dirty, .account]')" '["suelta","",0,null]' "status fuera de un repo: la carpeta, sin rama ni cuenta"
 out=$(hub status "$TMP/no-existe"); check_eq "$? $(jq -c '[.project, .branch, .working]' <<<"$out")" '0 ["","",3]' "status de una carpeta que ya no existe: no rompe la barra"
 check_eq "$(hub status "$TMP/suelta" --terminal t1 | jq -r .account) $(hub status "$REPO" --terminal t3 | jq -r .account) $(BK_ACCOUNT_CLAUDE=otra hub status "$TMP/suelta" | jq -r .account)" "trabajo null otra" "status: la cuenta de esa terminal (--terminal) o la del entorno"
 # El mail de la cuenta: del .claude.json de la de siempre (HOME) o de la carpeta de bk account; sin preguntarle a Claude
@@ -157,11 +157,6 @@ echo '{"offsets": {}, "msgs": {"x1": ["claude-sonnet-5", "proj", 1000000, 100000
 check_eq "$(hub status "$REPO" | jq -c '[.tokens_today, (.cost_today * 100 | round)]')" '[1100000,400]' "status: tokens y costo de hoy del estado que deja usage.py"
 viejo "$U" 120; check_eq "$(hub status "$REPO" | jq -c '.tokens_today')" '1100000' "status con el estado de uso viejo: contesta con lo que hay"
 espera 10 reciente "$U"; check_eq "$?" "0" "status con el estado de uso viejo: lo renueva en segundo plano"
-echo "$(( $(date +%s) + 1530 )) Álgebra lineal" >"$HOME/.cache/bk/focus"
-check_eq "$(hub status "$REPO" | jq -c .focus)" '{"label":"Álgebra lineal","left_min":25}' "status: el pomodoro de bk focus y cuánto le queda"
-echo "$(( $(date +%s) - 5 )) Viejo" >"$HOME/.cache/bk/focus"
-check_eq "$(hub status "$REPO" | jq -c .focus)" 'null' "status: un pomodoro vencido no cuenta"
-rm -f "$HOME/.cache/bk/focus"
 check_eq "$(calls)" "$c0" "status: no consulta a GitHub"
 rm -f "$HOME/.cache/barrilete"/usage-*.json
 

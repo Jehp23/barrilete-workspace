@@ -1,19 +1,81 @@
-// Las pestañas de bk-lavanda: una píldora por pestaña del espacio a la vista, con el chip del número fijo de
-// su agente (alt+N), lo que hace y la marca de estado (la misma de la barra izquierda y la cabecera).
-// A la derecha: + (el menú de Herdr), Archivos y Cambios si están habilitados, y mostrar u ocultar el lado derecho.
-// Clon del `tabs` de Herdr 0.1.15: arrastrar para ordenar, doble clic para renombrar, clic derecho para el menú,
-// la rueda para pasar de pestaña y el panel recordado por espacio son los suyos.
+// La franja de arriba de bk-lavanda: el contexto del chat enfocado, no sus pestañas (esas ya son las filas de
+// AGENTES y se eligen con alt+N). Un renglón: proyecto › #épica título › #issue título · rol. La épica y el issue
+// solo si el chat tiene uno de verdad (bk _epica / bk _todo lo encuentran en su worktree, su conversación, su rama o
+// un #N); el rol, si bk lo lanzó con uno (etiqueta bk.role). Sin issue: lo que el agente dice que hace. Las casillas
+// del issue no van acá (eran demasiado): están en la pestaña TODO del lado derecho.
+// A la derecha: los agentes que te esperan (de cualquier espacio, menos el enfocado), Archivos y Cambios si están
+// habilitados, y mostrar u ocultar el lado derecho. El panel Archivos/Cambios se recuerda por espacio.
 
 import { View, div, svg } from "gpui-kit";
-import { h_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, terminals, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
-import { PROSE, find, ids, said, picto, mark, keycap, iconButton } from "./kit.js";
+import { h_flex } from "gpui-base";
+import { exec, spaces, panes, terminals, agents, focused, run, theme, window, shared, layout, settings, home } from "herdr";
+import { PROSE, al, find, ids, said, mark, keycap, iconButton } from "./kit.js";
+
+const EVERY = 20000;   // bk _todo y bk _epica guardan lo de GitHub unos minutos: esto solo vuelve a leer su caché
+const WAIT_MAX = 4;    // chips de «te espera»; los demás, en un +N
+const bin = () => shared("bk.bin") || "bk";
+const gh = (url) => { if (/^https:\/\/github\.com\//.test(url ?? "")) exec("open", [url]); };
+
+// Lo que bk necesita para saber el issue del chat enfocado (como el lado derecho y ÉPICAS): carpeta, rama, su
+// nombre (bk.name, bk.autotitle y el título del pane) y su terminal. null sin una terminal enfocada.
+export function chatArgs(f = focused(), all = panes(), ts = terminals()) {
+  if (!f?.terminal) return null;
+  const p = all.find((x) => x.pane === f.pane) ?? {};
+  const l = ts.find((x) => x.address === f.terminal)?.labels ?? {};
+  return [f.cwd ?? home(), p.branch ?? "", [l["bk.name"], l["bk.autotitle"], p.title].filter(Boolean).join(" "), f.terminal];
+}
+const keyOf = (q) => (q ? JSON.stringify(q) : "-");
+
+// Lo que se dibuja, de lo que dijeron bk _todo y bk _epica. issue y epic son null sin asociación real (la épica,
+// además, si es el issue mismo).
+export function context(todo, epica) {
+  const issue = todo?.issue ? { number: todo.issue, title: todo.title ?? "", url: todo.url ?? "" } : null;
+  const e = epica?.epic;
+  const epic = issue && e && e.number !== issue.number
+    ? { number: e.number, title: e.title ?? "", url: `https://github.com/${e.repo}/issues/${e.number}` } : null;
+  return { issue, epic };
+}
+
+// Los que te esperan, para los chips: estado blocked, sin el chat que estás mirando, por número de ventana.
+export function waiting(list, here, numbers) {
+  return list.filter((a) => a.status === "blocked" && a.address !== here)
+    .map((a) => ({ address: a.address, pane: a.pane, n: numbers.get(a.address) ?? null, name: said(a.title, a.program, a.address) || a.tab_name || a.space_name }))
+    .sort((a, b) => (Number(a.n) || 1e9) - (Number(b.n) || 1e9));
+}
 
 export default class Pestanas extends View {
-  init() {
-    this.pressed = null;
-    this.scroll = ScrollHandle.new();
+  init(_props, cx) {
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
+    this.key = "";
+    this.at = 0;
+    this.todo = null;
+    this.epica = null;
+    this.busy = false;
+    cx.timer.every(EVERY, (cx) => cx.spawn(async (cx) => { if (await this.load(true)) cx.notify(); }));
+  }
+
+  // Pide el issue, sus casillas y su épica del chat enfocado. Otro chat: borra lo del anterior antes de leer, así
+  // nunca se ve el issue de otro. true si hay que volver a dibujar (cambió lo que se muestra, o el foco se movió
+  // mientras leía: el dibujo pide el nuevo).
+  async load(tick = false) {
+    const q = chatArgs();
+    const key = keyOf(q);
+    if (this.busy || (key === this.key && (!tick || Date.now() - this.at < EVERY))) return false;
+    const before = JSON.stringify([this.todo, this.epica]);
+    if (key !== this.key) { this.todo = null; this.epica = null; }
+    this.key = key;
+    this.at = Date.now();
+    if (q) {
+      this.busy = true;
+      try {
+        const [todo, epica] = await Promise.all([exec(bin(), ["_todo", ...q], { timeout: 30000 }), exec(bin(), ["_epica", ...q], { timeout: 30000 })]);
+        if (todo.code === 0) this.todo = JSON.parse(todo.stdout);
+        if (epica.code === 0) this.epica = JSON.parse(epica.stdout);
+      } catch { /* queda lo último */ } finally {
+        this.busy = false;
+      }
+    }
+    return before !== JSON.stringify([this.todo, this.epica]) || keyOf(chatArgs()) !== this.key;
   }
 
   // El panel lateral (Archivos/Cambios) se recuerda por espacio: al cambiar de espacio se muestra el suyo
@@ -44,63 +106,49 @@ export default class Pestanas extends View {
     localStorage.setItem("panels", JSON.stringify(this.panels));
   }
 
-  render() {
+  render(cx) {
     const t = theme();
-    const space = spaces().find((p) => p.active);
-    const shown = space?.tabs ?? [];
-    const active = shown.findIndex((tab) => tab.active);
-    const selected = shown[active]?.id;
-    if (selected !== this.selected || active !== this.selectedIndex) {
-      this.selected = selected;
-      this.selectedIndex = active;
-      if (active >= 0) this.scroll.scroll_to_item(active);
-    }
+    const f = focused();
+    const ts = terminals();
+    // Otro chat enfocado: pedir lo suyo ya, sin esperar el próximo tick
+    if (keyOf(chatArgs(f, panes(), ts)) !== this.key && !this.busy) cx?.spawn(async (cx) => { if (await this.load()) cx.notify(); });
     const stop = (_e, cx) => cx.stop_propagation();
-    // Una lectura de cada lista por dibujo: cada una copia todo a JS.
-    const all = panes();
-    const numbers = ids(terminals());
-    const lead = new Map();
-    for (const p of all) {
-      const cur = lead.get(p.tab);
-      if (!cur || (!cur.program?.agent && p.program?.agent)) lead.set(p.tab, p);
-    }
-    const item = (c, i) => {
-      const p = lead.get(c.id);
-      const program = p?.program;
-      const n = p?.terminal ? numbers.get(p.terminal) : null;
-      // Los nombres automáticos (chat-3, 2, el del programa) no dicen nada: ahí va lo que el agente dice que hace.
-      const auto = !c.named || /^(chat-\d+|\d+|tb\w+)$/.test(c.name) || c.name === program?.name;
-      const name = (auto ? said(p?.title, program, p?.terminal) : "") || (/^tb\w+$/.test(c.name) || /^\d+$/.test(c.name) ? program?.name ?? "Terminal" : c.name);
-      const pic = n ? null : picto(program, 14, c.active ? t.muted : t.dim);
-      const loud = c.status && c.status !== "idle";
-      return h_flex().id(`tab-${c.id}`).h(28).pl(n ? 5 : 9).pr(c.active ? 5 : 9).gap(7).rounded(8).items_center().flex_none().text_size(12).cursor_pointer()
-        // Un cambio de nombre o de marca en esta pestaña o una anterior puede empujar a la activa afuera.
-        .when(i <= active, (el) => el.on_size_change((_size, cx) => { this.scroll.scroll_to_item(active); cx.notify(); }))
-        .border_1().border_color(c.active ? t.border : "#00000000").bg(c.active ? t.background : "#00000000").text_color(c.active ? t.foreground : t.muted)
-        .when(!c.active, (el) => el.hover((s) => s.bg(t.hover).text_color(t.foreground)))
-        .tooltip(c.named && name !== c.name ? `${c.name} · ${name}` : name)
-        .on_mouse_down("left", (e, cx) => { cx.stop_propagation(); this.pressed = i; if (e.click_count === 2) run("tab.rename", { id: c.id }); })
-        .on_mouse_up("left", () => {
-          const from = this.pressed; this.pressed = null;
-          if (from !== null && from !== i) run("tab.move", { id: shown[from].id, index: space.tabs.findIndex((x) => x.id === c.id) + 1 });
-          else run("tab.select", { id: c.id });
-        })
-        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "bk-menu", kind: "popup", width: 300, height: 12 + 3 * 32 + 9, props: { tab: "tab", target: { id: c.id, space: space.id } } }); })
-        .when(Boolean(n), (el) => el.child(keycap(t, n, { on: c.active, size: 18 })))
-        .when(Boolean(pic), (el) => el.child(pic))
-        .child(div().max_w(c.active ? 240 : 180).truncate().font_family(PROSE).text_size(12.5).when(c.active, (el) => el.font_medium()).child(name))
-        .when(c.zoomed, (el) => el.child(svg("mods/pane/zoom.svg").size(11).flex_none().text_color(t.accent)))
-        .when(Boolean(loud), (el) => el.child(mark(t, c.status, 12)))
-        .when(c.active, (el) => el.child(div().id(`close-${c.id}`).size(18).flex_none().flex().items_center().justify_center().rounded(5).text_color(t.dim)
-          .hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: c.id }); })
-          .child(svg("mods/pane/close.svg").size(11))));
-    };
+    const space = spaces().find((p) => p.active);
+    const numbers = ids(ts);
+    const here = f?.terminal ?? null;
+    const role = ts.find((x) => x.address === here)?.labels?.["bk.role"] || null;
+    const list = agents();
+    const me = list.find((a) => a.address === here);
+    const { issue, epic } = context(this.todo, this.epica);
+
+    // Dónde estás. Cada tramo se corta solo.
+    const sep = () => div().flex_none().text_color(t.dim).child("›");
+    const ref = (id, x, color, maxW) => h_flex().id(id).min_w(0).gap(5).items_center().cursor_pointer()
+      .on_mouse_down("left", stop).on_click(() => gh(x.url)).tooltip(`#${x.number} ${x.title} · abrir en GitHub`)
+      .child(div().flex_none().font_semibold().text_color(t.accent).child(`#${x.number}`))
+      .when(Boolean(x.title), (el) => el.child(div().min_w(0).max_w(maxW).truncate().font_family(PROSE).text_color(color).child(x.title)));
+    const doing = issue ? "" : said(me?.title, me?.program, here);
+    const line1 = h_flex().min_w(0).gap(7).items_center().text_size(12.5)
+      .child(div().flex_none().font_medium().text_color(t.foreground).child(space?.name ?? "~"))
+      .when(Boolean(epic), (el) => el.child(sep()).child(ref("ctx-epic", epic, t.muted, 220)))
+      .when(Boolean(issue), (el) => el.child(sep()).child(ref("ctx-issue", issue, t.foreground, 420)))
+      .when(Boolean(doing), (el) => el.child(sep()).child(div().min_w(0).truncate().font_family(PROSE).text_color(t.muted).child(doing)))
+      .when(Boolean(role), (el) => el.child(div().flex_none().px(6).h(17).flex().items_center().rounded(5).bg(al(t.accent, "1c"))
+        .text_size(10.5).line_height(1).font_medium().text_color(t.accent).child(role ?? "")));
+
+    // Los que te esperan: el chip de su número; clic lleva a su pane.
+    const wait = waiting(list, here, numbers);
+    const chip = (a) => h_flex().id(`wait-${a.address}`).flex_none().h(24).pl(4).pr(5).gap(5).items_center().rounded(6).cursor_pointer()
+      .border_1().border_color(al(t.blocked, "59")).bg(al(t.blocked, "14")).hover((s) => s.bg(al(t.blocked, "26")))
+      .tooltip(`${a.name || "Agente"} · te espera`).on_mouse_down("left", stop).on_click(() => run("pane.focus", { pane: a.pane }))
+      .child(keycap(t, a.n, { size: 18 })).child(mark(t, "blocked", 12));
+    const more = wait.length - WAIT_MAX;
+
     const root = layout(), sidebar = find(root, "sidebar"), w = window();
-    // Con la barra izquierda oculta o angosta, las pestañas le dejan lugar a los botones de la ventana.
+    // Con la barra izquierda oculta o angosta, la franja le deja lugar a los botones de la ventana.
     const lightsPadding = w?.platform === "macos" && w.titlebar === "none" && !w.fullscreen && root?.traffic_lights
-      ? Math.max(8, (root.traffic_lights[0] + 66) / (settings().zoom ?? 1) - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
-      : 8;
+      ? Math.max(12, (root.traffic_lights[0] + 66) / (settings().zoom ?? 1) - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
+      : 12;
     const panel = find(root, "panel"), body = find(root, "panel-body"), lado = find(root, "lado");
     const enabled = shared("workspace.panels") ?? ["files", "changes"];
     this.syncPanel(space, panel, body, enabled);
@@ -116,14 +164,11 @@ export default class Pestanas extends View {
     };
     const winButton = (id, label, action) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.dim)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop).on_click(action).child(label);
-    return h_flex().size_full().min_w(0).pr(8).pl(lightsPadding).gap(2).items_center().bg(t.chrome)
-      .on_mouse_up("left", () => { this.pressed = null; })
-      .on_scroll_wheel((e) => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
-      .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(2).overflow_x_scrollbar().track_scroll(this.scroll)
-        .on_size_change((_size, cx) => { if (active >= 0) { this.scroll.scroll_to_item(active); cx.notify(); } })
-        .children(shown.map(item))
-        // El + va después de la última pestaña (los índices de scroll_to_item no cambian: es el último hijo).
-        .child(div().flex_none().pl(4).child(iconButton(t, "tab-new", "plus", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 }), { tip: "Pestaña nueva", stop: true }))))
+    return h_flex().size_full().min_w(0).pr(8).pl(lightsPadding).gap(6).items_center().bg(t.chrome)
+      .child(div().id("ctx").flex_1().min_w(0).child(line1))
+      .when(wait.length > 0, (el) => el.child(h_flex().id("ctx-wait").flex_none().gap(4).items_center()
+        .children(wait.slice(0, WAIT_MAX).map(chip))
+        .when(more > 0, (x) => x.child(div().flex_none().text_size(11).text_color(t.blocked).tooltip(wait.slice(WAIT_MAX).map((a) => a.name || a.n).join(" · ")).child(`+${more}`)))))
       .when(enabled.includes("files"), (el) => el.child(panelButton("files", "Archivos", "mods/files/file.svg")))
       .when(enabled.includes("changes"), (el) => el.child(panelButton("changes", "Cambios", "mods/changes/changes.svg")))
       .when(Boolean(lado), (el) => el.child(iconButton(t, "lado-toggle", "mods/bk-pestanas/panel.svg", () => run("layout.toggle", { id: "lado" }), { tip: lado?.hidden ? "Mostrar el lado derecho" : "Ocultar el lado derecho", on: !lado?.hidden, stop: true, size: 15 })))
