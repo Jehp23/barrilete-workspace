@@ -175,6 +175,22 @@ PY2
 )
 check_eq "$kept" "['a', 'm']" "al recortar los enviados quedan los más nuevos"
 
+# Con store branch los datos tienen la visibilidad del repo: evidence_ref es solo el nombre del transcript, sin la ruta
+# (que lleva el usuario local)
+echo '{"store": "branch"}' >"$P/.barrilete/learning.json"
+python3 - "$HOME/.claude/projects/demo/s1.jsonl" "$W" <<'PY'
+import json, sys
+with open(sys.argv[1], "a") as f:
+    f.write(json.dumps({"cwd": sys.argv[2], "gitBranch": "claude/7-arreglar", "sessionId": "aaaa1111-0000", "type": "user",
+                        "timestamp": "2099-01-01T13:00:00Z",
+                        "message": {"content": [{"type": "text", "text": "[Request interrupted by user]"}]}},
+                       separators=(",", ":")) + "\n")
+PY
+learn
+git -C "$P" show agents/learning:events.jsonl >"$TMP/branch.jsonl" 2>/dev/null
+check_eq "$(python3 -c "import json; print(sorted({json.loads(l)['evidence_ref'] for l in open('$TMP/branch.jsonl') if l.strip()}))")" \
+  "['s1.jsonl']" "con store branch evidence_ref es solo el nombre del transcript"
+
 # Un estado del adaptador roto (a mano, a medio escribir) no frena a learn
 broken=$(BK_LEARN_STORE_STATE="$TMP/st-roto.json" python3 - "$ROOT/lib" "$TMP/st-roto.json" <<'PY2'
 import sys
