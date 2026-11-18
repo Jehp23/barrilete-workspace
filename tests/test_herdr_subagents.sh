@@ -38,6 +38,12 @@ with tempfile.TemporaryDirectory() as tmp:
     state('new-session','t1',20)
     assert 't1' not in H.snapshot()['by_terminal']
     print('ok - padre correcto, descripción, segundo plano, numeración estable, terminados, inactivos, JSON roto y sesión reemplazada')
+    # Comandos en segundo plano del último turno (el hook los cuenta en "background"): solo los que siguen corriendo.
+    def bg(sid, terminal, st, n):
+        (states/f'{sid}.json').write_text(json.dumps({'pane':terminal,'ts':30,'state':st,'background':n}))
+    bg('b1','t5','background',2); bg('b2','t6','done',0); bg('b3','t7','working',3); bg('b4','t8','background','x')
+    assert H.snapshot()['background']=={'t5':2},H.snapshot()['background']
+    print('ok - segundo plano por terminal: solo state background con una cuenta positiva')
 PY
 
 node --input-type=module - "$ROOT" <<'JS'
@@ -46,7 +52,7 @@ import assert from 'node:assert/strict';
 const source=fs.readFileSync(`${process.argv[2]}/herdr/mods/agentes/main.js`,'utf8').replace(/^import .*;$/gm,'').replace('export default class Agents','class Agents');
 let click, calls=[];
 const el=()=>new Proxy({}, {get:(_,key)=>(...args)=>{if(key==='on_click')click=args[0];if(key==='when'&&args[0])args[1](el());return el();}});
-const Agents=new Function('View','div','svg','h_flex','v_flex','agents','run','home',source+';return Agents;')(class{},el,el,el,el,()=>[{address:'t1',space:'sp1'}],(name,args)=>calls.push([name,args]),()=>'/home/test');
+const {Agents,withBackground,bgText}=new Function('View','div','svg','h_flex','v_flex','agents','run','home',source+';return {Agents,withBackground,bgText};')(class{},el,el,el,el,()=>[{address:'t1',space:'sp1'}],(name,args)=>calls.push([name,args]),()=>'/home/test');
 const view=new Agents();view.listed=new Map([['t2','working']]);
 const rows=view.tree([{address:'t2',parent:'t1',state:'live',status:'working'},{address:'claude:t1:x',parent:'t1',state:'live',status:'working',name:'2 reviewer',transcript:'/test/agent-x.jsonl'}],'t1');
 assert.equal(rows.length,2,'conserva hijos nativos y los internos');
@@ -55,4 +61,9 @@ assert.deepEqual(calls,[['space.select',{id:'sp1'}],['tab.new',{space:'sp1',name
 calls=[];view.subRow({working:'#123456',foreground:'#ffffff'},rows[0],null,false);click();
 assert.deepEqual(calls,[['pane.focus',{terminal:'t2'}]],'el hijo nativo sigue abriendo su terminal');
 console.log('ok - árbol mixto: clic en Claude sigue el transcript; clic nativo conserva la navegación');
+// Herdr ve quieto (listo o quieto) al chat que dejó tests corriendo: con bk contando comandos vivos, va como trabajando.
+const marked=withBackground([{address:'a',status:'done'},{address:'b',status:'idle'},{address:'c',status:'blocked'},{address:'d',status:'done'},{address:'e',status:'working'}],{a:2,b:1,c:1,e:4});
+assert.deepEqual(marked.map((a)=>[a.status,bgText(a)]),[['working','2 en 2º plano'],['working','1 en 2º plano'],['blocked',null],['done',null],['working',null]]);
+assert.deepEqual(withBackground([{address:'a',status:'done'}],undefined),[{address:'a',status:'done'}],'sin datos de bk, manda Herdr');
+console.log('ok - en 2º plano: listo o quieto con comandos vivos pasa a trabajando; te espera y trabajando no cambian');
 JS

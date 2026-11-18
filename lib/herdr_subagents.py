@@ -3,6 +3,8 @@
 
 Solo metadatos: los hooks relacionan sesión y terminal; agents.subagents excluye
 los terminados y los transcripts sin actividad por más de diez minutos.
+También dice cuántos comandos en segundo plano (tests, CI, Monitor…) dejó corriendo el último turno de cada
+terminal: Herdr ve el chat quieto y lo daría por listo; el hook (hooks/agent_state.sh) los cuenta al terminar el turno.
 """
 import json
 import agents as A
@@ -10,8 +12,11 @@ import sidebar as S
 
 
 def snapshot():
-    out = {}
+    out, background = {}, {}
     for terminal, state in A.states().items():
+        n = state.get("background")
+        if state.get("state") == "background" and isinstance(n, int) and n > 0:
+            background[terminal] = n
         children = []
         for description, path in A.subagents(state.get("_sid")):
             try:
@@ -26,7 +31,7 @@ def snapshot():
                              "background": meta.get("requestShape") == "background", "path": path})
         if children:
             out[terminal] = children
-    return {"by_terminal": out}
+    return {"by_terminal": out, "background": background}
 
 
 if __name__ == "__main__":

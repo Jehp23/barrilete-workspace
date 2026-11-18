@@ -29,6 +29,14 @@ const kidStatus = (k, listed) => {
   const s = listed.get(k.address) ?? k.status;
   return s === "error" ? "blocked" : s === "done" ? "idle" : s;
 };
+// Un turno que terminó dejando comandos en segundo plano (tests, CI…) no está listo: Herdr ve el chat quieto y lo
+// marca listo o quieto; el hook de bk cuenta lo que sigue corriendo (bk _subagents, "background"). Va como trabajando,
+// con «N en 2º plano» en su segunda línea. Si Herdr ve otra cosa (te espera, trabajando), manda Herdr.
+const withBackground = (list, bg) => list.map((a) => {
+  const n = bg?.[a.address];
+  return n > 0 && (a.status === "done" || a.status === "idle") ? { ...a, status: "working", bgCount: n } : a;
+});
+const bgText = (a) => (a.bgCount > 0 ? `${a.bgCount} en 2º plano` : null);
 const SORTS = [
   { id: "priority", label: "Por prioridad", icon: "clock" },
   { id: "grouped", label: "Por espacio", icon: "layers" },
@@ -161,6 +169,7 @@ export default class Agents extends View {
     this.folded = new Set();
     this.openPrev = new Set();   // las líneas «antes» desplegadas (plegadas por defecto)
     this.claudeSubs = {};
+    this.background = {};
     this.subsRaw = "";
     this.subError = null;
     const refresh = async (cx) => {
@@ -171,7 +180,9 @@ export default class Agents extends View {
         const r = await exec(bin(), ["_subagents"], { timeout: 8000 });
         if (r.code !== 0) throw new Error(r.stderr.trim() || "bk _subagents no respondió");
         if (r.stdout !== this.subsRaw) {
-          this.claudeSubs = JSON.parse(r.stdout).by_terminal ?? {};
+          const data = JSON.parse(r.stdout);
+          this.claudeSubs = data.by_terminal ?? {};
+          this.background = data.background ?? {};
           this.subsRaw = r.stdout;
           changed = true;
         }
@@ -613,7 +624,7 @@ export default class Agents extends View {
     if (props()?.epicPick) return this.epicPick(t);
     const collapsed = narrow();
     const sort = sortOf();
-    let list = agents();
+    let list = withBackground(agents(), this.background);
     this.listed = new Map(list.map((a) => [a.address, a.status]));
     const native = terminals();
     const numbers = ids(native);
@@ -668,11 +679,11 @@ export default class Agents extends View {
     const metaOf = (a, title, full) => {
       // En qué quedó el chat (lib/names.py, etiqueta bk.status) dice más que chat-3 o el nombre del programa
       const status = labelsOf.get(a.address)?.["bk.status"];
-      if (status) return [full ? a.space_name : null, status].filter(Boolean).join(" · ");
+      if (status) return [bgText(a), full ? a.space_name : null, status].filter(Boolean).join(" · ");
       const tab = tabs.get(a.tab);
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
       const tabName = tab?.named && tab.name !== title ? tab.name : null;
-      return [machine, full ? a.space_name : null, tabName ?? (a.program?.name !== title ? a.program?.name : null)].filter(Boolean).join(" · ");
+      return [bgText(a), machine, full ? a.space_name : null, tabName ?? (a.program?.name !== title ? a.program?.name : null)].filter(Boolean).join(" · ");
     };
 
     // «#324 de #321»: el issue del chat y su épica (la sección ÉPICAS); el chat que trabaja la épica misma, «épica #321»
