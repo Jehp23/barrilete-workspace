@@ -382,11 +382,12 @@ son) en los PRs abiertos antes y después de `accepted`, y, si tiene `check`, cu
 `check_run` de `.barrilete/learning/events.jsonl` (sin eventos: "sin datos"). Al final dice qué parte de los hallazgos
 cae en `other` y qué etiquetas usan las reviews que no están en `classes.yml`. Escribe `agents/efecto.md`; las que dan
 *no baja* son para pasar a check, reescribir o retirar (decide la persona). Tests: `tests/test_effect.sh`.
-`bk bitacora [repo...]` (alt+k «Bitácora de agentes», `lib/bitacora.py`) corre en cada repo de `~/.config/bk/retros.json`
-(o en los que le pasás) el `scripts/agents/bitacora.py` de su kit (barrilete-kit#339): una página por repo en
-`.barrilete/bitacora.html`, con una tarjeta por PR y cada agente que lo tocó, en el diseño de barrilete o el del proyecto
-(`.barrilete/bitacora.css`). Imprime `ok: <página>` por cada una y las abre. Un repo con un kit anterior a la bitácora
-se dice en una línea y se sigue; sin ninguna página, termina con 1. Tests: `tests/test_bitacora.sh`.
+`bk bitacora [tema]` (alt+k «Bitácora: guardar lo de este chat…») le escribe `/bitacora <tema>` a un chat de Claude, y
+la skill `bitacora` del kit (barrilete-kit#343) guarda lo de esa conversación como una entrada de `docs/bitacora.html`,
+en la sección del tema. Sin tema, el chat propone uno y te lo confirma. Le escribe al chat que mirás si es un Claude
+(el hook tiene su estado); si no, al chat de bk de ese espacio. alt+k le pasa la terminal que mirás (`--to`). Con un
+menú abierto en el chat no escribe nada (el Enter elegiría la opción marcada). Reemplaza a la bitácora de agentes
+generada (`lib/bitacora.py` y el `scripts/agents/bitacora.py` del kit, que #343 sacó). Tests: `tests/test_bitacora.sh`.
 
 ## Dotfiles
 - `dotfiles/tmux.conf` → `~/.config/tmux/tmux.conf`

@@ -131,8 +131,9 @@ uso: bk [comando] [--dry-run]
   learn             registra desvíos de los agentes en Obsidian y propone lecciones; los de proyectos con el kit
                     (y los hallazgos de review) van también a su store (.barrilete/learning, ADR-007)
   lessons           lecciones por revisar (status: proposed) en el vault
-  bitacora [repo...]  regenera la «Bitácora de agentes» de cada repo (los de ~/.config/bk/retros.json) con el
-                    scripts/agents/bitacora.py de su kit y la abre (.barrilete/bitacora.html)
+  bitacora [tema]   le pide /bitacora [tema] al chat que mirás si es un Claude, o al chat del espacio: la skill
+                    bitacora del kit guarda lo de esa conversación en docs/bitacora.html (sin tema, lo propone el
+                    chat). --to <terminal|pane>: el que mirás (alt+k se lo pasa)
   learn effect      ¿las reglas que aplica cada proyecto (rules.lock + .barrilete/rules/) bajan los hallazgos que
                     dicen evitar? antes/después por ronda de review y fallos de su check (agents/efecto.md)
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
@@ -720,6 +721,35 @@ open_menu() {
   local scr; scr=$(be_screen "$1" | grep -v '^[[:space:]]*$' | tail -n 25 || true)
   grep -qE 'Enter to (select|confirm)|Esc to (cancel|exit)|↑/↓ to navigate' <<<"$scr" || return 0
   grep -E '^[[:space:]]*(❯[[:space:]]*)?[0-9]+\.[[:space:]]' <<<"$scr" | sed -E 's/^[[:space:]]*//' | head -n 9
+}
+
+# bk bitacora [--to <terminal|pane>] [tema]: le escribe /bitacora [tema] a un chat de Claude, que guarda lo de su
+# conversación en docs/bitacora.html con la skill bitacora del kit (barrilete-kit#343). A cuál: al que mirás (--to;
+# sin él, la terminal o el pane desde donde corre) si es un Claude (el hook tiene su estado), si no al chat de bk de
+# ese espacio. Con un menú abierto no escribe: el Enter elegiría la opción marcada (como bk say).
+bitacora() {
+  need_backend
+  local to="" tp="" sp
+  [ "${1:-}" = --to ] && { to="${2:-}"; shift 2 || shift; }
+  local topic="$*"; topic="${topic#"${topic%%[![:space:]]*}"}"; topic="${topic%"${topic##*[![:space:]]}"}"
+  if [ "$BACKEND" = herdr ]; then to="${to:-${HC_TERMINAL_ID:-}}"
+  else to="${to:-${TMUX_PANE:-$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)}}"; fi
+  if [ -n "$to" ] && [ -n "$(pane_state "$to")" ]; then tp="$to"
+  elif [ "$BACKEND" = herdr ]; then
+    sp=$(hd_label "${to:-_}" herdr.space)
+    [ -n "$sp" ] && tp=$(hd_find bk.kind=chat "herdr.space=$sp" | head -1)
+  elif [ -n "$to" ]; then
+    # tmux: el chat del workspace es el pane de <sesión>:main que no es el riel ni la barra (sin crearlo)
+    sp=$(tmux display-message -p -t "$to" '#S' 2>/dev/null || true)
+    [ -n "$sp" ] && tp=$(tmux list-panes -t "$sp:main" -F '#{pane_id} #{pane_start_command}' 2>/dev/null \
+                         | grep -v -e 'bk rail' -e 'bk sidebar' | head -1 | cut -d' ' -f1)
+  fi
+  [ -n "$tp" ] || die "bitácora: lo que mirás no es un chat de Claude y su espacio no tiene un chat de bk"
+  local menu; menu=$(open_menu "$tp")
+  [ -z "$menu" ] || die "bitácora: el chat ($tp) tiene un menú abierto; respondelo y volvé a pedirla"
+  local msg="/bitacora${topic:+ $topic}"
+  be_type "$tp" "$msg" || die "no pude escribirle al chat ($tp)"
+  info "→ $tp: $msg"
 }
 
 say() {
@@ -1853,9 +1883,7 @@ case "${1:-}" in
   learn)       shift; [ "${1:-}" = effect ] && { shift; exec python3 "$WS/lib/effect.py" "$@"; }
                exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
-  bitacora)    shift; out=$(python3 -I "$WS/lib/bitacora.py" "$@") || exit 1
-               echo "$out"
-               [ -n "${BK_NO_OPEN:-}" ] || while IFS= read -r l; do open "${l#ok: }"; done <<<"$out" ;;
+  bitacora)    shift; bitacora "$@" ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
   font)        shift; font "${1:-status}" ;;

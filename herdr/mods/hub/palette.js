@@ -9,6 +9,12 @@ import { run, openOverlay, focused, notify } from "herdr";
 import { Panel, rank, bk, bin, launch, goto, termPopup, chips, keyOf, lit, cwd, lastLine } from "./kit.js";
 
 const view = (name) => (p) => goto(`bk-${name}`);
+const bitacora = (topic) => {
+  const to = focused()?.terminal;
+  bk(["bitacora", ...(to ? ["--to", to] : []), ...(topic ? [topic] : [])]).then((r) => notify(r.code === 0
+    ? { title: "Bitácora", body: lastLine(r.stdout).replace(/\x1b\[[0-9;]*m/g, "").replace(/^→ /, ""), level: "success", timeout: 5000 }
+    : { title: "No pude pedir la bitácora", body: lastLine(r.stderr || r.stdout).replace(/^bk: /, ""), level: "error" }));
+};
 const herdr = (name, args) => (p) => { p.close(); run(name, args); };
 const out = (title, args) => (p) => goto("bk-out", { props: { title, args, dir: cwd() } });
 
@@ -24,6 +30,11 @@ const NATIVE = [
   ["profiles", "Agentes", "Perfiles de modelos y tareas…", "bk profile · bk ask", null, "perfil modelos proveedor codex claude gemini editar nuevo tarea imagenes investigar", view("profiles")],
   ["next", "Agentes", "Ir al que te espera", "bk go", "mod.open:bk-next", "saltar bloqueado terminó", view("next")],
   ["chat", "Chats", "Chat nuevo en este proyecto", "bk chat", "mod.open:bk-chat", "claude otro", view("chat")],
+  // /bitacora <tema> al chat que mirás (o al del espacio): bk bitacora decide a cuál y avisa si no pudo
+  ["bitacora", "Sesión", "Bitácora: guardar lo de este chat…", "bk bitacora", null, "bitacora tema guardar registro docs", (p) => p.askFor({
+    label: "bitacora", title: "¿Sobre qué tema?", help: "Le pide /bitacora <tema> al chat que mirás (o al del espacio). Vacío: el chat propone uno.",
+    verb: "pedirla", optional: true,
+    run: (text) => { p.close(); bitacora(text); } })],
   ["new", "Chats", "Nuevo… (rama, suelto, otro proyecto)", "bk new", "mod.open:bk-new", "workspace abrir proyecto worktree", view("new")],
   ["sessions", "Chats", "Sesiones: saltar o retomar", "bk s", "mod.open:bk-sessions", "resume recientes orca", view("sessions")],
   ["handoff", "Chats", "Pedir el resumen y seguir en un chat nuevo", "bk handoff", "mod.open:bk-handoff", "contexto clear", view("handoff")],
@@ -52,7 +63,7 @@ const NATIVE = [
 ];
 
 // Comandos de lib/palette.py que ya tienen entrada nativa arriba (no se repiten)
-const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|context|chat|song|profile|ask|models)\b/;
+const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|context|chat|song|profile|ask|models|bitacora)\b/;
 const GROUPS = ["Recientes", "Perfil", "Agentes", "Chats", "Ver", "GitHub", "Sesión", "Barra", "Facultad", "Música", "Ventana"];
 
 export default class Palette extends Panel {
