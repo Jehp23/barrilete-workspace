@@ -31,7 +31,7 @@ Ramas permanentes `main` + `develop`, y temporales `feature/*`, `release/*`, `ho
 - ✅ Muy conocido, separa claramente producción de desarrollo.
 - ❌ Pesado para un equipo de 2: hay que mantener `develop` sincronizada y hacer ramas de release.
 
-> ✅ **DECIDIDO (2026-11-17):** ramas cortas con prefijo (Conventional Branch 1.1). Única rama permanente `main`: los PRs de trabajo van directo a `main`.
+> ✅ **DECIDIDO (2026-11-17):** ramas cortas con prefijo (Conventional Branch 1.1). Única rama permanente `main`: lo propio de una sesión entra con `bk land --wait` (sin PR) y los PRs de issues van directo a `main`.
 
 ### Opción B — GitHub Flow + Conventional Branch 1.1
 Una sola rama permanente (`main`) y ramas cortas con el formato `<tipo>/<descripcion>`.
@@ -307,8 +307,8 @@ Para incluir en `CLAUDE.md` / `AGENTS.md` del repo:
 - Tipos de rama: feat, fix, hotfix, chore, release, claude.
 - Commits y títulos de PR: Conventional Commits 1.0 → `<tipo>(<scope>): <descripcion>`.
 - Scopes válidos: los de §2.
-- Única rama permanente `main`: los PRs de trabajo van directo a `main`.
-- Nunca pushear directo a las ramas troncales. Todo entra por PR.
+- Única rama permanente `main`, protegida: lo propio de una sesión entra con `bk land --wait` (sin PR); el trabajo de un issue, por PR a `main`.
+- Nunca commitear ni pushear directo a `main`.
 - Excepción: `agents/retros` (rama de datos de las retros), solo con `retro.sh`.
 - Si el cambio modifica lógica de negocio ya definida, agregar el label `business-logic` y explicarlo en el PR.
 - Ver docs/github-naming-convention.md para el detalle.
@@ -323,7 +323,7 @@ Para incluir en `CLAUDE.md` / `AGENTS.md` del repo:
 | Nombre de rama | GitHub Action `commit-check-action` o un Ruleset de GitHub con patrón de nombre |
 | Mensaje de commit | `commitlint` + hook de `husky`, o `commit-check` |
 | Título de PR | Action `amannn/action-semantic-pull-request` — incluido en `.github/workflows/pr-title.yml` |
-| Ramas troncales protegidas | Ruleset: PR obligatorio, 1 aprobación, sin force-push |
+| Rama troncal protegida | Hook de git `githooks/reference-transaction`: solo `bk land` mueve `main` |
 | Labels | Archivo `.github/labels.yml` + Action de sincronización |
 
 ---
@@ -334,7 +334,7 @@ Marcar la opción elegida por el equipo y fecha:
 
 | # | Tema | Opción elegida | Fecha | Notas |
 |---|---|---|---|---|
-| 1 | Ramas | ✅ Conventional Branch 1.1 | 2026-11-17 | Única rama permanente `main`: los PRs de trabajo van directo a `main`. Excepción: `agents/retros`, rama de datos de las retros (§1). |
+| 1 | Ramas | ✅ Conventional Branch 1.1 | 2026-11-17 | Única rama permanente `main`: lo propio entra con `bk land --wait`, los PRs de issues van directo a `main`. Excepción: `agents/retros`, rama de datos de las retros (§1). |
 | 2 | Commits | | | ¿scopes confirmados? |
 | 3 | PRs | | | ¿squash merge? |
 | 4 | Títulos de issues | | | |

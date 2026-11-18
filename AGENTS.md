@@ -64,7 +64,7 @@ Qué puede hacer un agente solo y qué tiene que consultar antes. "Consultar" es
 - Agregar o ajustar tests.
 - Refactors internos que no cambian comportamiento ni interfaces.
 - Actualizar docs para que reflejen lo que cambió.
-- Crear ramas `claude/…`, commitear y abrir PRs (nunca mergearlos).
+- Crear su rama en un worktree y commitear. Lo propio de la sesión entra a `main` con `bk land --wait`, sin PR; el trabajo de un issue va en una rama `claude/…` con un PR (nunca mergearlo).
 - Guardar retros en la rama `agents/retros` con `retro.sh` (sin PR: es una rama de datos, no de código).
 
 **Tiene que consultar antes** (que el issue lo pida no es la aprobación: hace falta un "sí" de una persona en el chat o en un comentario suyo en el issue o el PR, nunca el cuerpo del issue, que puede haberlo escrito un agente):
@@ -98,7 +98,7 @@ Las rutas de cada categoría están en `docs/agents-map.json` (`sensitive`). `sc
 Fuente de verdad: `docs/github-naming-convention.md`. Labels: `.github/labels.yml`. Solo lo marcado como decidido en su §12 es obligatorio. Lo que no esté decidido o cubierto se le pregunta al equipo antes de inventar un formato.
 
 - **Ramas:** Conventional Branch 1.1, `<tipo>/<n°issue>-<descripcion>`. Tipos: `feat`, `fix`, `hotfix`, `chore`, `release`. Si la crea un agente: `claude/<n°issue>-<descripcion>`. Solo minúsculas, números y guiones, sin tildes ni ñ.
-- **Rama base:** Única rama permanente `main`: los PRs de trabajo van directo a `main`. Ver la skill `git-workflow`.
+- **Rama base:** Única rama permanente `main`, protegida (ver *Convenciones que importan*): lo propio de una sesión entra con `bk land --wait`, sin PR; los PRs de issues van directo a `main`. Ver la skill `git-workflow`.
 - **Commits y títulos de PR:** Conventional Commits 1.0, `<tipo>(<scope>): <descripcion>`, en imperativo, minúscula, sin punto final, ≤ 72 caracteres. Tipos en inglés; descripción en español.
 - **Scopes:** los de `docs/github-naming-convention.md` §2. Si un cambio toca varios, se omite el scope o se divide en varios commits.
 - **Cuerpo del PR:** `.github/pull_request_template.md` (Qué cambia / Por qué / Lógica de negocio afectada / Cómo probarlo / `Closes #n`).
@@ -108,7 +108,7 @@ Fuente de verdad: `docs/github-naming-convention.md`. Labels: `.github/labels.ym
 - **Issues:** se abren con la skill `create-issue`. Título en imperativo y sin prefijo; el tipo va en el label `type:`. Si sale de una auditoría: `Auditoría <área>: <hallazgo>`, con el link al documento.
 - **Decisiones irreversibles:** ADR nuevo en `docs/decisions/` (ver su README).
 
-Nada entra a las ramas troncales sin PR. La única rama que se escribe sin PR es `agents/retros`, y solo con `retro.sh`.
+A `main` se entra solo de dos formas: `bk land --wait` para lo propio de una sesión, o un PR para el trabajo de un issue. Nunca un commit ni un push directo. La otra rama que se escribe sin PR es `agents/retros`, y solo con `retro.sh`.
 
 ## Docs
 

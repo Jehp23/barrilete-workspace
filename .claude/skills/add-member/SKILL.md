@@ -14,6 +14,6 @@ El equipo vive en `.github/team.json` y lo usan `create-issue` y `plan-feature` 
    ```
    Valida que el usuario exista y tenga acceso al repo (GitHub no deja asignar issues a quien no lo tiene). Si falta la invitación, decilo; `--force` solo si el usuario confirma que la invitación está pendiente.
 3. **Ver el equipo:** `python3 scripts/agents/team.py list` (con la carga de cada uno).
-4. **Commitear** `.github/team.json` en una rama y abrir un PR (`chore: …`): el equipo es configuración del repo y entra por PR como todo lo demás.
+4. **Commitear** `.github/team.json` en una rama (`chore: …`) y entrar con `bk land --wait`, o con un PR si salió de un issue: el equipo es configuración del repo y entra como todo lo demás.
 
 Para pausar a alguien sin quitarlo (vacaciones, otra prioridad): `team.py pause <login>` / `activate <login>`.
