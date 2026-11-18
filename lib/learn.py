@@ -118,9 +118,13 @@ def scan(state, since_ts, store=None):
                 if store and "gh pr create" in line:   # la sesión que abre el PR: su modelo va en los hallazgos
                     try:
                         o = json.loads(line)
-                        store.note_pr_opener(o.get("cwd"), o.get("gitBranch"), models.get(path))
                     except ValueError:
-                        pass
+                        o = {}
+                    content = (o.get("message") or {}).get("content")
+                    if any(isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "Bash"
+                           and "gh pr create" in str((b.get("input") or {}).get("command", ""))
+                           for b in (content if isinstance(content, list) else [])):   # correrlo, no nombrarlo
+                        store.note_pr_opener(o.get("cwd"), o.get("gitBranch"), models.get(path))
                 interesting = any(k in line for k in ("red.sh", "verify.py", "planner.py", "result:") + RISK_HINTS)
                 if not interesting:
                     continue

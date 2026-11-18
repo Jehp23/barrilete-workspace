@@ -175,4 +175,18 @@ PY2
 )
 check_eq "$kept" "['a', 'm']" "al recortar los enviados quedan los más nuevos"
 
+# Un estado del adaptador roto (a mano, a medio escribir) no frena a learn
+broken=$(BK_LEARN_STORE_STATE="$TMP/st-roto.json" python3 - "$ROOT/lib" "$TMP/st-roto.json" <<'PY2'
+import sys
+sys.path.insert(0, sys.argv[1])
+import learn_store as L
+open(sys.argv[2], "w").write('{"sent": {"k": null}, "pr_openers": 3, "areas": [], "since": 7}')
+s = L.Store()
+s.openers["x:y"] = "m"
+s.save()
+print("ok")
+PY2
+)
+check_eq "$broken" ok "un estado roto del adaptador no frena a learn"
+
 echo "1..$N"; [ "$FAILED" -eq 0 ]

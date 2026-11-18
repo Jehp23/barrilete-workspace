@@ -83,17 +83,25 @@ class Store:
                 st = json.load(f)
         except (OSError, ValueError):
             st = {}
-        self.st = st if isinstance(st, dict) else {}
-        # Desde la primera corrida: la historia que ya estaba en los transcripts no se manda
-        self.since = self.st.setdefault("since", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-        self.sent = set(self.st.get("sent") or [])
-        self.areas = self.st.setdefault("areas", {})
-        self.openers = self.st.setdefault("pr_openers", {})
+        st = st if isinstance(st, dict) else {}
+        # Un estado roto no frena a learn: lo que no tiene el tipo esperado empieza de cero
+        for k in ("areas", "pr_openers", "sent"):
+            if not isinstance(st.get(k), dict):
+                st[k] = {}
+        if not isinstance(st.get("since"), str) or not TS.fullmatch(st["since"]):
+            # Desde la primera corrida: la historia que ya estaba en los transcripts no se manda
+            st["since"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        self.st, self.since = st, st["since"]
+        # clave → ts del evento, para que el recorte guarde los más nuevos
+        self.sent = {str(k): str(v or "") for k, v in st["sent"].items()}
+        self.areas = st["areas"]
+        self.openers = st["pr_openers"]
+        self.gh_failed = set()      # issues que gh no pudo leer en esta corrida: no se reintentan hasta la próxima
         self.ok = self.failed = 0
         self.projects = set()
 
     def save(self):
-        self.st["sent"] = sorted(self.sent)[-SENT_MAX:]
+        self.st["sent"] = dict(sorted(self.sent.items(), key=lambda kv: (kv[1], kv[0]))[-SENT_MAX:])
         try:
             os.makedirs(os.path.dirname(STATE), exist_ok=True)
             with open(STATE + ".tmp", "w") as f:
@@ -118,6 +126,8 @@ class Store:
         if not repo:
             return ""
         key = f"{repo}#{n}"
+        if key in self.gh_failed:
+            return ""
         if key not in self.areas:
             try:
                 r = subprocess.run(["gh", "issue", "view", str(n), "--repo", repo, "--json", "labels"],
@@ -126,6 +136,7 @@ class Store:
             except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
                 labels = None
             if labels is None:          # gh no pudo: se vuelve a probar en otra corrida
+                self.gh_failed.add(key)
                 return ""
             self.areas[key] = next((slug(l[5:]) for l in labels if l.startswith("area:")), "")
         return self.areas[key]
@@ -160,7 +171,7 @@ class Store:
             fields["area"] = area
         model = e.get("model") or ""
         if self._emit(main, "finding" if finding else "deviation", fields, model):
-            self.sent.add(key)
+            self.sent[key] = ts
             self.ok += 1
             self.projects.add(main)
         else:
