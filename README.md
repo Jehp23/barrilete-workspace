@@ -467,6 +467,13 @@ trabaje o nadie (`herdr/mods/marca/bk-wait.svg`, `bk-fly.svg`, `bk-rest.svg`). E
 los controles de búsqueda y de la barra lateral sin editar Herdr, y en su pie van ajustes, aspecto y agregar una
 máquina.
 
+Entre la marca y la lupa van tus **accesos directos** (`herdr/mods/marca/accesos.js`): una página, una carpeta, un
+archivo o una app, que el clic abre con `open`. Se agregan soltando archivos o apps sobre la cabecera, o con el +
+(aparece al pasar por encima; siempre, si no hay ninguno), que abre un popup para pegar una URL o una ruta
+(`github.com/x`, `localhost:3000`, `~/Documents`, `obsidian://…`) o elegir una carpeta. El clic derecho sobre uno
+abre esa lista, donde se sacan con ×. Entran los que caben en el ancho de la barra; los demás, en un +N. Se guardan
+en `~/.config/herdr-app/bk-accesos.json`.
+
 ### Datos para los paneles nativos (`bk _hub`) y acciones sueltas (`bk _do`)
 
 Un mod de Herdr solo puede correr programas y leer su salida. `bk _hub <tema>` (`lib/herdr_hub.py`) le da cada
