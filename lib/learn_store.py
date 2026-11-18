@@ -5,7 +5,8 @@ con el `scripts/agents/learning.py` de ese proyecto: el kit decide el store (`.b
 proyecto y valida. Un proyecto sin ese script no recibe nada y su desvío queda solo en el vault.
 
 Solo metadatos: el tipo del desvío va en `class` (como slug: `guardrail-block`), el modelo de la sesión, `harness:
-claude-code`, el rol, el `area` del label del issue y `evidence_ref` (la ruta del transcript o la URL del PR). Nunca el
+claude-code`, el rol, el `area` del label del issue y `evidence_ref` (la ruta del transcript, o solo su nombre si el store
+es `branch`, o la URL del PR). Nunca el
 texto del transcript, de la persona o de la review.
 
 No manda la historia de antes de su primera corrida, no repite un evento (aunque se corra `bk learn --rebuild`) y un
@@ -57,6 +58,18 @@ def main_checkout(cwd):
 def kit_of(cwd):
     main = main_checkout(cwd)
     return main if main and os.path.isfile(os.path.join(main, KIT_SCRIPT)) else None
+
+
+def local_store(main):
+    """True si el proyecto guarda sus datos solo en la máquina (`local`, o sin `.barrilete/learning.json`). Ante la duda
+    (archivo ilegible u otro valor), False: lo que se escribe puede salir de la máquina."""
+    try:
+        with open(os.path.join(main, ".barrilete", "learning.json")) as f:
+            return json.load(f).get("store", "local") == "local"
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def issue_of(branch, cwd=""):
@@ -165,7 +178,12 @@ class Store:
         else:
             path = e.get("_path") or ""
             home = os.path.expanduser("~")
-            fields["evidence_ref"] = "~/" + os.path.relpath(path, home) if path.startswith(home + os.sep) else path
+            if not local_store(main):   # store branch: la ruta lleva el usuario local y la rama tiene la visibilidad del repo
+                fields["evidence_ref"] = os.path.basename(path)
+            elif path.startswith(home + os.sep):
+                fields["evidence_ref"] = "~/" + os.path.relpath(path, home)
+            else:
+                fields["evidence_ref"] = path
             area = self.area(main, issue_of(e.get("_branch"), e.get("_cwd")))
         if area:
             fields["area"] = area

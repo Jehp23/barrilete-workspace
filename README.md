@@ -367,7 +367,7 @@ escribe el `scripts/agents/learning.py` del proyecto, así que el store (`local`
 son los del kit; un proyecto sin ese script no recibe nada. Solo metadatos: el tipo del desvío en `class`
 (`guardrail-block`, `user-correction`…), el modelo de la sesión (en un hallazgo, el de la sesión que abrió el PR; si no
 se sabe, `unknown`), `harness: claude-code`, el rol, el `area:` del issue de la rama y `evidence_ref` (la ruta del
-transcript o la URL del PR); nunca texto del transcript, tuyo o de la review. El vault queda como vista personal y sus
+transcript, solo su nombre con store `branch` porque la ruta lleva tu usuario, o la URL del PR); nunca texto del transcript, tuyo o de la review. El vault queda como vista personal y sus
 eventos viejos no se migran. No manda lo de antes de su primera corrida ni repite eventos, tampoco con `--rebuild`
 (estado en `~/.cache/barrilete/learn-store.json`). Con store `branch`, subirlo es `learning.py push` del proyecto.
 Tests: `tests/test_learn_store.sh` (usa el `learning.py` del main de `~/barrilete-kit`, o `BK_KIT_REPO`).
