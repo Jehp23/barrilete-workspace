@@ -65,7 +65,8 @@ Regla: si un documento de producto y el código no coinciden, **gana** [architec
 - [ADR-003](decisions/kit/ADR-003-minimal-ddd-glossary-and-contexts.md) — cada proyecto recibe un glosario del dominio y un mapa de contextos, con las reglas que los agentes aplican
 - [ADR-004](decisions/kit/ADR-004-orchestrate-launch-mode-per-role.md) — `/orchestrate` lanza cada rol como agente `bk` o como subagente, según `roles.yml` (aceptado)
 - [ADR-005](decisions/kit/ADR-005-tasks-and-events-for-bk-agents.md) — un agente `bk` trabaja sobre una tarea con estado y registro de eventos, y declara su cierre con `bk done` (aceptado)
-- [ADR-006](decisions/kit/ADR-006-rules-store-for-agents.md) — un solo store de reglas para los agentes (`barrilete-rules`) que reemplaza docs/agents/lessons.md y las lecciones de `bk learn` (aceptado)
+- [ADR-006](decisions/kit/ADR-006-rules-store-for-agents.md) — un solo store de reglas para los agentes (`barrilete-rules`) que reemplazó el archivo de lecciones del kit y las lecciones de `bk learn` (aceptado)
+- [ADR-007](decisions/kit/ADR-007-per-project-learning.md) — los datos de aprendizaje viven en el store de cada proyecto (local por defecto), con un solo evento de metadatos, las propuestas primero al proyecto y la medición por celda (regla × modelo × harness × rol); reemplaza a ADR-006 en D1, D5, D6 y D10 (propuesto)
 - Todavía no hay ADRs propios del proyecto (`decisions/ADR-001-…`). Pendiente: lo decide la persona.
 
 ### Guías
@@ -81,7 +82,8 @@ Regla: si un documento de producto y el código no coinciden, **gana** [architec
 - [`github-naming-convention.md`](github-naming-convention.md) — ramas, commits, PRs, issues y labels ([`.github/labels.yml`](../.github/labels.yml))
 - [`agents-map.json`](agents-map.json) — qué docs revisar según lo que cambia, rutas sensibles y docs obligatorios
 - [`agents/subagent-contract.md`](agents/subagent-contract.md) — reglas y formato de salida de los subagentes de `.claude/agents/` (implementador, implementador liviano, revisor)
-- [`agents/lessons.md`](agents/lessons.md) — lo aprendido de las retros de los agentes, revisado en un PR (las retros crudas viven en la rama `agents/retros`)
+- [`agents/bitacora.md`](agents/bitacora.md) — la página de bitácora de agentes (`scripts/agents/bitacora.py`): el contrato de retros que lee y sus tokens de diseño
+- [`agents/learning-event.md`](agents/learning-event.md) — el evento de aprendizaje v1, su validador y el store (`.barrilete/learning.json`, ADR-007)
 - [`agents/classes.yml`](agents/classes.yml) — las clases con que `review-pr` etiqueta los hallazgos (la genera `scripts/agents/sync-rules` desde barrilete-rules, ADR-006)
 - Skills en [`../.claude/skills/`](../.claude/skills/): `plan-feature`, `create-issue`, `implement-issue`, `debug`, `db-migration`, `update-docs`, `review-pr`, `project-status`, `git-workflow`, `improve-skills`, `orchestrate`
 - Los docs se validan en CI: [`../scripts/agents/check-docs.py`](../scripts/agents/check-docs.py)

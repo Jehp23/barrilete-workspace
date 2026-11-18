@@ -13,6 +13,12 @@ A "run" that starts with "TODO" is reported as not configured and is not execute
 It also runs the checks of the rules (ADR-006 D8): .barrilete/checks.json, which scripts/agents/sync-rules generates from
 barrilete-rules, lists {"id", "rule", "fail_message"}; each one runs scripts/agents/checks/<id> --base <ref>, always, and when it
 fails verify.py prints the rule and its fail_message (what to do and when to escalate). A manifest that cannot be read exits with 2.
+Each rule check that runs leaves, as soon as it finishes, one check_run event per rule in the project's learning store
+(ADR-007: the v1 event of docs/agents/learning-event.md, written by scripts/agents/learning.py where .barrilete/learning.json
+says: by default .barrilete/learning/events.jsonl of the main checkout, also from a worktree). The event carries the rule_id
+and the outcome (pass, fail, or skipped when the check could not verify) plus what learning.py adds (project, model,
+harness, and the task's fields with BK_TASK_DIR). Only metadata: never the fail_message or the check's output.
+Recording is best effort: if it cannot write, it says so once on stderr and the exit status does not change.
 
 Usage:
   verify.py                 # against the base branch (BASE, main or the remote default)
@@ -30,6 +36,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from agents_map import RAIZ, archivos_cambiados, coincide, existe, rama_base  # noqa: E402
+import learning  # noqa: E402
 
 
 def referencia_base(args, base):
@@ -60,6 +67,29 @@ def checks_de_reglas():
         if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", c["id"]):
             roto(f"the check id {c['id']!r} is not a slug (it names a file in scripts/agents/checks/).")
     return lista
+
+
+RESULTADO_EVENTO = {"ok": "pass", "FAILED": "fail", "not verified": "skipped"}
+
+
+class Registro:
+    """Records check_run events as each rule check finishes, so a run that dies halfway keeps what already ran.
+    Best effort: a write that fails is said once on stderr and never changes the exit status."""
+
+    def __init__(self, mensajes):
+        self.mensajes, self.ctx, self.roto = mensajes, None, False
+
+    def anotar(self, nombre, estado):
+        if self.roto or nombre not in self.mensajes or estado not in RESULTADO_EVENTO:
+            return
+        try:
+            if self.ctx is None:
+                self.ctx = learning.contexto()
+            learning.escribir([learning.evento("check_run", {"rule_id": regla, "outcome": RESULTADO_EVENTO[estado]},
+                                               self.ctx) for regla, _ in self.mensajes[nombre]])
+        except (learning.LearningError, OSError, ValueError) as e:   # ValueError: a file or git output that is not UTF-8
+            self.roto = True
+            print(f"verify.py: could not record the check runs: {e}", file=sys.stderr)
 
 
 def main():
@@ -130,6 +160,7 @@ def main():
         return
 
     resultados = []
+    registro = Registro(mensajes)
     for nombre, motivo, cmd in plan:
         if cmd.startswith("TODO"):
             resultados.append((nombre, "not configured", 0))
@@ -140,6 +171,7 @@ def main():
         # A rule check exits with 4 when it could not verify (no PR yet, gh down): that is not ok, and it is not a failure.
         estado = "ok" if rc == 0 else "not verified" if rc == 4 and nombre in mensajes else "FAILED"
         resultados.append((nombre, estado, time.time() - t0))
+        registro.anotar(nombre, estado)
         print(flush=True)
 
     if saltados:

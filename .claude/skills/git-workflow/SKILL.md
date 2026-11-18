@@ -10,7 +10,7 @@ Detalle en `docs/github-naming-convention.md`. Resumen obligatorio en `AGENTS.md
 ## Ramas
 
 - Única rama permanente `main`, protegida: nadie commitea ni edita su checkout. Creá la rama en su worktree (`git worktree add -b <rama> ../barrilete-workspace-wt/<rama> main`). Lo propio de la sesión entra con `bk land --wait`, sin PR (`README.md`, *main protegido*); el trabajo de un issue, con un PR a `main`.
-- Nombre: `claude/<n°issue>-<descripcion>` (agente) o `<tipo>/<n°issue>-<descripcion>` (persona). Solo minúsculas, números y guiones.
+- Nombre: `claude/<n°issue>-<descripcion>` (agente; `claude/<tipo>/<n°issue>-<descripcion>` con `"agent_branch_type": true` en `.agent-kit.json`, la arma `prepare.sh`) o `<tipo>/<n°issue>-<descripcion>` (persona). Solo minúsculas, números y guiones.
 - Si no hay issue, preguntá si abrir uno (skill `create-issue`) antes de inventar el número.
 
 ## Commits

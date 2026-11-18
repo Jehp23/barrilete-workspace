@@ -193,6 +193,21 @@ b=$(grep -n "Removed: $WT/21" <<<"$s" | cut -d: -f1); d=$(grep -n "git branch -D
 es -n "$b" && es -n "$d" && es "$d" -gt "$b"; tap_check $? "--delete da los comandos de las ramas después de sacar los worktrees"
 (cd "$P" && eval "$(grep "git branch -D claude/21-x" <<<"$s")" >/dev/null 2>&1) && ! git -C "$P" rev-parse -q --verify claude/21-x >/dev/null; tap_check $? "el comando que da cleanup.sh borra la rama (ya sin worktree)"
 
+# #330: ramas claude/<type>/<n>-… y worktrees ../<repo>-wt/<n>-<desc> (prepare.sh --name).
+git -C "$P" branch claude/fix/22-x main
+git -C "$P" push -q origin claude/fix/22-x 2>/dev/null
+issue 22 closed "type:bug" "Cerrado."; printf '[{"number": 122, "state": "CLOSED"}]\n' >"$TMP/issues/pr-claude_fix_22-x.json"
+git -C "$P" worktree add -q -b claude/23-segunda "$WT/23-segunda" main 2>/dev/null
+issue 23 closed "type:task" "Cerrado."
+pushd "$P" >/dev/null || exit 2
+lista=""   # lo reasigna tap_run
+tap_run lista 0 "$AQUI/cleanup.sh"
+grep -q "claude/fix/22-x.*closed without merging" <<<"$lista"; tap_check $? "lista la rama claude/<type>/<n>-… de un PR cerrado sin mergear"
+grep -q "$WT/23-segunda" <<<"$lista"; tap_check $? "lista el worktree ../<repo>-wt/<n>-<desc> de un issue cerrado"
+tap_run lista 0 "$AQUI/cleanup.sh" --delete
+popd >/dev/null || exit 2
+es ! -d "$WT/23-segunda"; tap_check $? "--delete saca el worktree ../<repo>-wt/<n>-<desc>"
+
 # 3. Lo que hace falta para correr en paralelo (criterios de #37).
 ! grep -q 'push -u' "$RAIZ/.claude/skills/implement-issue/SKILL.md"; tap_check $? "implement-issue pushea sin -u (el -u escribe .git/config y choca en paralelo)"
 # shellcheck disable=SC2016  # the backtick and the $ are regex, not expansions
@@ -345,6 +360,7 @@ ninguna() {  # ninguna <regex> <archivo.md>: imprime ok si ni el .md (tiene que 
 # 9. Cuarta review de #237.
 AG="$RAIZ/AGENTS.md"
 [ "$(cada 'gh pr list --search .head:claude/<n>-' "$OS")" = ok ]; tap_check $? "orquestar (paso 4): el PR de un agente bk se busca con --search head:claude/<n>-, no con --head de un prefijo"
+[ "$(cada '"agent_branch_type": true.*(both|las dos).*head:claude/<n>-.*head:claude/<(type|tipo)>/<n>-' "$OS")" = ok ]; tap_check $? "orquestar (paso 4): con agent_branch_type busca el PR con las dos formas de rama (un issue sin type: y las ramas viejas quedan en claude/<n>-)"
 [ "$(ninguna '--head claude/<n>-' "$OS")" = ok ]; tap_check $? "orquestar (paso 4): ya no usa gh pr list --head con un prefijo"
 [ "$(ninguna 'branch --show-current' "$OS")" = ok ]; tap_check $? "orquestar (paso 4): el orquestador no conoce el worktree del agente bk: busca el PR solo con --search"
 [ "$(cada '(An|Un) `implementer` that|`implementer` que `roles.yml`' "$AG")" = ok ]; tap_check $? "AGENTS.md (subagentes): solo un implementer puede ser bk"
@@ -372,5 +388,32 @@ mkdir -p "$TMP/paso3"; for f in SKILL SKILL.es; do [ -f "$AQUI/$f.md" ] && grep 
 [ "$(ninguna 'confirmed D3 as it reads now|confirmó D3 con la redacción actual' "$ADR4")" = ok ]; tap_check $? "ADR-004 (Estado): no atribuye la redacción actual de D3 al segundo comentario"
 [ "$(cada 'the D3 of that time|la redacción de D3 de entonces' "$ADR4")" = ok ]; tap_check $? "ADR-004 (Estado): el segundo comentario confirmó la redacción de D3 de entonces"
 [ "$(cada 'approved rewriting D3|aprobó reescribir D3' "$ADR4")" = ok ]; tap_check $? "ADR-004 (Estado): el comentario del #237 aprobó reescribir D3"
+
+# 3. Con el mapa real del kit, un issue que nombra las rutas de los agentes va a Sonnet (#188).
+R="$TMP/real"
+mkdir -p "$R/docs" "$R/scripts"
+git init -q -b main "$R"
+cp "$RAIZ/docs/agents-map.json" "$R/docs/agents-map.json"
+cp -R "$RAIZ/scripts/agents" "$R/scripts/"
+git -C "$R" add -A; tap_check $? "mapa real: el repo de prueba se prepara (git add)"
+git -C "$R" commit -qm base; tap_check $? "mapa real: el repo de prueba se prepara (git commit)"
+ruteo_real() { (cd "$R" && python3 "$AQUI/routing.py" "$1" 2>&1); }
+issue 40 open "type:task" "Mover retro.sh en .claude/skills/orchestrate/SKILL.md."
+s=$(ruteo_real 40); es "$(head -1 <<<"$s")" = sonnet; tap_check $? "mapa real: un issue que nombra .claude/skills/orchestrate/ → sonnet"
+issue 41 open "type:docs" "Aclarar el rol en .claude/agents/implementer.md."
+s=$(ruteo_real 41); es "$(head -1 <<<"$s")" = sonnet; tap_check $? "mapa real: un issue que nombra .claude/agents/ → sonnet"
+issue 42 open "type:docs" "Ajustar docs/agents/subagent-contract.md."
+s=$(ruteo_real 42); es "$(head -1 <<<"$s")" = sonnet; tap_check $? "mapa real: un issue que nombra docs/agents/subagent-contract.md → sonnet"
+[ "$(sed -n 2p <<<"$s")" = "reason: names sensitive paths: docs/agents/subagent-contract.md (agents)" ]; tap_check $? "mapa real: el motivo es exactamente la ruta y el tipo agents" "mapa real: el motivo es exactamente la ruta y el tipo agents (salida: $s)"
+issue 44 open "type:docs" "Aclarar un paso en .claude/skills/review-pr/SKILL.md."
+s=$(ruteo_real 44); es "$(head -1 <<<"$s")" = sonnet; tap_check $? "303: un issue que nombra .claude/skills/review-pr/ → sonnet"
+issue 45 open "type:task" "Registrar un evento nuevo en scripts/agents/task_events.py."
+s=$(ruteo_real 45); es "$(head -1 <<<"$s")" = sonnet; tap_check $? "303: un issue que nombra task_events.py → sonnet"
+issue 46 open "type:docs" "Corregir una regla de AGENTS.md."
+s=$(ruteo_real 46); es "$(head -1 <<<"$s")" = sonnet; tap_check $? "303: un issue que nombra AGENTS.md → sonnet"
+issue 47 open "type:docs" "Ajustar .claude/skills/implement-issue/SKILL.md."
+s=$(ruteo_real 47); es "$(head -1 <<<"$s")" = sonnet; tap_check $? "303: un issue que nombra .claude/skills/implement-issue/ → sonnet"
+issue 43 open "type:docs" "Corregir un link del README."
+s=$(ruteo_real 43); es "$(head -1 <<<"$s")" = haiku; tap_check $? "mapa real: un issue sin rutas sensibles sigue yendo a haiku"
 
 tap_done

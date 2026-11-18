@@ -13,9 +13,9 @@ Si no te dieron un número ("tomá el siguiente"), corré `.claude/skills/projec
 
 ## 1. Tomar el issue
 
-`.claude/skills/implement-issue/prepare.sh <n>` valida que el issue esté abierto, que no sea una épica, que no esté bloqueado, que no lo tenga asignado otra persona y que no haya cambios sin commitear. Si pasa, lo asigna a quien corre el comando, crea la rama `claude/<n>-<descripcion>` desde `main` (o retoma la que ya existe, `claude/<n>-*`, aunque se haya editado el título) e imprime el issue con sus comentarios, su épica y lo que desbloquea.
+`.claude/skills/implement-issue/prepare.sh <n>` valida que el issue esté abierto, que no sea una épica, que no esté bloqueado, que no lo tenga asignado otra persona y que no haya cambios sin commitear. Si pasa, lo asigna a quien corre el comando, crea la rama `claude/<n>-<descripcion>` desde `main` (`claude/<tipo>/<n>-<desc>` con `"agent_branch_type": true` en `.agent-kit.json`; o retoma la que ya existe, `claude/<n>-*` o `claude/<tipo>/<n>-*`, aunque se haya editado el título) e imprime el issue con sus comentarios, su épica y lo que desbloquea.
 
-Para varios issues en paralelo, `--worktree` (cómo trabajar ahí: `prepare.sh --help`). Para leer un issue sin tomarlo, `--review`. Si falla, **no fuerces nada**: contale al usuario por qué y, si sirve, proponé el siguiente disponible.
+Para varios issues en paralelo, `--worktree` (cómo trabajar ahí: `prepare.sh --help`). Para leer un issue sin tomarlo, `--review`. Para una segunda rama del mismo issue (su PR 2), `--name <desc>`. Si falla, **no fuerces nada**: contale al usuario por qué y, si sirve, proponé el siguiente disponible.
 
 Si existe `BK_TASK_DIR` (te lanzó `bk run`, ADR-005), `bk run` ya corrió `prepare.sh` por vos y soltó el candado del worktree antes de lanzarte, así que **tu primer paso es tomarlo**: `cd <worktree> && scripts/agents/worktree-lock.sh claim <worktree>`. Su dueño es tu propio `claude` y su nombre sale de `BK_TASK_DIR`: no necesita `WORKTREE_LOCK_AGENT`. Si dice `held: …`, otro agente vivo está en ese worktree: frená y preguntá en tu ventana, no lo compartas ni borres el candado. `bk done` lo suelta al final (ver "Cerrar la tarea").
 
@@ -23,7 +23,7 @@ Si existe `BK_TASK_DIR` (te lanzó `bk run`, ADR-005), `bk run` ya corrió `prep
 
 - Leé lo que el issue enlaza: ADRs, auditorías, docs, archivos.
 - Si el issue es parte de una épica (`prepare.sh` la muestra), leé la épica entera, sobre todo **Lógica de negocio afectada** y los ADRs pendientes que menciona. Un bloqueo puede estar escrito en el texto sin estar cargado como dependencia: si la épica dice que algo requiere un ADR o una decisión que todavía no existe, decidí con el usuario si este issue cae adentro antes de empezar.
-- Leé `AGENTS.md` (convenciones de código y comandos), `docs/agents/lessons.md` (lo aprendido en corridas anteriores) y lo que corresponda de `docs/development/architecture.md` y `docs/reference/`.
+- Leé `AGENTS.md` (convenciones de código y comandos) (su sección "Rules" generada es lo aprendido en corridas anteriores) y lo que corresponda de `docs/development/architecture.md` y `docs/reference/`.
 - Leé el glosario y el mapa de contextos (`docs/reference/glossary.md`, `docs/reference/contexts.md`) y usá sus términos. Si el cambio necesita un término que no está, agregalo al glosario en el PR (mientras esté en `TODO`, proponelo en el PR y no bloquees). Si necesita una dependencia nueva entre contextos (que no está en `depends_on`), **parate y preguntá**: necesita un ADR (`docs/decisions/kit/ADR-003-minimal-ddd-glossary-and-contexts.md`).
 - Si el issue tiene criterios de aceptación ("Listo cuando", "Criterios de aceptación"), son la definición de terminado.
 - Si el issue es ambiguo en algo que cambia el resultado, o contradice un ADR o el código, **preguntá antes de escribir código**. Si el usuario no está, comentá la duda en el issue (`gh issue comment`) y frená.
@@ -69,7 +69,7 @@ Seguí la skill `update-docs` (modo 1): `agents_map.py` te dice qué docs revisa
 
 ## 7. Verificar
 
-Con todo commiteado, `python3 scripts/agents/verify.py` corre lo que corresponde a lo que cambió y explica en su salida qué hacer con cada resultado. También corre los checks de las reglas (`pr-metadata` compara el cuerpo del PR con la rama, así que necesita el PR abierto: antes avisa que no verificó; correlo de nuevo con el PR abierto). Si falla un check de una regla, seguí su mensaje. Nunca desactives una verificación ni la saques del mapa para que pase. Lo que quede **sin configurar** no está verificado: decilo en el PR, con el resumen en "Cómo probarlo".
+Con todo commiteado, `python3 scripts/agents/verify.py` corre lo que corresponde a lo que cambió y explica en su salida qué hacer con cada resultado. También corre los checks de las reglas (`pr-metadata` compara el cuerpo del PR con la rama, así que necesita el PR abierto: antes avisa que no verificó; correlo de nuevo con el PR abierto). Sus checks de reglas escriben su `check_run` en `.barrilete/learning/` del checkout principal (con el store `local`, el de por defecto) aunque corras en un worktree (ADR-007 D2): es la única escritura fuera del worktree, a propósito. Si falla un check de una regla, seguí su mensaje. Nunca desactives una verificación ni la saques del mapa para que pase. Lo que quede **sin configurar** no está verificado: decilo en el PR, con el resumen en "Cómo probarlo".
 
 ## 8. Abrir el PR
 
