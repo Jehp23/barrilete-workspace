@@ -450,7 +450,7 @@ confirmación mostrando `bk run N · en <carpeta>` y el segundo ⏎ lo lanza ah�
 cierre el popup y avisa al terminar, con el error si falló; el rol lo decide bk). Los datos los deja la barra en `shared("bk.epics")`.
 
 `bk _epica <carpeta> [rama] [texto] [terminal]` (`lib/herdr_epica.py`; `bk _epica --json '[[carpeta, rama, texto,
-terminal], …]'` para todos los chats en una llamada) saca el issue de la carpeta (un worktree `<repo>-wt/1152`), de
+terminal], …]'` para todos los chats en una llamada) saca el issue de la carpeta (un worktree `<repo>-wt/1152` o `<repo>-wt/1152-algo`), de
 la conversación de Claude de esa terminal (el último `<repo>-wt/N` o `prepare.sh N` en los comandos que corrió: un
 chat abierto en el checkout principal implementa en un worktree sin mover su carpeta, y la rama del checkout
 puede ser de otro chat), de la rama (`claude/1152-…`, `claude/<tipo>/1152-…`) o de un `#1152` en el nombre del

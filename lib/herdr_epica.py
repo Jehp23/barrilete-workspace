@@ -5,7 +5,7 @@
   herdr_epica.py --json '[[carpeta, rama, texto, terminal], …]'   (varios chats: una lista de respuestas, en orden)
 
 El issue del chat sale, en este orden:
-  1. de la carpeta, si el chat está en un worktree <repo>-wt/1152;
+  1. de la carpeta, si el chat está en un worktree <repo>-wt/1152 (o <repo>-wt/1152-algo);
   2. de la conversación de Claude de esa terminal: el último worktree <repo>-wt/N o `prepare.sh N` en los comandos
      que corrió (un chat abierto en el checkout principal implementa en un worktree sin mover su carpeta, y la
      rama del checkout puede ser de otro chat);
@@ -40,11 +40,16 @@ SESSIONS = os.path.join(os.path.dirname(CACHE), "epica-sesiones.json")
 SUBS = os.path.join(os.path.dirname(CACHE), "epica-subs.json")
 
 
+# <n> o <n>-<descripción> (818-avisos, como la rama del kit); no 15x ni 545-0087
+WT_NAME = re.compile(r"(\d+)(?:-[a-z][\w-]*)?$")
+
+
 def worktree_issue(cwd):
     if cwd:
         base, parent = os.path.basename(cwd.rstrip("/")), os.path.basename(os.path.dirname(cwd.rstrip("/")))
-        if base.isdigit() and parent.endswith("-wt"):
-            return int(base)
+        m = WT_NAME.match(base)
+        if m and parent.endswith("-wt"):
+            return int(m.group(1))
     return None
 
 
@@ -64,7 +69,7 @@ def session_issue(path, repo_dir, seen):
     if seen.get(path, [None])[0] == size:
         return seen[path][1]
     base = re.escape(os.path.basename(repo_dir.rstrip("/")))
-    wt = re.compile(rf"{base}-wt/(\d+)(?![\w-])")
+    wt = re.compile(rf"{base}-wt/(\d+)(?:-[a-z][\w-]*)?(?![\w-])")
     # prepare.sh corrido de verdad: al principio de un comando (o después de && ; |), no nombrado dentro de un texto
     prep = re.compile(r"(?:^|&&|;|\|)\s*(?:bash\s+)?(?:\S*/)?prepare\.sh\s+#?(\d+)\b", re.M)
     num = None
