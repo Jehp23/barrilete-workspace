@@ -2,20 +2,20 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$(git rev-parse --path-format=absolute --git-common-dir)/../lib/land.py\" hook"
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/scripts/agents/guardrails.py\"; [ -f \"$f\" ] || f=\"$(git rev-parse --show-toplevel 2>/dev/null)/scripts/agents/guardrails.py\"; [ -f \"$f\" ] || exit 0; exec python3 \"$f\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --path-format=absolute --git-common-dir)/../lib/land.py\" hook"
           }
         ]
       }
