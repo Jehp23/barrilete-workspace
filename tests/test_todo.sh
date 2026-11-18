@@ -72,7 +72,7 @@ const walk = (n, out = []) => { if (n && n.$kids) { out.push(n); for (const k of
 const text = (n) => walk(n).flatMap((x) => x.$kids).filter((k) => typeof k === 'string');
 const byId = (o, id) => walk(o).find((x) => x.$id === id);
 const card = (t, title, right, body) => node().id(`card-${title}`).child(title).child(right).children(body);
-let execs = [], todoReply = null, focusedT = null, store = {}, runs = [], sideChanges = [];
+let execs = [], todoReply = null, focusedT = null, store = {}, runs = [], sideChanges = [], overlays = [];
 const deps = {
   View: class {}, div: node, svg: node, h_flex: node, v_flex: node,
   exec: async (cmd, args) => {
@@ -81,7 +81,7 @@ const deps = {
     if (args[0] === '_todo') return { code: 0, stdout: JSON.stringify(todoReply) };
     return { code: 1, stdout: '', stderr: '' };
   },
-  run: (...a) => runs.push(a), focused: () => focusedT, panes: () => [{ pane: 'p1', branch: 'claude/17-a', title: 'Claude' }],
+  openOverlay: (o) => { overlays.push(o); return 'ov1'; }, focused: () => focusedT, panes: () => [{ pane: 'p1', branch: 'claude/17-a', title: 'Claude' }],
   terminals: () => [{ address: 't1', labels: { 'bk.name': 'Chat de #17' } }],
   theme: () => new Proxy({}, { get: (o, k) => k }), home: () => '/h',
   shared: (k) => store[k] ?? null, setShared: (k, v) => { store[k] = v; },
@@ -143,13 +143,12 @@ o = v.render(cx);
 assert.ok(!byId(o, 'card-SESIÓN') && byId(o, 'lado-cambios'), 'en Cambios, la lista en lugar de las tarjetas');
 assert.equal(walk(o).filter((x) => /^cambio-/.test(x.$id ?? '')).length, 21, 'todos los archivos de cada worktree');
 assert.ok(text(o).includes('… y 2 más') && text(byId(o, 'tab-cambios')).includes('23'), 'los que bk _side no mandó se cuentan, y la pestaña dice el total');
-const keepF = focusedT; focusedT = null; runs = []; byId(o, 'cambio-7-0').$click();
-assert.deepEqual(runs.map((r) => [r[0], r[1].name, r[1].mod]), [['tab.new', 'nuevo.py', 'bk-changes']], 'sin pane en foco: el diff en una pestaña');
-focusedT = { terminal: 't1', pane: 'p1', cwd: '/h/r' }; runs = []; byId(o, 'cambio-7-0').$click();
-assert.deepEqual(runs, [['pane.split', { direction: 'right', pane: 'p1', mod: 'bk-changes', props: { diff: { root: '/h/r-wt/7', path: 'nuevo.py', code: 'A', add: 5, del: 0 } } }]], 'el clic en un archivo: su diff en un pane a la derecha');
+runs = []; byId(o, 'cambio-7-0').$click();
+assert.deepEqual(overlays, [{ mod: 'bk-changes', kind: 'dialog', width: 0.8, height: 0.85, props: { diff: { root: '/h/r-wt/7', path: 'nuevo.py', code: 'A', add: 5, del: 0 } } }], 'el clic en un archivo: su diff en un popup');
+assert.deepEqual(runs, [], 'y no abre panes ni pestañas');
 sideChanges = []; await v.load(); o = v.render(cx);
 assert.ok(text(o).includes('Todo guardado en Git'), 'sin cambios: todo guardado');
-focusedT = keepF; store['bk.lado.tab'] = 'estado';
+store['bk.lado.tab'] = 'estado';
 
 // alt+t (mods/bk, comando todo): el panel a la vista y en TODO; otra vez, en Estado
 const Bk = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals', 'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile',

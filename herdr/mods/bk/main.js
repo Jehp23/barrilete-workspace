@@ -65,7 +65,7 @@ export default class Bk extends View {
   // vuelve a Estado. Siempre lo muestra: oculto (alt+.), la tecla no haría nada a la vista.
   todo() { this.tab("todo"); }
 
-  // alt+g: lo mismo con la pestaña Cambios (lo sin commitear; el clic en un archivo abre su diff en un pane)
+  // alt+g: lo mismo con la pestaña Cambios (lo sin commitear; el clic en un archivo abre su diff en un popup)
   tab(name) {
     setShared("bk.lado.tab", shared("bk.lado.tab") === name ? "estado" : name);
     run("layout.show", { id: "lado" });

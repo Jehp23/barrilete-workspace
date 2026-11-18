@@ -1,6 +1,6 @@
 // El lado derecho de bk en Herdr: lo que mostraba el riel de tmux (lib/rail.py), en tarjetas de marco
 // redondeado con el título sobre la línea, como las de la TUI de bk. Arriba, tres pestañas: Estado (las tarjetas),
-// TODO (los pasos del issue del chat, de `bk _todo`) y Cambios (lo sin commitear; el clic abre el diff en un pane).
+// TODO (los pasos del issue del chat, de `bk _todo`) y Cambios (lo sin commitear; el clic abre el diff en un popup).
 // La pestaña elegida es shared "bk.lado.tab": la cambia el clic, alt+t o alt+g (mods/bk, comandos todo y cambios).
 //   SESIÓN   proyecto, rama, cuenta, contexto de la sesión de Claude, uso de hoy y perfil de roles
 //   GITHUB   el repo y sus PRs abiertos, cada uno con su estado en color
@@ -10,7 +10,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, focused, panes, run, terminals, theme, home, shared, setShared } from "herdr";
+import { exec, focused, panes, terminals, theme, home, shared, setShared, openOverlay } from "herdr";
 import { ICONS, PROSE, al, card, pill } from "./kit.js";
 const ICONS_LADO = "mods/bk-lado/";   // los iconos propios del panel (cuenta.svg), al lado de su main.js
 
@@ -295,7 +295,7 @@ export default class Lado extends View {
   }
 
   // La pestaña Cambios: lo sin commitear del proyecto y de sus worktrees, todos los archivos que trae bk _side.
-  // El clic en uno abre su diff en un pane al lado del chat (bk-changes con props { diff }).
+  // El clic en uno abre su diff en un popup sobre la ventana (bk-changes con props { diff }); esc lo cierra.
   cambios(t, d) {
     const say = (s, color = t.dim) => [div().px(4).py(6).text_color(color).child(s)];
     if (!d) return say("Leyendo…");
@@ -321,12 +321,10 @@ export default class Lado extends View {
     return out;
   }
 
-  // El diff de un archivo en un pane a la derecha del que está en foco (sin pane en foco: en una pestaña)
+  // El diff de un archivo en un popup grande sobre la ventana
   openDiff(c, f) {
-    const props = { diff: { root: c.path, path: f.path, code: f.code, add: Number(f.add) || 0, del: Number(f.del) || 0 } };
-    const pane = focused()?.pane;
-    if (pane) run("pane.split", { direction: "right", pane, mod: "bk-changes", props });
-    else run("tab.new", { name: f.path.split("/").pop(), mod: "bk-changes", props });
+    openOverlay({ mod: "bk-changes", kind: "dialog", width: 0.8, height: 0.85,
+      props: { diff: { root: c.path, path: f.path, code: f.code, add: Number(f.add) || 0, del: Number(f.del) || 0 } } });
   }
 
   render(cx) {

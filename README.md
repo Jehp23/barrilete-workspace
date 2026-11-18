@@ -150,7 +150,7 @@ pisan con los del repo (se editan acá).
   | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, el resumen de este chat para seguir en uno nuevo (abre `alt+h`), terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
   | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta | `bk _hub session-go`, `bk stop` |
   | `alt+h` | Resumen y seguir en un chat nuevo: se lo pide al chat que mirás, dejándolo abierto o cerrándolo cuando el nuevo abre. Abajo, los resúmenes listos | `bk handoff --term <t> [--cerrar]`, `bk chat --desde` |
-  | `alt+g` | El panel derecho en la pestaña Cambios: lo sin commitear del proyecto y de los worktrees de los agentes. El clic en un archivo abre su diff en un pane al lado. Otra vez `alt+g` vuelve a Estado | |
+  | `alt+g` | El panel derecho en la pestaña Cambios: lo sin commitear del proyecto y de los worktrees de los agentes. El clic en un archivo abre su diff en un popup (esc lo cierra). Otra vez `alt+g` vuelve a Estado | |
   | `alt+b` | Ramas de todos los proyectos, separadas por proyecto (el que mirás primero): si ya entró (PR mergeado o `bk land`), su PR, su worktree y lo sin commitear. Enter abre un chat en su worktree (o le crea uno); ctrl+x dos veces la borra, solo si no se pierde nada; ctrl+o abre su PR | `bk chat --carpeta`, `bk _hub branch-rm` |
   | `alt+u` | Uso y costo: hoy, el mes, los últimos 30 días, por modelo y por proyecto | |
   | `alt+/` | Hoja de teclas: lee el `keys.json` de Herdr y dice qué hace cada una; Enter la corre | |
@@ -288,7 +288,7 @@ A la izquierda, la marca, los espacios y los agentes, cada uno con el chip de su
 estado; angosta queda en un riel con solo los chips. En el centro, las pestañas y los panes, cada pane con su
 cabecera (número, programa, qué hace, carpeta y rama). A la derecha, tres pestañas: Estado, con dos tarjetas
 (sesión y GitHub); TODO, los pasos del issue del chat que mirás (`alt+t`); y Cambios, lo sin commitear, con el diff de
-cada archivo en un pane al hacerle clic (`alt+g`). `alt+.` esconde el panel. Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, radio y las
+cada archivo en un popup al hacerle clic (`alt+g`). `alt+.` esconde el panel. Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, radio y las
 teclas de comandos y de la hoja de teclas. La cuenta es la de Claude de la terminal que mirás: su mail (de su
 `.claude.json`, sin preguntarle a Claude) y, si no es la de siempre, el nombre de `bk account` delante; el panel
 derecho muestra lo mismo. La marca de estado es la misma en todos, con los colores `blocked`, `done` y `working`
