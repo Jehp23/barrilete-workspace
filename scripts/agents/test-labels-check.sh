@@ -1,0 +1,460 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2319  # "<condition>; tap_check $?" is the pattern of the tests (tap.sh)
+# Runs the real script of the `labels` job of .github/workflows/labels.yml with a fake GitHub
+# and checks what it says about the PR body (issue #143): an unfilled "<reason>" fails with a clear message.
+# Usage: bash scripts/agents/test-labels-check.sh
+set -uo pipefail
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+# shellcheck source=/dev/null
+. "$ROOT/scripts/agents/tap.sh"
+tap_begin "$0"
+# Usage: <condition>; tap_check $? "description"
+
+command -v node >/dev/null || { tap_fail "node is installed"; tap_done; }
+# The scripts exit with 3 when a case has another verdict than the expected one: 1 and 2 are what a crash gives (tap_run).
+labels_out=
+tap_run labels_out 0 node - "$ROOT/.github/workflows/labels.yml" <<'JS'
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+// The script of the `labels:` job: the block after its `script: |`, up to the end of the file.
+const from = src.indexOf('\n  labels:\n');
+const next = src.slice(from + 1).search(/\n  [a-z-]+:\n/);  // the next job, if any is added after this one
+const job = next < 0 ? src.slice(from) : src.slice(from, from + 1 + next);
+const start = job.indexOf('script: |\n') + 'script: |\n'.length;
+const script = job.slice(start).split('\n').map(l => l.replace(/^ {12}/, '')).join('\n');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+// The commits of the PR (pulls.listCommits): the red commit of the body has to be one of them (issue #243).
+const run = async (body, { labels = ['type:task'], ref = 'claude/1-x', files = [], commits = [{ sha: '0123abc4' + 'f'.repeat(32) }] } = {}) => {
+  const out = { failed: null };
+  const pr = { labels: labels.map(name => ({ name })), body, head: { ref } };
+  const github = {
+    rest: { pulls: { get: async () => ({ data: pr }), listFiles: 'listFiles', listCommits: 'listCommits' } },
+    paginate: async fn => (fn === 'listCommits' ? commits : files.map(filename => ({ filename }))),
+  };
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1 } } };
+  const core = { setFailed: m => { out.failed = m; }, info() {}, notice() {}, warning() {} };
+  await new AsyncFunction('github', 'context', 'core', script)(github, context, core);
+  return out.failed;
+};
+const BL = { labels: ['type:task', 'business-logic'], ref: 'feat/1-x' };
+const BLOCK = (title = 'Red before implementing') => `<details><summary>${title}</summary>\n\nred commit: 0123abc4\n\nstack: bash\nformat: junit\nfailing cases:\n- scripts/a/test-x.sh::some-id\n\n</details>\n`;
+const base = 'Closes #1\n' + BLOCK();
+const cases = [
+  // [name, body, options, regex the failure must match (null: it must pass)]
+  ['ADR unchanged: <reason> fails and says why', 'ADR unchanged: <reason>', BL, /ADR unchanged:.*(placeholder|reason)/i],
+  ['ADR sin cambios: <motivo> fails', 'ADR sin cambios: <motivo>', BL, /placeholder/i],
+  ['a real ADR reason passes', 'ADR unchanged: the rule is not touched', BL, null],
+  ['no ADR line keeps the old message', 'nothing', BL, /add "ADR unchanged: <reason>"/],
+  ['no tests: <reason> fails and says why', base.split('\n')[0] + '\nno tests: <reason>', {}, /no tests:.*placeholder/i],
+  ['sin tests: <motivo> fails', 'Closes #1\nsin tests: <motivo>', {}, /placeholder/i],
+  ['a loose "sin tests" fails with the old message', 'Closes #1\nesto no queda sin tests porque lo cubre otro', {}, /Red before implementing/],
+  ['sin tests: with a reason passes', 'Closes #1\nsin tests: es solo docs', {}, null],
+  ['the red block passes', base, {}, null],
+  // Guards: comments, headings, CRLF and the old shapes that must keep their result.
+  ['an ADR exception inside an <!-- --> comment does not count', '<!-- ADR unchanged: a real reason -->', BL, /ADR unchanged/],
+  ['ADR unchanged: <reason> followed by a heading fails', 'ADR unchanged: <reason>\n## How to test it', BL, /placeholder/i],
+  ['ADR unchanged: <reason> with CRLF line endings fails', 'ADR unchanged: <reason>\r\n## Why\r\n', BL, /placeholder/i],
+  ['ADR unchanged: <reason> with a real reason after it, CRLF, passes', 'ADR unchanged: <reason> the rule is not touched\r\n', BL, null],
+  ['no tests: <reason> with CRLF line endings fails', 'Closes #1\r\nno tests: <reason>\r\n', {}, /placeholder/i],
+  ['no tests: <reason> inside an <!-- --> comment is ignored', 'Closes #1\n<!-- no tests: <reason> -->', {}, /Red before implementing/],
+  ['"sin test" without a colon fails', 'Closes #1\nSin test automatizado: es documentación', {}, /Red before implementing/],
+  // The literals as the docs show them: in quotes, backticks or bold, with the placeholder still unfilled.
+  ['"ADR unchanged: <reason>" (quoted, as AGENTS.md shows it) fails', '"ADR unchanged: <reason>"', BL, /placeholder/i],
+  ['`ADR sin cambios: <motivo>` (backticks) fails', '`ADR sin cambios: <motivo>`', BL, /placeholder/i],
+  ['**ADR unchanged:** <reason> (bold after the colon) fails', '**ADR unchanged:** <reason>', BL, /placeholder/i],
+  ['"no tests: <reason>" (quoted, as the PR template shows it) fails', 'Closes #1\n"no tests: <reason>"', {}, /placeholder/i],
+  ['**`no tests: <reason>`** (as implement-issue shows it) fails', 'Closes #1\n**`no tests: <reason>`**', {}, /placeholder/i],
+  ['`sin tests: <motivo>` (backticks) fails', 'Closes #1\n`sin tests: <motivo>`', {}, /placeholder/i],
+  ['**sin tests:** <motivo> (bold after the colon) fails', 'Closes #1\n**sin tests:** <motivo>', {}, /placeholder/i],
+  ['a wrapped real reason passes', 'Closes #1\n`no tests: docs only`', {}, null],
+  ['a wrapped real ADR reason passes', '**ADR unchanged:** the rule is not touched', BL, null],
+  ['no tests: on its own line, reason on the next one, passes', 'Closes #1\nno tests:\nonly docs', {}, null],
+];
+
+// Cases of the old regex-only tests, now through the full script: [body, 1 = it passes / 0 = it fails].
+const TESTS_CASES = [[BLOCK(),1],["no tests: docs only",1],["No tests: it is config",1],["no test: only docs",1],["No tests:\nonly docs",1],
+ ["there is no test coverage here",0],["no tests were added",0],["no test",0],["no tests:",0],["no tests: ",0],["nonetheless no testing",0],
+ ["sin test: es solo docs",1],["sin tests: es config",1],["Sin tests:\nes solo docs",1],[BLOCK('Rojo antes de implementar'),1],["sin test",0],["testear sin testigo",0],
+ ["Sin test\nes solo docs",0],["esto no queda sin tests porque lo cubre otro",0],["sin tests es config",0],["sin test es solo docs",0],
+ ["no tests: <reason>",0],["no tests:\n<reason>",0],["sin tests: <motivo>",0],["sin test: <motivo>",0],["no tests: <reason> ",0],["sin tests:   <motivo>  ",0],["no tests: <reason> only docs",1],["sin test: <motivo> es config",1],
+ ["\"no tests: <reason>\"",0],["`no tests: <reason>`",0],["**`no tests: <reason>`**",0],["**no tests:** <reason>",0],["_no tests: <reason>_",0],
+ ["\"sin tests: <motivo>\"",0],["`sin tests: <motivo>`",0],["**sin tests: <motivo>**",0],["**sin tests:** <motivo>",0],
+ ["`no tests: docs only`",1],["**no tests:** docs only",1],["\"sin tests: es config\"",1]];
+const ADR_CASES = [["ADR unchanged: the rule is not touched",1],["adr unchanged: x",1],["ADR sin cambios: no toca la regla",1],["ADR unchanged:",0],["ADR unchanged: ",0],["ADR sin cambios:",0],["the ADR is unchanged",0],["ADR unchanged because",0],
+ ["ADR unchanged:\n\n## How to test it",0],["ADR unchanged: <reason>",0],["ADR sin cambios: <motivo>",0],["ADR unchanged:  <reason>  ",0],["ADR unchanged: <reason> the rule is not touched",1],["ADR sin cambios: <motivo>\n## Por qué",0],
+ ["\"ADR unchanged: <reason>\"",0],["`ADR unchanged: <reason>`",0],["**ADR unchanged: <reason>**",0],["**ADR unchanged:** <reason>",0],
+ ["\"ADR sin cambios: <motivo>\"",0],["`ADR sin cambios: <motivo>`",0],["**ADR sin cambios:** <motivo>",0],
+ ["`ADR unchanged: docs only`",1],["**ADR sin cambios:** no toca la regla",1],["ADR sin cambios:\n## Por qué",0],["<!-- ADR unchanged: <reason> -->",0],["<!-- ADR sin cambios: <motivo> -->",0],["x <!-- c --> ADR unchanged: real reason",1]];
+const more = [
+  // Reasons that are real but were rejected by the first wrapper fix, and the shapes that must stay rejected.
+  ['**ADR unchanged:** with the reason on the next line passes', '**ADR unchanged:**\nthe rule is not touched', BL, null],
+  ['**ADR unchanged:** with no reason fails', '**ADR unchanged:**', BL, /ADR unchanged/],
+  ['**ADR unchanged:** followed by a blank line and a heading fails', '**ADR unchanged:**\n\n## Why', BL, /ADR unchanged/],
+  ['**ADR unchanged:** followed by a heading fails', '**ADR unchanged:**\n## Why', BL, /ADR unchanged/],
+  ['plain ADR unchanged: with the reason on the next line still fails', 'ADR unchanged:\nthe rule is not touched', BL, /ADR unchanged/],
+  ['_sin tests: es config_ (italic) passes', 'Closes #1\n_sin tests: es config_', {}, null],
+  ['_no tests: docs only_ (italic) passes', 'Closes #1\n_no tests: docs only_', {}, null],
+  ['_no tests: <reason>_ (italic) reaches the placeholder check', 'Closes #1\n_no tests: <reason>_', {}, /placeholder/i],
+  ['no tests: <reason> and the reason on the next line passes', 'Closes #1\nno tests: <reason>\nonly docs', {}, null],
+  ['"no tests: <reason>". (trailing period) fails', 'Closes #1\n"no tests: <reason>".', {}, /placeholder/i],
+  ['no tests: <reason>, (trailing comma) fails', 'Closes #1\nno tests: <reason>,', {}, /placeholder/i],
+  ['no tests: (<reason>) fails', 'Closes #1\nno tests: (<reason>)', {}, /placeholder/i],
+];
+(async () => {
+  let bad = 0;
+  for (const [name, body, opt, re] of cases.concat(more)) {
+    const failed = await run(body, opt);
+    const good = re === null ? failed === null : failed !== null && re.test(failed);
+    console.log((good ? 'ok   - ' : 'FAIL - ') + name + (good ? '' : '  (got: ' + JSON.stringify(failed) + ')'));
+    if (!good) bad++;
+  }
+  const table = async (rows, name, opt, prefix) => {
+    for (const [body, pass] of rows) {
+      const failed = await run(prefix + body, opt);
+      const good = (failed === null) === !!pass;
+      console.log((good ? 'ok   - ' : 'FAIL - ') + name + ': ' + JSON.stringify(body) + (good ? '' : '  (got: ' + JSON.stringify(failed) + ')'));
+      if (!good) bad++;
+    }
+  };
+  await table(TESTS_CASES, 'tests literal', {}, 'Closes #1\n');
+  await table(ADR_CASES, 'ADR exception', BL, '');
+  // Performance: a hostile body (the author controls it) must not make any regex of the job run for long.
+  const N = 10000;
+  const hostile = {
+    spaces: ' '.repeat(N), stars: '*'.repeat(N), wrappers: '',
+    lt: '<'.repeat(N), comments: '<!--'.repeat(N / 2), newlines: '\n'.repeat(N), mixedlines: ' *\n'.repeat(N / 2),
+  };
+  hostile.wrappers = '*_`"\''.repeat(N / 5) + '*'.repeat(0);
+  const CHILD = `const { script, body, opt } = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+    globalThis.script = script; globalThis.AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    const run = ${run.toString()};
+    const t0 = performance.now();
+    run(body, opt).then(() => console.log(performance.now() - t0));`;
+  const both = { labels: ['type:task', 'business-logic'], ref: 'claude/1-x' };
+  for (const [kind, x] of Object.entries(hostile)) {
+    for (const [what, body] of [['plain', x], ['no tests:', 'Closes #1\nno tests:' + x + '\n\n'], ['ADR unchanged:', 'Closes #1\nADR unchanged:' + x + '\n\n'],
+        ['sin tests: <reason>', 'Closes #1\nsin tests: <reason>' + x + '\n'], ['marker in the middle', x + 'no tests:' + x + 'ADR unchanged:' + x]]) {
+      // In a child process with a hard timeout: a regex that never finishes must fail the test, not hang it.
+      const r = require('child_process').spawnSync(process.execPath, ['-e', CHILD], {
+        input: JSON.stringify({ script, body, opt: both }), timeout: 3000, encoding: 'utf8' });
+      const ms = r.error || r.status !== 0 ? Infinity : Number(r.stdout.trim());
+      const good = ms < 200;
+      console.log((good ? 'ok   - ' : 'FAIL - ') + 'performance: ' + N + ' ' + kind + ' (' + what + ') in under 200 ms' + (good ? '' : '  (took ' + (ms === Infinity ? 'over 3 s' : Math.round(ms) + ' ms') + ')'));
+      if (!good) bad++;
+    }
+  }
+  process.exit(bad ? 3 : 0);
+})();
+JS
+printf '%s\n' "$labels_out" >&2
+[ "$TAP_RC" -eq 0 ]; tap_check $? "the labels check reports the unfilled reasons (full script, fake GitHub)"
+# The structured red block (ADR-002 D9, issue #153): the title is not enough, the block needs `red commit:` once, and per
+# group `stack:`, `format:` and at least one `- <file>::<name>` under `failing cases:`. One case per tap_check: the id of
+# each is a literal, so red.sh can tell which cases this change adds.
+CASE_JS=$(mktemp "${TMPDIR:-/tmp}/labels-case.XXXXXX") || tap_fail "a temp file for the structured block cases"
+# shellcheck disable=SC2016  # tap_at_exit evals it at exit, when $CASE_JS must be read
+tap_at_exit 'rm -f "$CASE_JS"'
+cat > "$CASE_JS" <<'JS'
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+const from = src.indexOf('\n  labels:\n');
+const next = src.slice(from + 1).search(/\n  [a-z-]+:\n/);
+const job = next < 0 ? src.slice(from) : src.slice(from, from + 1 + next);
+const start = job.indexOf('script: |\n') + 'script: |\n'.length;
+const script = job.slice(start).split('\n').map(l => l.replace(/^ {12}/, '')).join('\n');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const run = async (body, { apiError = false, labels = ['type:task'] } = {}) => {
+  const out = { failed: null };
+  const pr = { labels: labels.map(name => ({ name })), body, head: { ref: 'claude/1-x' } };
+  const commits = [{ sha: '0123abc4' + 'f'.repeat(32) }];
+  const github = {
+    rest: { pulls: { get: async () => ({ data: pr }), listFiles: 'listFiles', listCommits: 'listCommits' } },
+    paginate: async fn => {
+      if (fn === 'listCommits' && apiError) throw new Error('boom 502');
+      return fn === 'listCommits' ? commits : [];
+    },
+  };
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1 } } };
+  const core = { setFailed: m => { out.failed = m; }, info() {}, notice() {}, warning() {} };
+  // A script that throws is a failed case (it reaches the assertion), not a crash of this harness.
+  try { await new AsyncFunction('github', 'context', 'core', script)(github, context, core); } catch (e) { return 'the script threw: ' + e.message; }
+  return out.failed;
+};
+const T = 'Closes #1\n<details><summary>Red before implementing</summary>\n\n';
+const G = (n = 'bash', f = 'junit', c = '- scripts/a/test-x.sh::some-id') => `stack: ${n}\nformat: ${f}\nfailing cases:\n${c}\n\n`;
+const R = 'red commit: 0123abc4\n\n';
+const E = '</details>\n';
+const cases = {
+  'valid-block': [T + R + G() + E, null],
+  'valid-block-es-title': ['Closes #1\n<details><summary>Rojo antes de implementar</summary>\n\n' + R + G() + E, null],
+  'valid-block-two-groups': [T + R + G() + G('pytest', 'junit', '- tests/test_a.py::test_a\n- tests/test_a.py::test_b') + E, null],
+  'valid-block-crlf': [(T + R + G() + E).replace(/\n/g, '\r\n'), null],
+  'title-only-fails': ['Closes #1\n<details><summary>Red before implementing</summary>x</details>\n', /red commit:/],
+  'missing-format-fails': [T + R + 'stack: bash\nfailing cases:\n- a::b\n\n' + E, /format:/],
+  'missing-red-commit-fails': [T + G() + E, /red commit:/],
+  'no-case-fails': [T + R + 'stack: bash\nformat: junit\nfailing cases:\n\n' + E, /failing case|case/i],
+  'bad-sha-fails': [T + 'red commit: <sha>\n\n' + G() + E, /red commit:/],
+  'two-red-commits-fails': [T + R + R + G() + E, /red commit:/],
+  // 2.0.0 removed format tap (ADR-002 D8/D9, #228): the check says so with its own message (not the line of red.sh), and junit is the only format.
+  'format-tap-fails': [T + R + G('bash', 'tap') + E, /group 1: format "tap" was removed in 2\.0\.0;/],
+  // Only that message: the "format:" line is there, so the generic "is missing or is not junit" would mislead.
+  'format-tap-gets-only-the-new-message': [T + R + G('bash', 'tap') + E, /^(?![\s\S]*is missing or is not junit)[\s\S]*group 1: format "tap" was removed in 2\.0\.0;/],
+  // The message says how to get out: rerunning red.sh alone prints the same tap block again while the entry says tap.
+  'format-tap-says-how-to-fix': [T + R + G('bash', 'tap') + E, /group 1: format "tap" was removed in 2\.0\.0; switch the red entry of docs\/agents-map\.json to "junit" \(docs\/guides\/red-per-runner\.md\), run red\.sh again and paste the new block\.$/m],
+  'format-tap-uppercase-fails': [T + R + G('bash', 'TAP') + E, /group 1: format "tap" was removed in 2\.0\.0/],
+  'format-tap-in-second-group-fails': [T + R + G('pytest', 'junit') + G('bash', 'tap') + E, /group 2: format "tap" was removed in 2\.0\.0/],
+  'format-junit-passes': [T + R + G('bash', 'junit') + E, null],
+  'bad-format-says-junit-only': [T + R + G('bash', 'text') + E, /group 1: "format:" is missing or is not junit\.$/m],
+  'empty-stack-fails': [T + R + 'stack:\nformat: junit\nfailing cases:\n- a::b\n\n' + E, /stack:/],
+  'second-group-incomplete-fails': [T + R + G() + 'stack: pytest\nformat: junit\nfailing cases:\n\n' + E, /case/i],
+  'case-without-separator-fails': [T + R + G('bash', 'junit', '- just a name') + E, /case/i],
+  'block-in-comment-fails': ['Closes #1\n<!-- ' + T.split('\n').slice(1).join('\n') + R + G() + E + ' -->\n<details><summary>Red before implementing</summary>x</details>', /red commit:/],
+  'lines-after-details-do-not-count': [T + R + 'stack: bash\n' + E + 'format: junit\nfailing cases:\n- a::b\n', /format:|case/i],
+  'no-tests-still-passes': ['Closes #1\nno tests: only docs', null],
+  'title-with-no-tests-reason-fails': ['Closes #1\n<details><summary>Red before implementing</summary>x</details>\nno tests: only docs', /red commit:/],
+  'valid-block-with-no-tests-passes': [T + R + G() + E + 'no tests: the concurrency part cannot be tested here', null],
+  'malformed-block-with-no-tests-fails': [T + R + 'stack: bash\nfailing cases:\n- a::b\n\n' + E + 'no tests: the concurrency part cannot be tested here', /format:/],
+  'prose-no-tests-with-malformed-block-fails': [T + G() + E + 'there are no tests: the old module had none', /red commit:/],
+  // The red commit has to be a commit of this PR (issue #243): a block copied from another PR has a well-formed sha of its own.
+  'red-commit-not-in-pr-fails': [T + 'red commit: deadbeef1\n\n' + G() + E, /red commit deadbeef1 is not a commit of this PR/],
+  'red-commit-short-in-pr-passes': [T + 'red commit: 0123abc\n\n' + G() + E, null],
+  'red-commit-not-hex-in-extra-details-fails': [T + R + G() + E + '<details><summary>Red for the pytest stack</summary>\n\nred commit: deadbeef1 (copied from another PR)\n\n' + G('pytest', 'junit') + E, /hexadecimal/],
+  'red-commit-of-another-details-not-in-pr-fails': [T + R + G() + E + '<details><summary>Red for the pytest stack</summary>\n\nred commit: cafe1234\n\n' + G('pytest', 'junit') + E, /red commit cafe1234 is not a commit of this PR/],
+  // The check is only inside the red block (the main one and the extra <details> of the other stacks), not in the whole body.
+  'red-commit-in-prose-outside-block-passes': [T + R + G() + E + 'Red commit: `0123abc4` es el de los tests\n', null],
+  'red-commit-ninguno-with-no-tests-passes': ['Closes #1\nno tests: only docs\nred commit: ninguno, no hay tests\n', null],
+  'red-commit-in-code-block-passes': [T + R + G() + E + '```\nred commit: deadbeef1\n```\n', null],
+  'red-commit-not-hex-gives-one-error': [T + 'red commit: <sha>\n\n' + G() + E, /^PR out of convention:\n- [^\n]*hexadecimal[^\n]*$/],
+  // 2.ª review de #247. Un bloque del rojo citado dentro de un bloque de código no se chequea (ni se toma por el principal).
+  'red-block-quoted-in-fence-after-passes': [T + R + G() + E + '```\n<details><summary>Red before implementing</summary>\nred commit: deadbeef1\n</details>\n```\n', null],
+  'red-block-quoted-in-fence-before-passes': ['Closes #1\n```\n<details><summary>Red before implementing</summary>\nred commit: <sha>\n</details>\n```\n' + T.split('\n').slice(1).join('\n') + R + G() + E, null],
+  'red-commit-after-fence-closes-is-checked': [T + R + G() + E + '```\nx\n```\n<details><summary>Red for the pytest stack</summary>\n\nred commit: cafe1234\n\n' + G('pytest', 'junit') + E, /red commit cafe1234 is not a commit of this PR/],
+  // Un <details> extra cuyo <summary> no empieza con Red/Rojo, pero trae "red commit:", se chequea igual.
+  'red-commit-in-details-with-other-summary-not-in-pr-fails': [T + R + G() + E + '<details><summary>pytest stack: red</summary>\n\nred commit: deadbeef9\n\n' + G('pytest', 'junit') + E, /red commit deadbeef9 is not a commit of this PR/],
+  'red-commit-in-details-with-other-summary-not-hex-fails': [T + R + G() + E + '<details><summary>pytest stack: red</summary>\n\nred commit: <sha>\n\n' + G('pytest', 'junit') + E, /hexadecimal/],
+  'red-flags-details-without-red-commit-passes': [T + R + G() + E + '<details><summary>Red flags</summary>\n\nnothing to see\n\n</details>\n', null],
+  // Un <details> anidado no cierra antes de tiempo (ni en el bloque principal ni en los extra).
+  'nested-details-in-extra-block-keeps-checking': [T + R + G() + E + '<details><summary>Red for the pytest stack</summary>\n<details><summary>logs</summary>x</details>\nred commit: cafe1234\n\n' + G('pytest', 'junit') + E, /red commit cafe1234 is not a commit of this PR/],
+  'nested-details-closing-on-its-own-line-keeps-checking': [T + R + G() + E + '<details><summary>Red for the pytest stack</summary>\n<details><summary>logs</summary>\nx\n</details>\nred commit: cafe1234\n\n' + G('pytest', 'junit') + E, /red commit cafe1234 is not a commit of this PR/],
+  'nested-details-in-main-block-passes': [T + '<details><summary>logs</summary>x</details>\n' + R + '<details><summary>more</summary>\ny\n</details>\n' + G() + E, null],
+  // Los dos errores de sha no hexadecimal (bloque principal y extra) salen juntos, en un solo mensaje, y el de "no es de este PR" también.
+  'red-commit-not-hex-main-and-extra-give-one-error': [T + 'red commit: <sha>\n\n' + G() + E + '<details><summary>Red for the pytest stack</summary>\n\nred commit: <otro>\n\n' + G('pytest', 'junit') + E, /^PR out of convention:\n- [^\n]*hexadecimal[^\n]*$/],
+  'red-commit-not-hex-main-and-extra-not-in-pr-show-both': [T + 'red commit: <sha>\n\n' + G() + E + '<details><summary>Red for the pytest stack</summary>\n\nred commit: deadbeef1\n\n' + G('pytest', 'junit') + E, /hexadecimal[^]*red commit deadbeef1 is not a commit of this PR/],
+  // Un <summary> rojo suelto dentro de un <details> ya abierto no suma otro nivel: lo que viene después del cierre es prosa.
+  'red-summary-inside-open-details-does-not-add-depth': [T + R + G() + E + '<details><summary>x</summary>\n<summary>Red before implementing</summary>\n</details>\nred commit: ninguno\n', null],
+  // 3.ª review de #247. Un <details> cuenta solo si la línea (sin espacios) empieza con <details: una mención en prosa no abre nivel.
+  'details-mentioned-in-prose-does-not-open-depth': ['Put the extra reds in a `<details>` block.\n' + T + R + G() + E + 'red commit: see above\n', null],
+  'details-mentioned-in-no-tests-line-does-not-open-depth': ['Closes #1\nno tests: only docs, no `<details>` needed\nred commit: ninguno\n', null],
+  // <DETAILS> en mayúsculas es un details igual (el HTML no distingue).
+  'uppercase-details-is-checked': [T + R + G() + E + '<DETAILS><SUMMARY>Red for the pytest stack</SUMMARY>\n\nred commit: cafe1234\n\n' + G('pytest', 'junit') + '</DETAILS>\n', /red commit cafe1234 is not a commit of this PR/],
+  // Un fence de 4 backticks no lo cierra una línea de 3: lo que sigue sigue citado.
+  'four-backtick-fence-is-not-closed-by-three': [T + R + G() + E + '````\n```\n<details><summary>Red for the pytest stack</summary>\nred commit: cafe1234\n</details>\n````\n', null],
+  // Regresiones de la 3.ª review (punto 3): pasaban en main y fallaban con el parser por substrings.
+  'details-in-a-case-name-does-not-break-the-block': [T + R + G('bash', 'junit', '- ui.sh::renders <details> toggle') + E + '<details><summary>Red for the pytest stack</summary>\n\nred commit: 0123abc4\n\n' + G('pytest', 'junit') + E, null],
+  'fence-opened-and-closed-on-one-line-is-not-a-fence': ['Closes #1\n```npm test``` first\n' + T.split('\n').slice(1).join('\n') + R + G() + E, null],
+  // #147: a "no tests:" whose reason is missing does not take the next line as its reason when that line is a Closes/Refs or a heading.
+  'no-tests-placeholder-then-closes-fails': ['no tests: <reason>\nCloses #1\n', /placeholder/i],
+  'no-tests-empty-then-closes-fails': ['Closes #1\nno tests:\nCloses #2\n', /Red before implementing/],
+  'no-tests-empty-then-refs-fails': ['Closes #1\nno tests:\nRefs #2\n', /Red before implementing/],
+  'no-tests-empty-then-heading-fails': ['Closes #1\nno tests:\n## How to test it\n', /Red before implementing/],
+  'no-tests-empty-then-bold-closes-fails': ['Closes #1\nno tests:\n**Closes #2**\n', /Red before implementing/],
+  'no-tests-empty-then-real-reason-passes': ['Closes #1\nno tests:\nonly docs\n', null],
+  'no-tests-empty-then-reason-mentioning-closes-passes': ['Closes #1\nno tests:\nit only closes #2 by hand\n', null],
+  // Review of #147: the next line is not a reason when it is a reference to another repo's issue or a rule; a reason that starts with "#123" is one.
+  'no-tests-empty-then-closes-other-repo-fails': ['Closes #1\nno tests:\nCloses owner/repo#2\n', /Red before implementing/],
+  'no-tests-empty-then-table-row-fails': ['Closes #1\nno tests:\n| a | b |\n', /Red before implementing/],
+  'no-tests-empty-then-issue-number-reason-passes': ['Closes #1\nno tests:\n#123 already covers this\n', null],
+  // Review of #147 (second round): a reason that starts like a reference passes when text follows; every other next-line shape of
+  // a reference, a list item or a trailer fails; the ADR exception has the same guard.
+  'no-tests-empty-then-refs-with-reason-passes': ['Closes #1\nno tests:\nrefs #12 already covers it\n', null],
+  'no-tests-empty-then-closes-with-reason-passes': ['Closes #1\nno tests:\nCloses #9 is the real test\n', null],
+  'no-tests-empty-then-closes-url-fails': ['Closes #1\nno tests:\nCloses https://github.com/o/r/issues/2\n', /Red before implementing/],
+  'no-tests-empty-then-bare-url-fails': ['Closes #1\nno tests:\nhttps://github.com/o/r/issues/2\n', /Red before implementing/],
+  'no-tests-empty-then-related-to-fails': ['Closes #1\nno tests:\nRelated to #2\n', /Red before implementing/],
+  'no-tests-empty-then-checkbox-fails': ['Closes #1\nno tests:\n- [ ] item\n', /Red before implementing/],
+  'no-tests-empty-then-trailer-fails': ['Closes #1\nno tests:\nSigned-off-by: A B <a@b.c>\n', /Red before implementing/],
+  'adr-empty-then-closes-fails': ['**ADR unchanged:**\nCloses #1\nno tests: ci only\n', /add "ADR unchanged: <reason>"/, { labels: ['type:task', 'business-logic'] }],
+  'adr-empty-then-heading-fails': ['Closes #1\nno tests: ci only\n**ADR unchanged:**\n## Why\n', /add "ADR unchanged: <reason>"/, { labels: ['type:task', 'business-logic'] }],
+  'adr-empty-then-real-reason-passes': ['Closes #1\nno tests: ci only\n**ADR unchanged:**\nthe rule is not touched\n', null, { labels: ['type:task', 'business-logic'] }],
+  // Review of #147 (third round): a line of only references is not a reason, and a "#..." line is not one unless it is "#n" plus words.
+  'no-tests-empty-then-lone-issue-ref-fails': ['Closes #1\nno tests:\n#7\n', /Red before implementing/],
+  'no-tests-empty-then-two-refs-fails': ['Closes #1\nno tests:\n#2, #3\n', /Red before implementing/],
+  'no-tests-empty-then-repo-ref-fails': ['Closes #1\nno tests:\nowner/repo#2\n', /Red before implementing/],
+  'no-tests-empty-then-plus-closes-fails': ['Closes #1\nno tests:\n+ Closes #2\n', /Red before implementing/],
+  'no-tests-empty-then-numbered-closes-fails': ['Closes #1\nno tests:\n1. Closes #2\n', /Red before implementing/],
+  'adr-empty-then-lone-hash-fails': ['Closes #1\nno tests: ci only\n**ADR unchanged:**\n#7\n', /add "ADR unchanged: <reason>"/, { labels: ['type:task', 'business-logic'] }],
+  'adr-empty-then-hash-word-fails': ['Closes #1\nno tests: ci only\n**ADR unchanged:**\n#nope\n', /add "ADR unchanged: <reason>"/, { labels: ['type:task', 'business-logic'] }],
+  'adr-empty-then-long-hash-fails': ['Closes #1\nno tests: ci only\n**ADR unchanged:**\n####### x\n', /add "ADR unchanged: <reason>"/, { labels: ['type:task', 'business-logic'] }],
+  // Si la API falla al listar los commits, el job lo dice en la lista de errores (no un stack trace).
+  'list-commits-api-error-is-reported': [T + R + G() + E, /^PR out of convention:\n- [^\n]*commits of this PR[^\n]*boom 502/, { apiError: true }],
+};
+// #147: bodies of 65,000 characters with each kind of line break, and nothing that closes or references an issue: `refiere` has to read
+// the whole body, so a body that is not normalized takes seconds, and the verdict is the "neither closes nor references" error.
+// (With a "Refs #1" at the end the match comes early and the body does not need to be normalized: that is not the regression.)
+const BIG = 65000;
+const SIN = /neither closes nor references/;
+const raw = {
+  cr: ['x' + '\r'.repeat(BIG), SIN],
+  ls: ['x' + '\u2028'.repeat(BIG), SIN],
+  ps: ['x' + '\u2029'.repeat(BIG), SIN],
+  crlf: ['x' + '\r\n'.repeat(BIG / 2), SIN],
+  mixed: ['x' + '\r\u2028\u2029\n \t'.repeat(BIG / 6), SIN],
+  spaces: ['x' + ' '.repeat(BIG), SIN],
+  // The next line of a "no tests:" (issue #147): a long word, many references, a long link.
+  longword: ['Closes #1\nno tests:\nCloses #2 ' + 'a'.repeat(BIG), null],
+  manyrefs: ['Closes #1\nno tests:\nRefs ' + '#1, '.repeat(BIG / 4), /Red before implementing/],
+  longlink: ['Closes #1\nno tests:\nCloses https://x.y/' + 'a'.repeat(BIG), /Red before implementing/],
+};
+const N = 10000;
+const perf = {
+  spaces: R.replace('0123abc4', ' '.repeat(N) + '0123abc4') + G(' '.repeat(N)) ,
+  colons: G('bash', 'junit', '- ' + '::'.repeat(N)),
+  lines: R + '- a::b\n'.repeat(N),
+  groups: R + G().repeat(N / 10),
+  hex: 'red commit: ' + 'a'.repeat(N) + '\n' + G(),
+  stars: R + G('*'.repeat(N), 'junit', '- ' + '*'.repeat(N) + '::' + '_'.repeat(N)),
+};
+(async () => {
+  const [mode, name] = [process.argv[3], process.argv[4]];
+  if (mode === 'case') {
+    const [body, re, opts] = cases[name];
+    const failed = await run(body, opts);
+    const good = re === null ? failed === null : failed !== null && re.test(failed);
+    if (!good) console.log('got: ' + JSON.stringify(failed));
+    process.exit(good ? 0 : 3);
+  }
+  if (mode === 'raw') {
+    // In a child process with a hard timeout: a body that never finishes must fail the case, not hang the test.
+    // The best of three runs: a slow runner or a GC pause must not fail it, a quadratic body takes seconds in all of them.
+    let ms = Infinity;
+    for (let k = 0; k < 3 && !(ms < 200); k++) {
+      const r = require('child_process').spawnSync(process.execPath, [process.argv[1], process.argv[2], 'rawinner', name], { timeout: 3000, encoding: 'utf8' });
+      if (r.status !== 0) { console.log(r.error ? 'timeout (over 3 s)' : 'the child failed: ' + r.stderr); ms = Infinity; continue; }
+      const v = JSON.parse(r.stdout);
+      if (!v.good) { console.log('wrong verdict: ' + JSON.stringify(v.failed)); ms = Infinity; break; }
+      ms = Math.min(ms, v.ms);
+    }
+    if (!(ms < 200)) console.log('took ' + (ms === Infinity ? 'over 3 s or failed' : Math.round(ms) + ' ms'));
+    process.exit(ms < 200 ? 0 : 3);
+  }
+  if (mode === 'rawinner') {
+    const t0 = performance.now();
+    const failed = await run(raw[name][0]);
+    const ms = performance.now() - t0, re = raw[name][1];
+    console.log(JSON.stringify({ ms, failed, good: re === null ? failed === null : failed !== null && re.test(failed) }));
+    process.exit(0);
+  }
+  // perf: the title, the hostile text, and nothing else; it has to end quickly, with any verdict.
+  const t0 = performance.now();
+  await run(T + perf[name] + E);
+  const ms = performance.now() - t0;
+  if (ms >= 200) console.log('took ' + Math.round(ms) + ' ms');
+  process.exit(ms < 200 ? 0 : 3);
+})();
+JS
+lc_out=
+lc_case() { tap_run lc_out 0 node "$CASE_JS" "$ROOT/.github/workflows/labels.yml" case "$1"; printf '%s\n' "$lc_out" >&2; [ "$TAP_RC" -eq 0 ]; }
+lc_raw() { tap_run lc_out 0 node "$CASE_JS" "$ROOT/.github/workflows/labels.yml" raw "$1"; printf '%s\n' "$lc_out" >&2; [ "$TAP_RC" -eq 0 ]; }
+lc_perf() { tap_run lc_out 0 perl -e 'alarm 10; exec @ARGV' node "$CASE_JS" "$ROOT/.github/workflows/labels.yml" perf "$1"; printf '%s\n' "$lc_out" >&2; [ "$TAP_RC" -eq 0 ]; }
+lc_case valid-block; tap_check $? "structured-block-valid-passes"
+lc_case valid-block-es-title; tap_check $? "structured-block-spanish-title-passes"
+lc_case valid-block-two-groups; tap_check $? "structured-block-two-groups-pass"
+lc_case valid-block-crlf; tap_check $? "structured-block-crlf-passes"
+lc_case title-only-fails; tap_check $? "structured-block-title-only-fails"
+lc_case missing-format-fails; tap_check $? "structured-block-without-format-fails"
+lc_case missing-red-commit-fails; tap_check $? "structured-block-without-red-commit-fails"
+lc_case no-case-fails; tap_check $? "structured-block-without-case-fails"
+lc_case bad-sha-fails; tap_check $? "structured-block-bad-sha-fails"
+lc_case two-red-commits-fails; tap_check $? "structured-block-two-red-commits-fail"
+lc_case format-tap-fails; tap_check $? "228: format tap fails and says 2.0.0 removed it"
+lc_case format-tap-gets-only-the-new-message; tap_check $? "228: format tap gets only the 2.0.0 message, not the generic one"
+lc_case format-tap-says-how-to-fix; tap_check $? "228: format tap says to switch the map entry and where the guide is"
+lc_case format-tap-uppercase-fails; tap_check $? "228: format TAP in capitals fails too"
+lc_case format-tap-in-second-group-fails; tap_check $? "228: format tap in a second group fails and names it"
+lc_case format-junit-passes; tap_check $? "228: format junit passes"
+lc_case bad-format-says-junit-only; tap_check $? "228: an unknown format says junit is the only one"
+lc_case empty-stack-fails; tap_check $? "structured-block-empty-stack-fails"
+lc_case second-group-incomplete-fails; tap_check $? "structured-block-incomplete-second-group-fails"
+lc_case case-without-separator-fails; tap_check $? "structured-block-case-without-separator-fails"
+lc_case block-in-comment-fails; tap_check $? "structured-block-inside-comment-does-not-count"
+lc_case lines-after-details-do-not-count; tap_check $? "structured-block-lines-after-details-do-not-count"
+lc_case no-tests-still-passes; tap_check $? "structured-no-tests-reason-still-passes"
+lc_case title-with-no-tests-reason-fails; tap_check $? "structured-title-plus-no-tests-reason-fails"
+lc_case valid-block-with-no-tests-passes; tap_check $? "structured-valid-block-plus-no-tests-passes"
+lc_case malformed-block-with-no-tests-fails; tap_check $? "structured-malformed-block-plus-no-tests-fails"
+lc_case prose-no-tests-with-malformed-block-fails; tap_check $? "structured-prose-no-tests-plus-malformed-block-fails"
+lc_case red-commit-not-in-pr-fails; tap_check $? "red-commit-not-in-pr-fails"
+lc_case red-commit-short-in-pr-passes; tap_check $? "red-commit-short-sha-in-pr-passes"
+lc_case red-commit-not-hex-in-extra-details-fails; tap_check $? "red-commit-not-hex-in-extra-details-fails"
+lc_case red-commit-of-another-details-not-in-pr-fails; tap_check $? "red-commit-in-extra-details-not-in-pr-fails"
+lc_case red-commit-in-prose-outside-block-passes; tap_check $? "red-commit-in-prose-outside-the-block-passes"
+lc_case red-commit-ninguno-with-no-tests-passes; tap_check $? "red-commit-ninguno-with-no-tests-passes"
+lc_case red-commit-in-code-block-passes; tap_check $? "red-commit-in-code-block-passes"
+lc_case red-commit-not-hex-gives-one-error; tap_check $? "red-commit-not-hex-gives-one-error"
+lc_case red-block-quoted-in-fence-after-passes; tap_check $? "red-block-quoted-in-fence-after-passes"
+lc_case red-block-quoted-in-fence-before-passes; tap_check $? "red-block-quoted-in-fence-before-passes"
+lc_case red-commit-after-fence-closes-is-checked; tap_check $? "red-commit-after-fence-closes-is-checked"
+lc_case red-commit-in-details-with-other-summary-not-in-pr-fails; tap_check $? "red-commit-in-details-with-other-summary-not-in-pr-fails"
+lc_case red-commit-in-details-with-other-summary-not-hex-fails; tap_check $? "red-commit-in-details-with-other-summary-not-hex-fails"
+lc_case red-flags-details-without-red-commit-passes; tap_check $? "red-flags-details-without-red-commit-passes"
+lc_case nested-details-in-extra-block-keeps-checking; tap_check $? "nested-details-in-extra-block-keeps-checking"
+lc_case nested-details-closing-on-its-own-line-keeps-checking; tap_check $? "nested-details-closing-on-its-own-line-keeps-checking"
+lc_case nested-details-in-main-block-passes; tap_check $? "nested-details-in-main-block-passes"
+lc_case red-commit-not-hex-main-and-extra-give-one-error; tap_check $? "red-commit-not-hex-main-and-extra-give-one-error"
+lc_case red-commit-not-hex-main-and-extra-not-in-pr-show-both; tap_check $? "red-commit-not-hex-main-and-extra-not-in-pr-show-both"
+lc_case list-commits-api-error-is-reported; tap_check $? "list-commits-api-error-is-reported"
+lc_case red-summary-inside-open-details-does-not-add-depth; tap_check $? "red-summary-inside-open-details-does-not-add-depth"
+lc_case details-mentioned-in-prose-does-not-open-depth; tap_check $? "details-mentioned-in-prose-does-not-open-depth"
+lc_case details-mentioned-in-no-tests-line-does-not-open-depth; tap_check $? "details-mentioned-in-no-tests-line-does-not-open-depth"
+lc_case uppercase-details-is-checked; tap_check $? "uppercase-details-is-checked"
+lc_case four-backtick-fence-is-not-closed-by-three; tap_check $? "four-backtick-fence-is-not-closed-by-three"
+lc_case details-in-a-case-name-does-not-break-the-block; tap_check $? "details-in-a-case-name-does-not-break-the-block"
+lc_case fence-opened-and-closed-on-one-line-is-not-a-fence; tap_check $? "fence-opened-and-closed-on-one-line-is-not-a-fence"
+lc_perf spaces; tap_check $? "structured-block-performance-spaces"
+lc_perf colons; tap_check $? "structured-block-performance-colons"
+lc_perf lines; tap_check $? "structured-block-performance-many-lines"
+lc_perf groups; tap_check $? "structured-block-performance-many-groups"
+lc_perf hex; tap_check $? "structured-block-performance-long-sha"
+lc_perf stars; tap_check $? "structured-block-performance-wrappers"
+lc_case no-tests-placeholder-then-closes-fails; tap_check $? "no-tests-placeholder-then-closes-fails"
+lc_case no-tests-empty-then-closes-fails; tap_check $? "no-tests-empty-then-closes-fails"
+lc_case no-tests-empty-then-refs-fails; tap_check $? "no-tests-empty-then-refs-fails"
+lc_case no-tests-empty-then-heading-fails; tap_check $? "no-tests-empty-then-heading-fails"
+lc_case no-tests-empty-then-bold-closes-fails; tap_check $? "no-tests-empty-then-bold-closes-fails"
+lc_case no-tests-empty-then-real-reason-passes; tap_check $? "no-tests-empty-then-real-reason-passes"
+lc_case no-tests-empty-then-reason-mentioning-closes-passes; tap_check $? "no-tests-empty-then-reason-mentioning-closes-passes"
+lc_case no-tests-empty-then-refs-with-reason-passes; tap_check $? "no-tests-empty-then-refs-with-reason-passes"
+lc_case no-tests-empty-then-closes-with-reason-passes; tap_check $? "no-tests-empty-then-closes-with-reason-passes"
+lc_case no-tests-empty-then-closes-url-fails; tap_check $? "no-tests-empty-then-closes-url-fails"
+lc_case no-tests-empty-then-bare-url-fails; tap_check $? "no-tests-empty-then-bare-url-fails"
+lc_case no-tests-empty-then-related-to-fails; tap_check $? "no-tests-empty-then-related-to-fails"
+lc_case no-tests-empty-then-checkbox-fails; tap_check $? "no-tests-empty-then-checkbox-fails"
+lc_case no-tests-empty-then-trailer-fails; tap_check $? "no-tests-empty-then-trailer-fails"
+lc_case adr-empty-then-closes-fails; tap_check $? "adr-empty-then-closes-fails"
+lc_case adr-empty-then-heading-fails; tap_check $? "adr-empty-then-heading-fails"
+lc_case adr-empty-then-real-reason-passes; tap_check $? "adr-empty-then-real-reason-passes"
+lc_case no-tests-empty-then-lone-issue-ref-fails; tap_check $? "no-tests-empty-then-lone-issue-ref-fails"
+lc_case no-tests-empty-then-two-refs-fails; tap_check $? "no-tests-empty-then-two-refs-fails"
+lc_case no-tests-empty-then-repo-ref-fails; tap_check $? "no-tests-empty-then-repo-ref-fails"
+lc_case no-tests-empty-then-plus-closes-fails; tap_check $? "no-tests-empty-then-plus-closes-fails"
+lc_case no-tests-empty-then-numbered-closes-fails; tap_check $? "no-tests-empty-then-numbered-closes-fails"
+lc_case adr-empty-then-lone-hash-fails; tap_check $? "adr-empty-then-lone-hash-fails"
+lc_case adr-empty-then-hash-word-fails; tap_check $? "adr-empty-then-hash-word-fails"
+lc_case adr-empty-then-long-hash-fails; tap_check $? "adr-empty-then-long-hash-fails"
+lc_raw cr; tap_check $? "body-performance-65000-cr"
+lc_raw ls; tap_check $? "body-performance-65000-ls"
+lc_raw ps; tap_check $? "body-performance-65000-ps"
+lc_raw crlf; tap_check $? "body-performance-65000-crlf"
+lc_raw mixed; tap_check $? "body-performance-65000-mixed"
+lc_raw spaces; tap_check $? "body-performance-65000-spaces"
+lc_raw longword; tap_check $? "body-performance-65000-longword"
+lc_raw manyrefs; tap_check $? "body-performance-65000-manyrefs"
+lc_raw longlink; tap_check $? "body-performance-65000-longlink"
+lc_case no-tests-empty-then-closes-other-repo-fails; tap_check $? "no-tests-empty-then-closes-other-repo-fails"
+lc_case no-tests-empty-then-table-row-fails; tap_check $? "no-tests-empty-then-table-row-fails"
+lc_case no-tests-empty-then-issue-number-reason-passes; tap_check $? "no-tests-empty-then-issue-number-reason-passes"
+# Every job of the workflow has a short timeout (a runaway job must not hold a runner for the 6-hour default).
+jobs=$(awk '/^jobs:/{j=1;next} j && /^  [a-z-]+:$/{n++} END{print n+0}' "$ROOT/.github/workflows/labels.yml")
+tm=$(grep -cE '^    timeout-minutes: 2( |$)' "$ROOT/.github/workflows/labels.yml")
+[ "$((jobs - 0))" -ge 1 ] && [ "$jobs" -eq "$tm" ]; tap_check $? "each job of labels.yml has timeout-minutes: 2" "each job of labels.yml has timeout-minutes: 2 ($tm of $jobs)"
+tap_done

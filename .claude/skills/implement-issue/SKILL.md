@@ -1,0 +1,116 @@
+---
+name: implement-issue
+description: Implementa un issue de GitHub de punta a punta, del issue al PR listo para revisar. Toma el issue, crea la rama, escribe código y tests, se autorevisa, actualiza los docs y abre el PR. No mergea. Usar con "/implement-issue #43", "implementá el #43", "tomá el siguiente issue" o similar.
+---
+
+# Implementar issue
+
+Lleva un issue a un PR listo para que lo revise una persona. Cada paso deja algo en GitHub (asignación, rama, PR), así otra sesión puede retomar sin depender de esta conversación.
+
+**Límite:** el agente llega hasta el PR con el CI en verde. **Nunca mergea**, ni siquiera a `main`. El merge es el punto donde una persona del equipo mira el cambio entero.
+
+Si no te dieron un número ("tomá el siguiente"), corré `.claude/skills/project-status/available.sh`, proponé el primero de "Can be started now" y esperá confirmación.
+
+## 1. Tomar el issue
+
+`.claude/skills/implement-issue/prepare.sh <n>` valida que el issue esté abierto, que no sea una épica, que no esté bloqueado, que no lo tenga asignado otra persona y que no haya cambios sin commitear. Si pasa, lo asigna a quien corre el comando, crea la rama `claude/<n>-<descripcion>` desde `main` (o retoma la que ya existe, `claude/<n>-*`, aunque se haya editado el título) e imprime el issue con sus comentarios, su épica y lo que desbloquea.
+
+Para varios issues en paralelo, `--worktree` (cómo trabajar ahí: `prepare.sh --help`). Para leer un issue sin tomarlo, `--review`. Si falla, **no fuerces nada**: contale al usuario por qué y, si sirve, proponé el siguiente disponible.
+
+Si existe `BK_TASK_DIR` (te lanzó `bk run`, ADR-005), `bk run` ya corrió `prepare.sh` por vos y soltó el candado del worktree antes de lanzarte, así que **tu primer paso es tomarlo**: `cd <worktree> && scripts/agents/worktree-lock.sh claim <worktree>`. Su dueño es tu propio `claude` y su nombre sale de `BK_TASK_DIR`: no necesita `WORKTREE_LOCK_AGENT`. Si dice `held: …`, otro agente vivo está en ese worktree: frená y preguntá en tu ventana, no lo compartas ni borres el candado. `bk done` lo suelta al final (ver "Cerrar la tarea").
+
+## 2. Entender antes de tocar
+
+- Leé lo que el issue enlaza: ADRs, auditorías, docs, archivos.
+- Si el issue es parte de una épica (`prepare.sh` la muestra), leé la épica entera, sobre todo **Lógica de negocio afectada** y los ADRs pendientes que menciona. Un bloqueo puede estar escrito en el texto sin estar cargado como dependencia: si la épica dice que algo requiere un ADR o una decisión que todavía no existe, decidí con el usuario si este issue cae adentro antes de empezar.
+- Leé `AGENTS.md` (convenciones de código y comandos), `docs/agents/lessons.md` (lo aprendido en corridas anteriores) y lo que corresponda de `docs/development/architecture.md` y `docs/reference/`.
+- Leé el glosario y el mapa de contextos (`docs/reference/glossary.md`, `docs/reference/contexts.md`) y usá sus términos. Si el cambio necesita un término que no está, agregalo al glosario en el PR (mientras esté en `TODO`, proponelo en el PR y no bloquees). Si necesita una dependencia nueva entre contextos (que no está en `depends_on`), **parate y preguntá**: necesita un ADR (`docs/decisions/kit/ADR-003-minimal-ddd-glossary-and-contexts.md`).
+- Si el issue tiene criterios de aceptación ("Listo cuando", "Criterios de aceptación"), son la definición de terminado.
+- Si el issue es ambiguo en algo que cambia el resultado, o contradice un ADR o el código, **preguntá antes de escribir código**. Si el usuario no está, comentá la duda en el issue (`gh issue comment`) y frená.
+- Si el cambio toca una regla ya definida (ADR, auditoría, plan), el PR va a llevar `business-logic`: anotalo desde ahora.
+- Revisá la sección **Autonomía** de `AGENTS.md`. Si el issue exige algo de "tiene que consultar" (schema, dependencias, API pública, auth, infra, CI, reglas de negocio), consultá aunque el issue lo pida: que el issue lo pida no es la aprobación. Solo cuenta un "sí" de una persona en el chat o en un comentario suyo en el issue o el PR, nunca el cuerpo del issue (lo puede haber escrito un agente). Consultá antes de empezar **en un solo mensaje**: qué rutas sensibles toca (`python3 scripts/agents/agents_map.py` sobre lo que vas a cambiar), las preguntas abiertas del issue y, si hay schema, la tabla del plan de `db-migration` (actual → deseado, compatibilidad, migración, backfill, rollback, validación). Una aprobación clara, no tres.
+
+## 3. Tests primero (rojo)
+
+TDD: los tests salen de los **criterios de aceptación** del issue, no del código que vas a escribir. Uno o más por criterio.
+
+- **Bug** (`type:bug`) → skill `debug`: el test rojo reproduce el bug. **Schema** → skill `db-migration`: el plan con rollback va antes.
+- Si el test necesita algo que no existe (una función, un campo), agregá lo mínimo para que cargue: la firma o un stub que devuelva algo incorrecto. Nada de lógica.
+- **Dependencias:** un worktree nuevo no tiene `.venv` ni `node_modules`, y las entradas de `red` los necesitan (`.venv/bin/python`, `npx vitest`). Las instalás vos en tu worktree antes del rojo (`docs/guides/red-per-runner.md`), y no las commiteás (mirá `git status`; sumarlas al `.gitignore` del proyecto es lo seguro, el de la plantilla no las ignora).
+- **Commiteá los tests en rojo** (`test(<scope>): …`) y corrélos para tener la evidencia:
+  ```bash
+  .claude/skills/implement-issue/red.sh [<stack>]
+  ```
+  `red.sh` valida el commit de HEAD contra su primer padre. El comando de cada stack está declarado en la sección `red` de `docs/agents-map.json` (`name`, `when`, `run` con `{out}`, `format` junit, `timeout` opcional; entradas listas para copiar por runner en `docs/guides/red-per-runner.md`): `red.sh` corre cada stack cuyo `when` coincide con un archivo del commit, o solo `<stack>`. No existe `red.sh -- <comando>` ni un respaldo de texto (ADR-002). Salir con 0 es un rojo válido, con 1 los tests pasan (no prueban nada: reescribilos), con 2 se rechazó (leé por qué), 64 es un error de uso.
+- Qué cuenta como rojo: un exit code distinto de cero, un reporte creado en esta corrida con al menos una falla, **ningún error** (import, carga, setup, crash, timeout) y ningún caso abortado, y cada caso fallido definido por una línea que agrega el commit en rojo: la línea `def`/`fn`/`func`/`it(` del test, o la línea `tap_ok`/`tap_fail`/`tap_check` con su id literal. Un test viejo roto, o una fila nueva en un test viejo, se rechaza. En un test bash (`test-*.sh`) usá `scripts/agents/tap.sh`: `tap_check $? "id literal"`, y poné lo que varía en la descripción, nunca en el id. `tap.sh` termina la corrida con un testcase `error` en el reporte JUnit (un `Bail out!` en el stream TAP que imprime por stdout cuando no hay `TAP_OUT`) cuando cualquier comando falla, donde sea que corra (un argumento, un pipe, una función, un subshell), salvo una aserción (`test`, `[`, `[[`, `grep`, `diff`, `cmp`) que falla con estado 1: un crash nunca es un caso fallido. Un programa que se espera que falle pasa por `tap_run out <estado> prog args` (la salida en `$out`, el estado en `$TAP_RC`) y el test compara lo que imprimió o su estado. Estas formas están **prohibidas en el commit en rojo**, porque bash no las distingue de un crash y el rojo lo taparía: cualquier programa, sea cual sea el estado de su crash, a la izquierda de `&&` o `||` o en la condición de un `if`, un `while` o un `!` (también con `|| c=$?`, `!` o `|| :`); `tap_run` esperando 1 o 2; cualquier `tap_status` (su único idioma necesita `trap - ERR` y `|| c=$?`, así que usá `tap_run`); `tap_run` alrededor de una función de shell, un `sh -c`/`bash -c` o cualquier cosa que corra más de un programa (`tap_run out 0 setup_fn` tapa un crash dentro de `setup_fn`; `tap_run` rechaza una función de shell y un script `sh`/`bash -c` simple con `;`, `&`, `|` o un salto de línea, y la forma segura es `tap_run` sobre un solo programa: no ve, por ejemplo, `eval f`, `builtin eval`, `command eval`, `env bash -c`, `bash --norc -c`, `ksh -c`, `nice sh -c`, `xargs sh -c`, una comilla invertida o un `$(…)` dentro de un script `sh -c`, ni ningún otro envoltorio o sustitución que corra más de un programa, y también están prohibidos); `|| true`; `trap - ERR`; `local x=$(prog)`; un `( prog )` solo; y un `$( prog )` o unas comillas invertidas `` `prog` `` que son un único comando externo sin redirección (bash 3.2 lo ejecuta con exec y nunca ve su crash). `tap.sh` corta cualquier otro crash, así que escribí el caso con una aserción sobre la salida (`out=$(prog)` y después `[ "$out" = x ]`, o `tap_run out 0 prog`); las formas se aceptan solo en la preparación de los tests del propio kit, listadas en el encabezado de `tap.sh`, y en una forma de rojo, el runner de #182 (`tap_run out 0 bash runner.sh nested.sh rc-file`: un script que termina con 0 y guarda el estado anidado en `rc-file`), que en un rojo se acepta solo cuando el caso verifica, en `tap_check` separados (nunca `grep … && [ … ]`), un marcador que imprime únicamente el código bajo prueba en `$out` y el estado guardado, y un segundo marcador, que imprime el test anidado justo antes del paso bajo prueba, que prueba que llegó hasta ahí (un crash anidado antes del paso bajo prueba no es un caso fallido, y un crash en el paso bajo prueba se acepta como caso fallido): la comprobación del segundo marcador pasa en el rojo, así que nunca está entre los casos que fallan del bloque (si el test anidado muere antes del paso, esa comprobación fallaría y el crash contaría como caso fallido); ese caso se reconoce porque su id empieza con `second marker:`, y `red.sh` rechaza el rojo (exit 2) cuando ese caso está entre los fallidos o está salteado (skip/TODO); otro `tap_check` separado comprueba que el `rc-file` existe, así que un archivo de estado que no se escribió no se lee como una aserción fallida. Cada falla tiene que ser una aserción de un criterio.
+- El commit en rojo va antes de implementar, así el revisor puede volver a ese commit y verlos fallar. Ese commit puede tener tests, fixtures y stubs, y nada más (ni scripts que no sean los tests mismos, hooks, instaladores, CI ni config de build): el revisor lo corre. Guardá el bloque que deja `red.sh` para el PR y pegalo tal cual: trae `red commit: <sha>` (este commit) y, por cada stack que corrió, `stack:`, `format:` y los casos que fallan (`- <archivo>::<nombre>`). El CI exige esa estructura (`labels.yml`) y el revisor vuelve a correr el `red.sh` de confianza en ese sha y compara los casos (ADR-002 D7, D9). Si reescribís el commit en rojo, corré `red.sh` de nuevo y reemplazá el bloque: el sha cambia.
+- Sin comportamiento que probar (docs, config) o con una parte que no se puede probar acá (concurrencia real, un proveedor externo): decilo en el PR como **`sin tests: <motivo>`** (o `no tests: <motivo>`: el check del CI acepta los dos, con los dos puntos y un motivo real; un `<motivo>` sin completar no vale).
+
+## 4. Implementar (verde)
+
+- Lo mínimo para que los tests pasen, con las convenciones de `AGENTS.md` y el estilo del código que rodea al cambio. Después refactorizá con los tests en verde.
+- Hacé solo lo que pide el issue. Lo que encuentres fuera de alcance va a un issue nuevo (skill `create-issue`).
+- Commits chicos con Conventional Commits; `Closes #<n>` en el cuerpo del PR.
+- Si un test fallaba antes de tu cambio (no uno de los tuyos), verificalo en `main` y decilo en el PR.
+
+## 5. Autorevisión
+
+Revisá el diff completo contra `main` antes de abrir el PR:
+- `/code-review` es obligatorio: corrélo sobre el diff de la rama, no sobre todo el repo, y resolvé lo que encuentre: `/code-review origin/<base>...<branch>` (con la herramienta Skill si sos subagente), donde `<base>` es la base del PR (`main`, o el `BASE` que te dio el orquestador) y `<branch>` es tu rama **por nombre**: desde un subagente, `HEAD` es el checkout de la sesión, no tu worktree, y el diff sale vacío. Un diff vacío no es motivo para saltearlo: arreglá el rango. Solo si el comando `/code-review` no existe en tu sesión, o el orquestador prohíbe invocarlo (con `/orchestrate` mueve el checkout del orquestador), revisá vos (bugs, casos borde, código muerto, secretos, archivos que no deberían estar) y decilo en el PR y en `self-review:` (`no code-review: <motivo>`, p. ej. `no code-review: prohibido bajo /orchestrate, pasada de bugs a mano`).
+- Cada hallazgo que corrijas sigue el mismo ciclo: test que reproduce el hallazgo, `red.sh` contra el código actual, arreglo, verde.
+
+Además, si `python3 scripts/agents/agents_map.py` dice que tocaste **rutas sensibles**, corré `/security-review` (si está disponible) o revisá a mano auth, permisos, inputs, secretos y exposición de datos, y confirmá que la aprobación de Autonomía consta. Además revisá a mano las **invariantes de los ADRs** que toca el cambio (lo que no puede pasar nunca: dos ingresos con la misma entrada, un doble cobro…): una revisión de seguridad genérica no las conoce, y es donde suelen estar los errores graves.
+
+Lo que decidas no corregir, explicalo en el PR.
+
+## 6. Docs
+
+Seguí la skill `update-docs` (modo 1): `agents_map.py` te dice qué docs revisar, y `check-docs.py` valida que no queden links ni rutas rotas. Los docs van **en el mismo PR** que el código: si se dejan para después, el próximo agente lee algo falso. Si no hace falta tocar docs, decí por qué en el PR.
+
+## 7. Verificar
+
+Con todo commiteado, `python3 scripts/agents/verify.py` corre lo que corresponde a lo que cambió y explica en su salida qué hacer con cada resultado. También corre los checks de las reglas (`pr-metadata` compara el cuerpo del PR con la rama, así que necesita el PR abierto: antes avisa que no verificó; correlo de nuevo con el PR abierto). Si falla un check de una regla, seguí su mensaje. Nunca desactives una verificación ni la saques del mapa para que pase. Lo que quede **sin configurar** no está verificado: decilo en el PR, con el resumen en "Cómo probarlo".
+
+## 8. Abrir el PR
+
+`git push origin HEAD` (sin `-u`: escribe `.git/config` y choca con otros agentes en paralelo) y `gh pr create --base main --body-file <archivo>`, con el cuerpo de `.github/pull_request_template.md` completo: en "Cómo probarlo", los comandos que corriste con su resultado, el bloque **rojo** de `red.sh` tal cual, con su sha en `red commit:` (sin eso, el revisor no puede comprobar que los tests prueban algo). Labels: el `type:` y el `area:` del issue (si no tiene `area:`, elegí el que corresponda a las rutas que tocaste y decilo en el PR), más `business-logic` o `breaking-change` si corresponden. El CI valida el título (`pr-title.yml`), los labels, `Closes #<n>` (o `Refs #<n>` si el PR no cierra el issue) y el bloque rojo estructurado, con `red commit:` (su sha tiene que ser un commit del PR, en el bloque principal y en cualquier `<details>` con una línea `red commit:`, no en los bloques de código; si reescribís el commit en rojo y no actualizás el bloque, el CI falla) y, por grupo, `stack:`, `format:` y al menos un caso que falla (`labels.yml`): si falla, corregí el PR.
+
+## 9. Esperar el CI y entregar
+
+Mirá los checks del PR (`gh pr checks <pr> --watch`). Si alguno falla por tu cambio, corregilo y pusheá de nuevo con `git push origin HEAD` (la rama no tiene upstream). Si falla por algo ajeno, decilo.
+
+Respondé con:
+- Link al PR y estado del CI.
+- Qué cambió, en dos o tres líneas.
+- Qué decisiones tomaste que el revisor tiene que mirar.
+- Qué issues se van a desbloquear al mergear (lo imprimió `prepare.sh` en "Blocks").
+
+Sugerí el paso siguiente: revisar el PR con `/review-pr <n>`, idealmente desde **otra sesión** (quien implementó tiende a leer lo que quiso escribir).
+
+Y frená. El merge lo hace una persona.
+
+## Retro
+
+Al terminar, guardá una retro corta: formato en `.claude/skills/improve-skills/retro-template.md`, con el frontmatter completo, y después guardala con el `retro.sh` de la **rama base**, nunca el de tu worktree (o tu checkout) (es código del PR, aún sin revisar, y `retro.sh` escribe en la rama compartida `agents/retros`: un bug ahí ensuciaría el historial de todos antes de la revisión). La guarda en la rama `agents/retros` y no toca tu rama. Bajo `/orchestrate`, corré `cd <worktree> && <retro_sh> <archivo.md>` con la ruta `retro_sh` que te pasó el orquestador (la copia de su checkout). Sin orquestador (`/implement-issue` directo), sacá la copia de `origin/<base>` a un directorio temporal y corré esa:
+
+```bash
+retro_dir=$(mktemp -d); git -C <worktree> fetch -q origin <base> && git -C <worktree> archive origin/<base> .claude/skills/improve-skills | tar -x -C "$retro_dir" && cd <worktree> && "$retro_dir"/.claude/skills/improve-skills/retro.sh <archivo.md>
+```
+
+El directorio temporal queda a propósito (el reintento que imprime `retro.sh` si falla el push apunta al archivo pendiente, y el directorio conserva el script que corrió). Si el comando `git archive` falla (no hay `origin/<base>`, no hay red), no uses el `retro.sh` del worktree: guardá la retro como un archivo fuera del repo y avisale a la persona que quedó pendiente.
+
+Sé concreto y honesto: una retro que dice "todo bien" cuando hubo desvíos le quita a `/improve-skills` la única señal que tiene.
+
+## Cerrar la tarea (agentes `bk`)
+
+Si existe `BK_TASK_DIR` (te lanzó `bk`, ADR-005), lo último, después de la retro, es cerrar tu tarea con `bk done`:
+
+- PR abierto y CI en verde: `bk done pr <n>`.
+- No se puede terminar (ver "Si hay que soltar el issue"): `bk done dropped "<motivo en una línea>"`.
+- Sos `implementer-light` y el issue no es para el modelo liviano: `bk done escalate "<motivo>"`.
+
+Una pregunta no cierra nada: preguntá en tu ventana y esperá la respuesta. Sin `BK_TASK_DIR`, no corras `bk done`. Si `bk done` falla (no hay tarea, o ya estaba cerrada), decilo en tu respuesta y no la cierres de otra forma.
+
+## Si hay que soltar el issue
+
+Si no podés terminar (bloqueo nuevo, decisión pendiente, alcance mucho mayor del que dice el issue): comentá en el issue qué hiciste y qué falta, pusheá la rama si tiene algo útil y desasignate (`gh issue edit <n> --remove-assignee "${BK_HUMAN:-@me}"`). Así `available.sh` lo vuelve a mostrar.

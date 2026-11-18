@@ -3,3 +3,12 @@ __pycache__/
 # los genera herdr-app check en la carpeta del mod que revisa
 herdr/**/gpui-kit.d.ts
 herdr/**/jsconfig.json
+
+# barrilete
+.env
+.env.*
+!.env.example
+__pycache__
+*.pyc
+.agent-kit/
+.claude/worktrees/

@@ -1,0 +1,360 @@
+{
+  "_help": "Map for agents and CI. 'docs': which document to review when certain files change (used by update-docs, implement-issue and review-pr). 'contexts': the bounded contexts of the project (ADR-003 D3), as [{\"name\": \"...\", \"paths\": [\"<glob>\"], \"depends_on\": [\"<name>\"]}]: name, paths (globs) and depends_on (the names of other contexts it may use). Empty until the project defines them; docs/reference/contexts.md is its prose. 'sensitive': paths that must be asked about before changing them and that need /security-review (see AGENTS.md, Agent autonomy). 'verify': what to run before the PR according to what changed (scripts/agents/verify.py). 'red': how red.sh gets the structured report of each test stack (ADR-002 D2): name, when (globs of changed files), run (with {out}), format (junit), optional timeout in seconds. 'required': documents that must exist (validated by scripts/agents/check-docs.py). 'ignore_check': paths that check-docs.py does not validate, such as historical logs that cite files that no longer exist. Git-style globs: ** any depth, * one level. A path that starts with ? is optional: check-docs does not fail if it matches no file (useful for stack alternatives, such as package.json or *.lock). 'parity': true|false, switch of the language-parity check (each X.md with its X.es.md): the template turns it on while its content is translated and the init turns it off in projects, which have a single language. 'parity_ignore': .md files that have no .es.md version (the language-parity check; ignore_check does not exempt them). The project's own paths go without ?: if they stop existing, the check fails.",
+  "docs": [
+    {
+      "when": [
+        "bin/bk",
+        "lib/**",
+        "hooks/**",
+        "githooks/**"
+      ],
+      "review": [
+        "README.md",
+        "docs/development/architecture.md",
+        "docs/reference/modules.md"
+      ],
+      "reason": "a bk command or a module changed (README.md is the spec; bin/bk has the help)"
+    },
+    {
+      "when": [
+        "herdr/**",
+        "lib/herdr.sh",
+        "lib/herdr_*.py"
+      ],
+      "review": [
+        "README.md",
+        "docs/reference/surfaces.md"
+      ],
+      "reason": "a Herdr mod, key, theme, layout or panel data changed"
+    },
+    {
+      "when": [
+        "lib/tasks.py",
+        "lib/land.py",
+        "lib/handoff.py",
+        "hooks/agent_state.sh",
+        "lib/gentle.py"
+      ],
+      "review": [
+        "docs/reference/domain.md",
+        "docs/reference/journeys.md"
+      ],
+      "reason": "a state file, a state or a flow changed"
+    },
+    {
+      "when": [
+        "lib/checks.sh",
+        "tests/**",
+        "?package.json",
+        "?**/package.json",
+        "?.github/workflows/**"
+      ],
+      "review": [
+        "AGENTS.md",
+        "docs/development/setup.md"
+      ],
+      "reason": "a command, a dependency or the CI changed"
+    },
+    {
+      "when": [
+        "?infra/**",
+        "?Dockerfile",
+        "?**/*.toml"
+      ],
+      "review": [
+        "docs/development/deploy.md"
+      ],
+      "reason": "the infrastructure or the deploy changed"
+    },
+    {
+      "when": [
+        ".claude/agents/**",
+        "?.claude/i18n/agents/**",
+        "docs/agents/subagent-contract.md"
+      ],
+      "review": [
+        "AGENTS.md",
+        "README.md",
+        "docs/agents/subagent-contract.md"
+      ],
+      "reason": "a subagent (model, tools, escalation) or its contract changed"
+    },
+    {
+      "when": [
+        ".claude/settings.json",
+        "scripts/agents/guardrails.py",
+        ".codex/hooks.json",
+        ".github/hooks/**",
+        ".cursor/hooks.json"
+      ],
+      "review": [
+        "AGENTS.md",
+        "README.md"
+      ],
+      "reason": "the guardrails changed (which commands the hook stops)"
+    },
+    {
+      "when": [
+        "docs/agents-map.json"
+      ],
+      "review": [
+        "docs/reference/contexts.md"
+      ],
+      "reason": "the contexts or their paths in the map changed"
+    }
+  ],
+  "contexts": [],
+  "sensitive": [
+    {
+      "type": "auth",
+      "paths": [
+        "lib/accounts.py",
+        "lib/ghapp.py",
+        "?**/middleware/**"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "paths": [
+        "?package.json",
+        "?**/package.json",
+        "?*.lock",
+        "?pnpm-lock.yaml"
+      ]
+    },
+    {
+      "type": "infra",
+      "paths": [
+        "?infra/**",
+        "?.github/workflows/**",
+        "?Dockerfile",
+        ".claude/settings.json",
+        "scripts/agents/guardrails.py",
+        ".codex/hooks.json",
+        ".github/hooks/**",
+        ".cursor/hooks.json",
+        "githooks/**",
+        "lib/checks.sh",
+        "lib/land.py",
+        "lib/tmux_guard.py"
+      ]
+    }
+  ],
+  "red": [
+    {
+      "name": "bash",
+      "when": [
+        "**/test-*.sh"
+      ],
+      "format": "junit",
+      "run": "rc=0; tmp=$(mktemp); trap 'rm -f \"$tmp\"' EXIT; while IFS= read -r -d '' t; do TAP_OUT=$tmp bash \"$t\" </dev/null || rc=1; done < <(git diff -z --name-only --diff-filter=AMRC HEAD^ HEAD -- ':(glob)**/test-*.sh'); { echo '<testsuites>'; cat \"$tmp\"; echo '</testsuites>'; } >{out}; exit $rc",
+      "timeout": 1800
+    },
+    {
+      "name": "bk-tests",
+      "when": [
+        "tests/test_*.sh"
+      ],
+      "format": "junit",
+      "run": "rc=0; tmp=$(mktemp); trap 'rm -f \"$tmp\"' EXIT; while IFS= read -r -d '' t; do BK_BACKEND=tmux TAP_OUT=$tmp bash \"$t\" </dev/null || rc=1; done < <(git diff -z --name-only --diff-filter=AMRC HEAD^ HEAD -- ':(glob)tests/test_*.sh'); { echo '<testsuites>'; cat \"$tmp\"; echo '</testsuites>'; } >{out}; exit $rc",
+      "timeout": 1800
+    }
+  ],
+  "verify": [
+    {
+      "name": "docs",
+      "always": true,
+      "run": "python3 scripts/agents/check-docs.py"
+    },
+    {
+      "name": "shellcheck",
+      "when": [
+        "**/*.sh"
+      ],
+      "run": "command -v shellcheck >/dev/null || { echo 'shellcheck is missing: brew install shellcheck (macOS) or apt install shellcheck. This check does not run without it.'; exit 1; }; shellcheck {files}"
+    },
+    {
+      "name": "prepare",
+      "when": [
+        "scripts/agents/git-quiet.sh",
+        ".claude/skills/implement-issue/prepare.sh",
+        ".claude/skills/implement-issue/test-prepare.sh"
+      ],
+      "run": "bash .claude/skills/implement-issue/test-prepare.sh"
+    },
+    {
+      "name": "rule-checks",
+      "when": [
+        "scripts/agents/verify.py",
+        "scripts/agents/checks/**",
+        "scripts/agents/test-checks.sh"
+      ],
+      "run": "bash scripts/agents/test-checks.sh"
+    },
+    {
+      "name": "sync-rules",
+      "when": [
+        "scripts/agents/sync-rules",
+        "scripts/agents/test-sync-rules.sh",
+        ".barrilete/rules.lock",
+        "?.barrilete/checks.json"
+      ],
+      "run": "bash scripts/agents/test-sync-rules.sh"
+    },
+    {
+      "name": "worktree-lock",
+      "when": [
+        "scripts/agents/worktree-lock.sh",
+        "scripts/agents/test-worktree-lock.sh",
+        "docs/agents/subagent-contract.md",
+        "?docs/agents/subagent-contract.es.md",
+        ".claude/agents/reviewer.md",
+        "?.claude/i18n/agents/reviewer.es.md",
+        ".claude/skills/review-pr/SKILL.md",
+        "?.claude/skills/review-pr/SKILL.es.md"
+      ],
+      "run": "bash scripts/agents/test-worktree-lock.sh"
+    },
+    {
+      "name": "agents",
+      "when": [
+        ".claude/agents/**",
+        "?.claude/i18n/agents/**",
+        "docs/agents/subagent-contract.md",
+        "scripts/agents/check-docs.py",
+        "scripts/agents/test-agents.sh"
+      ],
+      "run": "bash scripts/agents/test-agents.sh"
+    },
+    {
+      "name": "orchestrate",
+      "when": [
+        "scripts/agents/git-quiet.sh",
+        ".claude/skills/orchestrate/**",
+        ".claude/agents/reviewer.md",
+        ".claude/skills/implement-issue/SKILL.md",
+        ".gitignore",
+        ".github/workflows/labels.yml",
+        "?profiles/small/DELETE"
+      ],
+      "run": "bash .claude/skills/orchestrate/test-orchestrate.sh && bash .claude/skills/orchestrate/test-mode.sh"
+    },
+    {
+      "name": "labels-check",
+      "when": [
+        ".github/workflows/labels.yml",
+        "scripts/agents/test-labels-check.sh"
+      ],
+      "run": "bash scripts/agents/test-labels-check.sh"
+    },
+    {
+      "name": "retros",
+      "when": [
+        "scripts/agents/git-quiet.sh",
+        ".claude/skills/improve-skills/**"
+      ],
+      "run": "bash .claude/skills/improve-skills/test-retros.sh"
+    },
+    {
+      "name": "classes",
+      "when": [
+        "docs/agents/classes.yml",
+        ".claude/skills/review-pr/SKILL.md",
+        "?.claude/skills/review-pr/SKILL.es.md",
+        "scripts/agents/check-docs.py",
+        "scripts/agents/test-classes.sh"
+      ],
+      "run": "bash scripts/agents/test-classes.sh"
+    },
+    {
+      "name": "tap",
+      "when": [
+        "scripts/agents/tap.sh",
+        "scripts/agents/test-tap.sh",
+        "**/test-*.sh"
+      ],
+      "run": "bash scripts/agents/test-tap.sh"
+    },
+    {
+      "name": "base",
+      "when": [
+        "scripts/agents/**"
+      ],
+      "run": "bash scripts/agents/test-base.sh"
+    },
+    {
+      "name": "git-quiet",
+      "when": [
+        "scripts/agents/git-quiet.sh",
+        "scripts/agents/test-git-quiet.sh"
+      ],
+      "run": "bash scripts/agents/test-git-quiet.sh"
+    },
+    {
+      "name": "guardrails",
+      "when": [
+        ".claude/settings.json",
+        "scripts/agents/guardrails.py",
+        "scripts/agents/test_guardrails.py",
+        ".codex/hooks.json",
+        ".github/hooks/**",
+        ".cursor/hooks.json"
+      ],
+      "run": "python3 -m unittest scripts/agents/test_guardrails.py"
+    },
+    {
+      "name": "flow",
+      "when": [
+        "scripts/agents/flow.py",
+        "scripts/agents/test_flow.py"
+      ],
+      "run": "python3 -m unittest scripts/agents/test_flow.py"
+    },
+    {
+      "name": "update-prep",
+      "when": [
+        "?scripts/test-update-prep.sh",
+        "?scripts/test-update.sh",
+        "?scripts/init-template.sh"
+      ],
+      "run": "bash scripts/test-update-prep.sh"
+    },
+    {
+      "name": "lint",
+      "when": [
+        "bin/bk",
+        "**/*.sh",
+        "githooks/**"
+      ],
+      "run": "rc=0; for f in {files}; do bash -n \"$f\" || rc=1; done; exit $rc"
+    },
+    {
+      "name": "typecheck",
+      "when": [
+        "lib/*.py",
+        "tests/*.py"
+      ],
+      "run": "PYTHONPYCACHEPREFIX=\"${TMPDIR:-/tmp}/bk-verify-pycache\" python3 -m py_compile {files}"
+    },
+    {
+      "name": "tests",
+      "always": true,
+      "run": "bash lib/checks.sh"
+    }
+  ],
+  "required": [
+    "AGENTS.md",
+    "docs/README.md",
+    "docs/llms.txt",
+    "docs/github-naming-convention.md",
+    "docs/decisions/README.md",
+    "docs/development/architecture.md",
+    "docs/reference/glossary.md",
+    "docs/reference/contexts.md"
+  ],
+  "ignore_check": [
+    "profiles/**"
+  ],
+  "parity": false,
+  "parity_ignore": []
+}
