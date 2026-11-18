@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # La franja de arriba de bk-lavanda (herdr/mods/pestanas): el contexto del chat enfocado. Corre en node con un herdr
-# falso: qué muestra con y sin issue, cuándo va el renglón de avance, quiénes te esperan y que al cambiar de chat
+# falso: qué muestra con y sin issue, quiénes te esperan y que al cambiar de chat
 # nunca queda el issue del anterior.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,31 +24,23 @@ const M = new Function('env', 'el', 'localStorage', `
   const run = (...a) => env.ran.push(a), theme = () => ({}), window = () => null, settings = () => ({});
   ${kit}
   ${main}
-  return { chatArgs, context, waiting, Pestanas, HEIGHT };`)(env, el, { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) });
+  return { chatArgs, context, waiting, Pestanas };`)(env, el, { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) });
 let n = 0;
 const ok = (msg) => console.log(`ok ${++n} - ${msg}`);
 
 // Sin issue: ni épica ni avance, aunque bk _epica diga una (no hay asociación real del chat)
-assert.deepEqual(M.context(null, null), { issue: null, epic: null, steps: null });
-assert.deepEqual(M.context({ issue: null }, { issue: null, epic: { repo: 'o/r', number: 9, title: 'E' } }), { issue: null, epic: null, steps: null });
-ok('sin issue: no muestra épica ni avance');
+assert.deepEqual(M.context(null, null), { issue: null, epic: null });
+assert.deepEqual(M.context({ issue: null }, { issue: null, epic: { repo: 'o/r', number: 9, title: 'E' } }), { issue: null, epic: null });
+ok('sin issue: no muestra épica');
 
-// Issue sin casillas: issue sí, avance no. La épica, si es otra.
+// Con issue: el issue y su épica, si es otra
 const todo = { issue: 7, title: 'Hacer X', url: 'https://github.com/o/r/issues/7', items: [] };
 const c1 = M.context(todo, { issue: 7, epic: { repo: 'o/r', number: 3, title: 'Épica' } });
-assert.deepEqual([c1.issue.number, c1.epic.number, c1.epic.url, c1.steps], [7, 3, 'https://github.com/o/r/issues/3', null]);
-ok('issue sin casillas: issue y épica, sin renglón de avance');
+assert.deepEqual([c1.issue.number, c1.issue.title, c1.epic.number, c1.epic.url], [7, 'Hacer X', 3, 'https://github.com/o/r/issues/3']);
+ok('con issue: issue y épica, con su enlace');
 assert.equal(M.context(todo, { issue: 7, epic: { repo: 'o/r', number: 7, title: 'Hacer X' } }).epic, null);
 ok('si el issue es la épica misma, no se repite');
-assert.equal(M.context({ ...todo, items: undefined, offline: true }, null).steps, null);
-ok('sin poder leer las casillas: sin renglón de avance');
-
-// Con casillas: hechas, total y la próxima sin hacer
-const items = [{ text: 'a', done: true, section: 'S' }, { text: 'b', done: false, section: 'S' }, { text: 'c', done: false, section: 'T' }];
-const c2 = M.context({ ...todo, items }, null);
-assert.deepEqual([c2.steps.done, c2.steps.total, c2.steps.next.text, c2.epic], [1, 3, 'b', null]);
-assert.equal(M.context({ ...todo, items: items.map((x) => ({ ...x, done: true })) }, null).steps.next, null);
-ok('con casillas: 1/3 y sigue la primera sin hacer; todas hechas, sin próxima');
+const items = [{ text: 'a', done: true, section: 'S' }];
 
 // Te esperan: solo blocked, sin el chat enfocado, por número de ventana
 const list = [
@@ -85,21 +77,6 @@ env.exec = async () => ({ code: 1, stdout: '' });
 assert.equal(await bar.load(), true);
 assert.deepEqual([bar.todo, bar.epica], [null, null]);
 ok('otro chat y bk falla: no queda el issue del chat anterior');
-// El alto: crece con el renglón de avance, vuelve a uno sin él, y no salta mientras lee
-const tree = (px) => ({ id: 'root', children: [{ id: 'tabs', size: { px } }] });
-const resized = () => env.ran.filter((r) => r[0] === 'layout.resize').map((r) => r[1].px);
-const cx = { spawn: () => {} };
-env.focus = { terminal: 'tA', pane: 'pA', cwd: '/r' };
-bar.key = JSON.stringify(M.chatArgs()); bar.todo = { ...todo, items }; bar.epica = null;
-env.layout = tree(M.HEIGHT.one); env.ran = []; bar.render(cx);
-assert.deepEqual(resized(), [M.HEIGHT.two]);
-env.layout = tree(M.HEIGHT.two); env.ran = []; bar.render(cx);
-assert.deepEqual(resized(), []);
-bar.todo = { ...todo, items: [] }; env.ran = []; bar.render(cx);
-assert.deepEqual(resized(), [M.HEIGHT.one]);
-bar.busy = true; env.ran = []; bar.render(cx); bar.busy = false;
-assert.deepEqual(resized(), []);
-ok('el alto: dos renglones con avance, uno sin él, y quieto mientras lee otro chat');
 env.focus = null;
 await bar.load();
 assert.deepEqual([bar.key, bar.todo], ['-', null]);

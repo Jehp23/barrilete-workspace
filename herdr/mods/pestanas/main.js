@@ -1,22 +1,18 @@
 // La franja de arriba de bk-lavanda: el contexto del chat enfocado, no sus pestañas (esas ya son las filas de
-// AGENTES y se eligen con alt+N). Dos renglones como mucho:
-//   1. proyecto › #épica título › #issue título · rol. La épica y el issue solo si el chat tiene uno de verdad
-//      (bk _epica / bk _todo lo encuentran en su worktree, su conversación, su rama o un #N); el rol, si bk lo lanzó
-//      con uno (etiqueta bk.role). Sin issue: lo que el agente dice que hace.
-//   2. el avance: las casillas del issue (- [ ]) hechas y la próxima. Solo si el issue tiene casillas.
+// AGENTES y se eligen con alt+N). Un renglón: proyecto › #épica título › #issue título · rol. La épica y el issue
+// solo si el chat tiene uno de verdad (bk _epica / bk _todo lo encuentran en su worktree, su conversación, su rama o
+// un #N); el rol, si bk lo lanzó con uno (etiqueta bk.role). Sin issue: lo que el agente dice que hace. Las casillas
+// del issue no van acá (eran demasiado): están en la pestaña TODO del lado derecho.
 // A la derecha: los agentes que te esperan (de cualquier espacio, menos el enfocado), Archivos y Cambios si están
 // habilitados, y mostrar u ocultar el lado derecho. El panel Archivos/Cambios se recuerda por espacio.
 
 import { View, div, svg } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex } from "gpui-base";
 import { exec, spaces, panes, terminals, agents, focused, run, theme, window, shared, layout, settings, home } from "herdr";
 import { PROSE, al, find, ids, said, mark, keycap, iconButton } from "./kit.js";
 
 const EVERY = 20000;   // bk _todo y bk _epica guardan lo de GitHub unos minutos: esto solo vuelve a leer su caché
 const WAIT_MAX = 4;    // chips de «te espera»; los demás, en un +N
-// El alto de la franja: un renglón, alineado con la marca de la barra izquierda (40 px, como su cabecera), o dos
-// con el avance. El primer renglón queda siempre a la altura de la marca y los botones de la ventana.
-export const HEIGHT = { one: 40, two: 56 };
 const bin = () => shared("bk.bin") || "bk";
 const gh = (url) => { if (/^https:\/\/github\.com\//.test(url ?? "")) exec("open", [url]); };
 
@@ -31,15 +27,13 @@ export function chatArgs(f = focused(), all = panes(), ts = terminals()) {
 const keyOf = (q) => (q ? JSON.stringify(q) : "-");
 
 // Lo que se dibuja, de lo que dijeron bk _todo y bk _epica. issue y epic son null sin asociación real (la épica,
-// además, si es el issue mismo); steps es null si el issue no tiene casillas: ahí no va el renglón de avance.
+// además, si es el issue mismo).
 export function context(todo, epica) {
   const issue = todo?.issue ? { number: todo.issue, title: todo.title ?? "", url: todo.url ?? "" } : null;
   const e = epica?.epic;
   const epic = issue && e && e.number !== issue.number
     ? { number: e.number, title: e.title ?? "", url: `https://github.com/${e.repo}/issues/${e.number}` } : null;
-  const items = issue && Array.isArray(todo.items) ? todo.items : [];
-  const steps = items.length ? { done: items.filter((x) => x.done).length, total: items.length, items, next: items.find((x) => !x.done) ?? null } : null;
-  return { issue, epic, steps };
+  return { issue, epic };
 }
 
 // Los que te esperan, para los chips: estado blocked, sin el chat que estás mirando, por número de ventana.
@@ -125,30 +119,22 @@ export default class Pestanas extends View {
     const role = ts.find((x) => x.address === here)?.labels?.["bk.role"] || null;
     const list = agents();
     const me = list.find((a) => a.address === here);
-    const { issue, epic, steps } = context(this.todo, this.epica);
+    const { issue, epic } = context(this.todo, this.epica);
 
-    // Renglón 1: dónde estás. Cada tramo se corta solo.
+    // Dónde estás. Cada tramo se corta solo.
     const sep = () => div().flex_none().text_color(t.dim).child("›");
     const ref = (id, x, color, maxW) => h_flex().id(id).min_w(0).gap(5).items_center().cursor_pointer()
       .on_mouse_down("left", stop).on_click(() => gh(x.url)).tooltip(`#${x.number} ${x.title} · abrir en GitHub`)
       .child(div().flex_none().font_semibold().text_color(t.accent).child(`#${x.number}`))
       .when(Boolean(x.title), (el) => el.child(div().min_w(0).max_w(maxW).truncate().font_family(PROSE).text_color(color).child(x.title)));
     const doing = issue ? "" : said(me?.title, me?.program, here);
-    const line1 = h_flex().h(18).min_w(0).gap(7).items_center().text_size(12.5)
+    const line1 = h_flex().min_w(0).gap(7).items_center().text_size(12.5)
       .child(div().flex_none().font_medium().text_color(t.foreground).child(space?.name ?? "~"))
       .when(Boolean(epic), (el) => el.child(sep()).child(ref("ctx-epic", epic, t.muted, 220)))
       .when(Boolean(issue), (el) => el.child(sep()).child(ref("ctx-issue", issue, t.foreground, 420)))
       .when(Boolean(doing), (el) => el.child(sep()).child(div().min_w(0).truncate().font_family(PROSE).text_color(t.muted).child(doing)))
       .when(Boolean(role), (el) => el.child(div().flex_none().px(6).h(17).flex().items_center().rounded(5).bg(al(t.accent, "1c"))
         .text_size(10.5).line_height(1).font_medium().text_color(t.accent).child(role ?? "")));
-
-    // Renglón 2: el avance del issue, una rayita por casilla, y la próxima.
-    const line2 = steps ? h_flex().id("ctx-steps").min_w(0).gap(7).items_center().text_size(10.5).text_color(t.dim)
-      .tooltip(steps.next ? `Sigue (${steps.next.section || "issue"}): ${steps.next.text}` : "Todas las casillas hechas")
-      .child(h_flex().flex_none().gap(2).children(steps.items.slice(0, 24).map((x) => div().w(steps.total > 12 ? 6 : 10).h(4).rounded(2).bg(x.done ? t.done : t.border))))
-      .child(div().flex_none().font_medium().text_color(steps.done === steps.total ? t.done : t.muted).child(`${steps.done}/${steps.total}`))
-      .when(Boolean(steps.next), (el) => el.child(div().min_w(0).truncate().font_family(PROSE).child((steps.next?.text ?? "").replace(/`/g, ""))))
-      : null;
 
     // Los que te esperan: el chip de su número; clic lleva a su pane.
     const wait = waiting(list, here, numbers);
@@ -164,9 +150,6 @@ export default class Pestanas extends View {
       ? Math.max(12, (root.traffic_lights[0] + 66) / (settings().zoom ?? 1) - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
       : 12;
     const panel = find(root, "panel"), body = find(root, "panel-body"), lado = find(root, "lado");
-    // Crece con el renglón de avance y vuelve a uno sin él. Mientras lee otro chat queda como está: sin saltos.
-    const strip = find(root, "tabs"), want = steps ? HEIGHT.two : HEIGHT.one;
-    if (strip && !this.busy && strip.size?.px !== want) run("layout.resize", { id: "tabs", px: want });
     const enabled = shared("workspace.panels") ?? ["files", "changes"];
     this.syncPanel(space, panel, body, enabled);
     const panelButton = (id, label, icon) => {
@@ -181,8 +164,8 @@ export default class Pestanas extends View {
     };
     const winButton = (id, label, action) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.dim)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop).on_click(action).child(label);
-    return h_flex().size_full().min_w(0).pr(8).pl(lightsPadding).pt(8).gap(6).items_start().bg(t.chrome)
-      .child(v_flex().id("ctx").flex_1().min_w(0).pt(3).gap(7).child(line1).when(Boolean(line2), (el) => el.child(line2)))
+    return h_flex().size_full().min_w(0).pr(8).pl(lightsPadding).gap(6).items_center().bg(t.chrome)
+      .child(div().id("ctx").flex_1().min_w(0).child(line1))
       .when(wait.length > 0, (el) => el.child(h_flex().id("ctx-wait").flex_none().gap(4).items_center()
         .children(wait.slice(0, WAIT_MAX).map(chip))
         .when(more > 0, (x) => x.child(div().flex_none().text_size(11).text_color(t.blocked).tooltip(wait.slice(WAIT_MAX).map((a) => a.name || a.n).join(" · ")).child(`+${more}`)))))
