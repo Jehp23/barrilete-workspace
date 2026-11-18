@@ -105,7 +105,7 @@ pisan con los del repo (se editan acá).
 - **Nombres vivos** (`lib/names.py`): el título que Claude le pone a un chat sale del primer mensaje y no cambia más.
   Al terminar cada turno, cuando el chat queda 20 s quieto, haiku lee lo último (el recap, tus pedidos y su
   respuesta) y la pestaña pasa a llamarse por el tema de ahora; el segundo renglón de la barra de agentes dice en qué
-  quedó (✓ terminó, ? te espera). Un nombre tuyo (`bk name`, «Renombrar» en el clic derecho de la terminal o de la pestaña, `/rename`) manda: solo cambia el
+  quedó (✓ terminó, ? te espera). Un nombre tuyo (`bk name`, «Renombrar» en el clic derecho de la terminal, `/rename`) manda: solo cambia el
   estado. `BK_NAMES_OFF=1` lo apaga.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
   su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`) avisa y no
@@ -144,7 +144,7 @@ pisan con los del repo (se editan acá).
   | `alt+i` | Implementar un issue: los abiertos del proyecto que mirás. Enter lanza al agente (o va a su pestaña si ya corre); Tab cambia el rol | `bk run <n>` |
   | `alt+r` | Revisar o corregir un PR. Enter lanza al reviewer, o lo aprueba si el kit ya lo propuso; Tab pide una instrucción y lanza el fix; ctrl+g vuelve a correr los checks que fallaron; ctrl+o lo abre en GitHub | `bk review`, `bk approve`, `bk fix`, `bk rerun --go` |
   | `alt+e` | Te esperan: tareas y aprobaciones. Enter lanza el reviewer propuesto o va a la pestaña del agente; Tab suma el historial | `bk approve` |
-  | `alt+p` | La épica del chat que mirás (si no tiene y hay varias, una lista para elegir): sus sub-issues por estado, quién espera a quién y el camino más largo. Enter va al agente (o a GitHub), `g` abre GitHub, `l` lanza uno libre con confirmación | `bk run <n>` |
+  | `alt+p` | La épica del chat que mirás (si no tiene y hay varias, una lista para elegir): sus sub-issues por estado, quién espera a quién y el camino más largo. Enter va al agente o, sobre uno libre, lo lanza con confirmación; `g` abre GitHub | `bk run <n>` |
   | `alt+t` | El panel derecho en la pestaña TODO: los pasos del issue que trabaja el chat que mirás (el issue sale como en `alt+p`), las casillas `- [ ]` de su cuerpo por sección, tildadas o no. Solo lee; el clic en el issue lo abre en GitHub. Otra vez `alt+t` vuelve a Estado | `bk _todo` |
   | `alt+a` | Agentes: los que te esperan arriba y, al lado, lo último de la terminal del elegido. Enter va a su pestaña, Tab le escribe, ctrl+x dos veces lo cierra, ctrl+o lo espía | `bk say`, `bk stop` |
   | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, el resumen de este chat para seguir en uno nuevo (abre `alt+h`), terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
@@ -443,8 +443,8 @@ no tienen épica, queda una sola en gris al final: la última que tuvo el espaci
 (guardada entre reinicios).
 
 El clic en la tarjeta, o `alt+p` (la épica del chat que mirás; si no tiene, la única en curso o, con varias, una lista para elegirla con ↑↓ y ⏎), abre el detalle: AHORA,
-LIBRES, BLOQUEADOS (cada uno con lo que espera) y HECHOS plegado, con el camino más largo de esperas. ↑↓ mueven, ⏎ va
-al agente (o abre el issue en GitHub si no tiene), `g` abre GitHub, `esc` cierra. `l` sobre un libre pide
+LIBRES, BLOQUEADOS (cada uno con lo que espera) y HECHOS plegado, con el camino más largo de esperas. ↑↓ mueven, ⏎ (o el
+clic) va al agente de los de AHORA, `g` abre GitHub, `esc` cierra. ⏎ sobre un libre pide
 confirmación mostrando `bk run N · en <carpeta>` y el segundo ⏎ lo lanza ahí, suelto (`bk _do`: sigue aunque se
 cierre el popup y avisa al terminar, con el error si falló; el rol lo decide bk). Los datos los deja la barra en `shared("bk.epics")`.
 

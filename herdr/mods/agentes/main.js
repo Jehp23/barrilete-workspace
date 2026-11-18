@@ -126,10 +126,11 @@ function nextLine(t, p) {
   return out;
 }
 // El popup de una épica: ancho fijo, alto justo para sus filas (HECHOS plegado) y la confirmación de lanzar.
-const POP_W = 520;
+// 880 y no 520: con 520 se cortaban los títulos y el camino más largo (2026-11-17). mods/bk usa el mismo ancho.
+const POP_W = 880;
 // El selector de alt+p (mods/bk lo abre con este alto: encabezado + una fila por épica)
 const PICK = { head: 34, row: 30, pad: 10 };
-const POP = { head: 92, group: 28, row: 30, confirm: 86, foot: 38, max: 600, char: 6.8 };
+const POP = { head: 104, group: 36, row: 36, confirm: 50, foot: 44, max: 720, char: 7.2, pad: 22 };
 function popHeight(p) {
   if (!p) return 200;
   const groups = ["work", "free", "wait"].filter((k) => p.by[k].length).length + (p.by.done.length ? 1 : 0);
@@ -365,8 +366,8 @@ export default class Agents extends View {
     openOverlay({ mod: "bk-agentes", kind: "popup", width: POP_W, height: h, at: { x, y }, props: { epic: key } });
   }
 
-  // El popup: la épica entera, AHORA / LIBRES / BLOQUEADOS / HECHOS (plegado). ↑↓ mueven; ⏎ va al agente o a
-  // GitHub; g GitHub; l lanza un libre (con confirmación: bk run N en la carpeta de su repo, suelto con bk _do); esc cierra.
+  // El popup: la épica entera, AHORA / LIBRES / BLOQUEADOS / HECHOS (plegado). ↑↓ mueven; ⏎ va al agente (AHORA) o
+  // lanza un libre (con confirmación: bk run N en la carpeta de su repo, suelto con bk _do); g GitHub; esc cierra.
   epicPopup(t) {
     const key = props().epic;
     const x = shared("bk.epics")?.epics?.[key];
@@ -380,10 +381,10 @@ export default class Agents extends View {
     this.at = Math.min(this.at, Math.max(0, rows.length - 1));
     const sel = rows[this.at];
     const gh = (r) => exec("open", [`https://github.com/${r.repo}/issues/${r.number}`]);
+    // ⏎ (o clic): en AHORA va al agente; en un libre pide confirmar el lanzamiento. GitHub es solo g.
     const enter = (r) => {
-      if (!r) return gh(e);
-      if (r.agent) { close(); return run("pane.focus", { terminal: r.agent.address }); }
-      return gh(r);
+      if (r?.agent) { close(); return run("pane.focus", { terminal: r.agent.address }); }
+      if (r?.kind === "free" && e.dirs?.[r.repo] && !this.launched.has(r.key)) this.confirm = r.key;
     };
     const launch = (r, cx) => {
       const dir = e.dirs?.[r.repo];
@@ -406,7 +407,7 @@ export default class Agents extends View {
     const where = (r) => (e.dirs?.[r.repo] ?? "").replace(home_, "~");
     // La columna de las etiquetas, al ancho de la más larga (kit#324, workspace#12): los títulos arrancan parejos
     const labelW = Math.max(48, Math.ceil(Math.max(0, ...[...(p?.label.values() ?? [])].map((l) => String(l).length)) * POP.char) + 2);
-    const indent = 16 + labelW + 9;
+    const indent = POP.pad + labelW + 12;
     const row = (r) => {
       const i = rows.indexOf(r);
       const on = i === this.at;
@@ -419,32 +420,32 @@ export default class Agents extends View {
             .on_click((_ev, cx) => { cx.stop_propagation(); this.confirm = r.key; cx.notify(); }).child("Lanzar")
           : on ? div().text_color(t.dim).child(`sin carpeta para ${short(r.repo)}`) : div()]
         : [];
-      const main = h_flex().id(`er-${r.key}`).h(POP.row).flex_none().px(16).gap(9).items_center().cursor_pointer()
+      const main = h_flex().id(`er-${r.key}`).h(POP.row).flex_none().px(POP.pad).gap(12).items_center().cursor_pointer()
         .when(on, (el) => el.bg(t.selected).border_l(2).border_color(t.accent))
         .hover((el) => el.bg(on ? t.selected : t.hover))
         .on_hover((h, cx) => { if (h && this.at !== i) { this.at = i; cx.notify(); } })
-        .on_click(() => enter(r))
+        .on_click((_ev, cx) => { this.at = i; enter(r); cx.notify(); })
         .tooltip(`${r.repo}#${r.number} ${r.title}${r.unblocks ? ` · destraba ${r.unblocks}` : ""}`)
         .child(div().flex_none().w(labelW).text_size(11).text_color(t.dim).child(p.label.get(r.key)))
         .child(div().flex_1().min_w(0).truncate().text_color(r.kind === "wait" || r.kind === "done" ? t.dim : t.foreground).child(r.title))
         .child(h_flex().flex_none().gap(6).items_center().text_size(11).children(right));
       const extra = [];
-      if (err) extra.push(div().mx(16).ml(indent).mb(4).text_size(11).text_color(t.blocked).truncate().tooltip(err).child(err));
+      if (err) extra.push(div().mx(POP.pad).ml(indent).mb(4).text_size(11).text_color(t.blocked).truncate().tooltip(err).child(err));
       if (this.confirm === r.key) {
-        extra.push(v_flex().id("epic-confirm").mx(16).ml(indent).mb(8).p(10).gap(7).rounded(8).border_1().border_color(al(t.accent, "66")).bg(al(t.accent, "12")).text_size(12).text_color(t.muted)
-          .child(div().text_color(t.foreground).child(`bk run ${r.number} · en ${where(r)}`))
-          .child(div().child("Abre un worktree y un agente nuevo. El rol lo decide bk."))
-          .child(h_flex().gap(8).items_center()
-            .child(div().id("epic-go").px(8).py(2).rounded(5).bg(t.accent).text_color(t.accent_foreground ?? t.background).font_medium().cursor_pointer()
-              .on_click((_ev, cx) => launch(r, cx)).child("⏎ Lanzar"))
-            .child(div().id("epic-cancel").px(8).py(2).rounded(5).border_1().border_color(t.border).cursor_pointer()
-              .on_click((_ev, cx) => { this.confirm = null; cx.notify(); }).child("esc Cancelar"))));
+        // Un solo renglón: el comando y su carpeta a la izquierda, los botones a la derecha
+        extra.push(h_flex().id("epic-confirm").mx(POP.pad).ml(indent).mb(6).px(10).py(5).gap(10).items_center().rounded(7).border_1().border_color(al(t.accent, "66")).bg(al(t.accent, "12")).text_size(11.5).text_color(t.muted)
+          .tooltip("Abre un worktree y un agente nuevo. El rol lo decide bk.")
+          .child(div().flex_1().min_w(0).truncate().child(div().text_color(t.foreground).child(`bk run ${r.number} · en ${where(r)}`)))
+          .child(div().id("epic-go").flex_none().px(8).py(1).rounded(5).bg(t.accent).text_color(t.accent_foreground ?? t.background).font_medium().cursor_pointer()
+            .on_click((_ev, cx) => launch(r, cx)).child("⏎ Lanzar"))
+          .child(div().id("epic-cancel").flex_none().px(8).py(1).rounded(5).border_1().border_color(t.border).cursor_pointer()
+            .on_click((_ev, cx) => { this.confirm = null; cx.notify(); }).child("esc")));
       }
       return [main, ...extra];
     };
-    const group = (title, list, more = "") => (list.length ? [h_flex().h(POP.group).flex_none().px(16).pt(8).gap(6).items_center().text_size(10.5)
+    const group = (title, list, more = "") => (list.length ? [h_flex().h(POP.group).flex_none().px(POP.pad).pt(12).gap(6).items_center().text_size(10.5)
       .child(div().font_semibold().text_color(t.muted).child(title)).child(div().text_color(t.dim).child(`${list.length}${more}`)), ...list.flatMap(row)] : []);
-    const doneHead = p && p.by.done.length ? h_flex().id("epic-done").h(POP.group).flex_none().px(16).pt(8).gap(6).items_center().text_size(10.5).cursor_pointer()
+    const doneHead = p && p.by.done.length ? h_flex().id("epic-done").h(POP.group).flex_none().px(POP.pad).pt(12).gap(6).items_center().text_size(10.5).cursor_pointer()
       .on_click((_ev, cx) => { this.doneOpen = !this.doneOpen; cx.notify(); })
       .child(div().text_color(t.dim).child(this.doneOpen ? "▾" : "▸"))
       .child(div().font_semibold().text_color(t.muted).child("HECHOS"))
@@ -453,7 +454,7 @@ export default class Agents extends View {
     // fijo, HECHOS desplegado o la confirmación de lanzar se desplazan adentro en vez de tapar el pie.
     const listH = Math.max(POP.row, (x.height ?? 400) - (this.headH ?? POP.head) - POP.foot - 2);
     const key_ = (k, what) => h_flex().gap(5).items_center().child(div().px(4).rounded(4).border_1().border_color(t.border).text_size(10).child(k)).child(what);
-    return v_flex().id("epic-pop").track_focus(this.handle).size_full().min_h(0).bg(t.popover).text_size(12.5)
+    return v_flex().id("epic-pop").track_focus(this.handle).size_full().min_h(0).bg(t.popover).text_size(13)
       .on_mouse_down("left", () => this.handle.focus())   // un clic adentro le devuelve las teclas
       .on_key_down((ev, cx) => {
         if (this.busy) return;   // mientras bk _do arranca (un instante), las teclas esperan
@@ -466,14 +467,13 @@ export default class Agents extends View {
         }
         if (ev.key === "down" && rows.length) this.at = (this.at + 1) % rows.length;
         else if (ev.key === "up" && rows.length) this.at = (this.at + rows.length - 1) % rows.length;
-        else if (ev.key === "enter") return enter(sel);
+        else if (ev.key === "enter") enter(sel);
         else if (ev.key === "g") return gh(sel ?? e);
-        else if (ev.key === "l" && sel?.kind === "free" && e.dirs?.[sel.repo] && !this.launched.has(sel.key)) this.confirm = sel.key;
         else if (ev.key === "escape") return close();
         else return;
         cx.notify();
       })
-      .child(v_flex().id("epic-head").flex_none().px(16).pt(14).pb(12).gap(8).border_b(1).border_color(t.border)
+      .child(v_flex().id("epic-head").flex_none().px(POP.pad).pt(18).pb(14).gap(10).border_b(1).border_color(t.border)
         .on_size_change((size, cx) => {
           const h = Math.ceil(size.height / (settings().zoom ?? 1));
           if (h !== this.headH) { this.headH = h; cx.notify(); }
@@ -483,7 +483,7 @@ export default class Agents extends View {
           .child(div().flex_1().min_w(0).truncate().text_size(14).font_medium().text_color(t.foreground).child(e.title))
           .child(div().flex_none().text_color(t.dim).child(`${e.done}/${e.total}`)))
         .child(this.segs(t, e, p, false, 7))
-        .child(div().truncate().text_size(11).text_color(t.dim).child(
+        .child(div().text_size(11).text_color(t.dim).child(   // el camino largo baja de renglón en vez de cortarse
           x.stale ? "la última vista: ningún chat la tiene ahora"
             : !p ? "sin los sub-issues todavía (bk no pudo preguntarle a GitHub)"
               : p.path.length ? `camino más largo: ${p.path.join(" → ")} · ${plural(p.path.length, "paso", "pasos")}` : "sin esperas entre los sub-issues")))
@@ -494,8 +494,8 @@ export default class Agents extends View {
           ...group("BLOQUEADOS", p.by.wait),
           ...(doneHead ? [doneHead, ...(this.doneOpen ? p.by.done.flatMap(row) : [])] : []),
         ] : []))
-      .child(h_flex().flex_none().h(POP.foot).px(16).gap(12).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
-        .child(key_("↑↓", "mover")).child(key_("⏎", "abrir")).child(key_("g", "GitHub")).child(key_("l", "lanzar")).child(key_("esc", "cerrar")));
+      .child(h_flex().flex_none().h(POP.foot).px(POP.pad).gap(12).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
+        .child(key_("↑↓", "mover")).child(key_("⏎", "lanzar o ir al agente")).child(key_("g", "GitHub")).child(key_("esc", "cerrar")));
   }
 
   // alt+p desde un chat sin épica, con varias en curso: cuál abrir. ↑↓ mueven, ⏎ o clic la abre, esc cierra.

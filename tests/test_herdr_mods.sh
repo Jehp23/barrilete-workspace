@@ -191,10 +191,10 @@ ok('Aspecto: la fuente sigue guardándose igual');
 // El menú del clic derecho de bk (herdr/mods/menu → bk-menu)
 const menuSrc = fs.readFileSync(`${root}/herdr/mods/menu/main.js`, 'utf8')
   .replace(/^import .*;$/gm, '').replace('export default class Menu', 'class Menu').replace(/^export /gm, '');
-let mTerms = [], mPanes = [], mKeys = [], opened = [];
+let mTerms = [], mPanes = [], mKeys = [];
 const M = new Function('View', 'div', 'svg', 'v_flex', 'h_flex', 'run', 'props', 'closeOverlay', 'openOverlay', 'theme', 'keys',
-  'terminals', 'spaces', 'panes', 'exec', menuSrc + '\nreturn { items, height, shortcut, keyParts, openMenu, WIDTH };')(
-  class {}, () => ({}), () => ({}), () => ({}), () => ({}), () => {}, () => ({}), () => {}, (o) => opened.push(o), () => ({}),
+  'terminals', 'spaces', 'panes', 'exec', menuSrc + '\nreturn { items, height, shortcut, keyParts, WIDTH };')(
+  class {}, () => ({}), () => ({}), () => ({}), () => ({}), () => {}, () => ({}), () => {}, () => {}, () => ({}),
   () => mKeys, () => mTerms, () => [], () => mPanes, async () => ({ code: 1 }));
 mTerms = [{ address: 't1', labels: {} }, { address: 't2', parent: 't1', labels: { 'herdr.right-click': 'program' } }];
 mPanes = [{ pane: 'p1', tab: 'c1' }];
@@ -209,8 +209,8 @@ assert.deepEqual(sub.map((x) => x[0]), ['Clic derecho: menú de Herdr', 'Devolve
 ok('menú: una terminal fuera de una pestaña no se divide ni se cierra; un sub-agente se devuelve a su padre');
 assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, 'linked').map((x) => x[1]), ['space.rename', 'worktree', 'worktree', 'worktree', 'space.close']);
 assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, null).map((x) => x[1]), ['space.rename', 'space.close']);
-assert.deepEqual(M.items({ tab: 'tab', target: { id: 'c', space: 's' } }).map((x) => x[1]), ['tab.rename', 'tab.new', 'tab.close']);
-ok('menú: espacio (con los worktrees si es un repo) y pestaña');
+assert.deepEqual(M.items({ tab: 'tab', target: { id: 'c', space: 's' } }).map((x) => x[1]), ['space.new', 'app.help'], 'las pestañas ya no tienen menú propio');
+ok('menú: espacio (con los worktrees si es un repo); las pestañas no tienen menú propio');
 assert.equal(M.height(pane), 12 + 6 * 32 + 2 * 9);
 assert.equal(JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.height, M.height(pane));
 assert.ok(M.WIDTH >= 280 && JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.width === M.WIDTH);
@@ -219,8 +219,6 @@ mKeys = [{ section: 'global', keys: 'cmd-d', action: 'pane.split:right' }, { sec
 assert.deepEqual([M.keyParts(M.shortcut('pane.split', { direction: 'right', pane: 'p1' })), M.keyParts(M.shortcut('pane.close', { pane: 'p1' })), M.shortcut('pane.zoom', {})],
   [['⌘', 'D'], ['⌘', '⇧', 'W'], '']);
 ok('menú: las teclas en símbolos (⌘ ⇧ D), solo las globales');
-M.openMenu('pane', { pane: 'p1', terminal: 't1' });
-assert.deepEqual([opened[0].mod, opened[0].width, opened[0].height], ['bk-menu', M.WIDTH, M.height(pane)]);
 const lay = JSON.parse(fs.readFileSync(`${root}/herdr/layouts/bk-lavanda.json`, 'utf8'));
 const users = ['agentes'].map((m) => fs.readFileSync(`${root}/herdr/mods/${m}/main.js`, 'utf8'));
 assert.deepEqual([lay.terminal_menu, users.map((u) => u.includes('mod: "bk-menu"') && !u.includes('mod: "menu"'))], ['bk-menu', [true]]);
