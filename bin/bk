@@ -128,7 +128,8 @@ uso: bk [comando] [--dry-run]
                     new <claude|codex> <nombre> · use <nombre> [--relaunch] · --account <nombre> en
                     cualquier lanzamiento
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
-  learn             registra desvíos de los agentes en Obsidian y propone lecciones
+  learn             registra desvíos de los agentes en Obsidian y propone lecciones; los de proyectos con el kit
+                    (y los hallazgos de review) van también a su store (.barrilete/learning, ADR-007)
   lessons           lecciones por revisar (status: proposed) en el vault
   bitacora [repo...]  regenera la «Bitácora de agentes» de cada repo (los de ~/.config/bk/retros.json) con el
                     scripts/agents/bitacora.py de su kit y la abre (.barrilete/bitacora.html)

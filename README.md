@@ -361,6 +361,16 @@ e interrupciones (para leer en el resumen del día). Un patrón repetido ≥3 ve
 las que marcás `accepted` con su regla pasan a `agents/INDEX.md`, que Claude Code importa desde `~/.claude/CLAUDE.md`.
 `bk lessons` lista las que esperan revisión; también salen en `bk checkpoints` y en *Te esperan* de `bk monitor`.
 `bk learn` se corre a mano: lo corría cada ~2 minutos la barra de Sketchybar, que ya no está.
+Además, cada desvío de una sesión de un proyecto con el kit, y cada hallazgo de las reviews de los repos de
+`~/.config/bk/retros.json`, va al store de ese proyecto como evento v1 (ADR-007 del kit, `lib/learn_store.py`). Lo
+escribe el `scripts/agents/learning.py` del proyecto, así que el store (`local` o `branch`), el nombre y el validador
+son los del kit; un proyecto sin ese script no recibe nada. Solo metadatos: el tipo del desvío en `class`
+(`guardrail-block`, `user-correction`…), el modelo de la sesión (en un hallazgo, el de la sesión que abrió el PR; si no
+se sabe, `unknown`), `harness: claude-code`, el rol, el `area:` del issue de la rama y `evidence_ref` (la ruta del
+transcript, solo su nombre con store `branch` porque la ruta lleva tu usuario, o la URL del PR); nunca texto del transcript, tuyo o de la review. El vault queda como vista personal y sus
+eventos viejos no se migran. No manda lo de antes de su primera corrida ni repite eventos, tampoco con `--rebuild`
+(estado en `~/.cache/barrilete/learn-store.json`). Con store `branch`, subirlo es `learning.py push` del proyecto.
+Tests: `tests/test_learn_store.sh` (usa el `learning.py` del main de `~/barrilete-kit`, o `BK_KIT_REPO`).
 `bk learn effect` mide si cada regla que aplica un proyecto baja los hallazgos de review que dice evitar (ADR-006 D10
 del kit). Las reglas son las `accepted` de barrilete-rules en el SHA del `.barrilete/rules.lock` de cada repo de
 `~/.config/bk/retros.json` (se clona una vez por SHA en `~/.cache/bk/rules/`) más las de `.barrilete/rules/`, según su
