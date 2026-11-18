@@ -1,9 +1,8 @@
 // El menú del clic derecho de bk (instalado como mods/bk-menu): las mismas opciones que el `menu` de Herdr, en
 // castellano, con lugar para el texto y las teclas como en el resto de los paneles. El de Herdr abre a 220 px y
 // cortaba los atajos (cmd-shift-c) y "Send right-clicks to pane" (2026-11-15).
-// Lo usan el layout bk-lavanda ("terminal_menu": "bk-menu", el clic derecho en una terminal), la lista de agentes
-// (espacios y agentes) y las pestañas: props { tab: "pane" | "tab" | "space", target }. ↑/↓ mueven, Enter corre,
-// Esc cierra. Una opción es [texto, comando, args]; "worktree" abre el diálogo de worktrees de Herdr.
+// Lo usan el layout bk-lavanda ("terminal_menu": "bk-menu", el clic derecho en una terminal) y la lista de agentes
+// (espacios y agentes): props { tab: "pane" | "space", target }. ↑/↓ mueven, Enter corre, Esc cierra. Una opción es [texto, comando, args]; "worktree" abre el diálogo de worktrees de Herdr.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -54,13 +53,6 @@ export function items(p, git) {
       ...(inTab ? [["Cerrar", "pane.close", { pane: tg.pane }, "x"]] : []),
     ];
   }
-  if (p.tab === "tab") {
-    return [
-      ["Renombrar", "tab.rename", { id: tg.id }, "square-pen"],
-      ["Pestaña nueva", "tab.new", { space: tg.space }, "plus"],
-      ["Cerrar", "tab.close", { id: tg.id }, "x"],
-    ];
-  }
   if (p.tab === "space") {
     return [
       ["Renombrar", "space.rename", { id: tg.id }, "square-pen"],
@@ -90,11 +82,6 @@ export function keyParts(k) {
   if (!k) return [];
   const parts = k.endsWith("--") ? [...k.slice(0, -2).split("-"), "-"] : k.split("-");
   return parts.map((p) => GLYPH[p] ?? (p.length === 1 ? p.toUpperCase() : p));
-}
-
-// Abrir este menú desde otro mod, del alto justo
-export function openMenu(tab, target, mod = "bk-menu") {
-  return openOverlay({ mod, kind: "popup", width: WIDTH, height: height(items({ tab, target }, null)), props: { tab, target } });
 }
 
 export default class Menu extends View {
