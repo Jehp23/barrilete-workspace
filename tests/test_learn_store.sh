@@ -31,12 +31,13 @@ cat >"$TMP/bin/gh" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   "issue view 7 "*) echo '{"labels": [{"name": "type:bug"}, {"name": "area:infra"}]}' ;;
+  "issue view 8 "*) echo x >>"$GH_CALLS"; exit 1 ;;   # gh que falla (sin red, sin auth)
   "issue view "*) echo '{"labels": []}' ;;
   "pr list "*) cat "$GH_PRS" ;;
   *) exit 1 ;;
 esac
 SH
-chmod +x "$TMP/bin/gh"; export PATH="$TMP/bin:$PATH" GH_PRS="$TMP/prs.json"
+chmod +x "$TMP/bin/gh"; export PATH="$TMP/bin:$PATH" GH_PRS="$TMP/prs.json" GH_CALLS="$TMP/gh-calls"
 cat >"$GH_PRS" <<JSON
 [{"number": 9, "headRefName": "claude/7-arreglar", "reviews": [{"id": "PRR_nueve", "submittedAt": "2099-01-01T09:00:00Z",
   "body": "### Bloqueantes\n1. \`[pr-metadata] PR\`: el cuerpo dice SECRETO_REVIEW y no coincide."}]},
@@ -68,6 +69,9 @@ lines = [
          "input": {"command": "gh pr create --title x --body y"}}]}, "2099-01-01T10:00:00.123Z"),
     line("user", {"content": "no, te dije que no toques SECRETO_PERSONA"}, "2099-01-01T10:01:00.000Z"),
     line("user", {"content": [{"type": "text", "text": "[Request interrupted by user]"}]}, "2099-01-01T10:02:00Z"),
+    # la persona cambia de modelo y el agente solo nombra el comando: eso no es abrir el PR
+    line("assistant", {"model": "claude-haiku-5-5", "content": [{"type": "text", "text": "el PR ya se abrió con gh pr create"}]},
+         "2099-01-01T10:03:00Z"),
 ]
 with open(path, "a") as f:
     f.write("\n".join(lines) + "\n")
@@ -113,7 +117,7 @@ check_eq "$(grep -h '"project": "plain"' "$BARRILETE_VAULT"/agents/data/events-*
 
 check_eq "$(q 'len(fin)')" 2 "los hallazgos de las reviews caen como finding"
 check_eq "$(q '{e["pr"]: e["class"] for e in fin}')" "{9: 'pr-metadata', 10: 'stale-docs'}" "finding lleva el pr y la clase de classes.yml"
-check_eq "$(q '{e["pr"]: e["model"] for e in fin}')" "{9: 'claude-sonnet-5-5', 10: 'unknown'}" "finding lleva el modelo de la sesión que abrió el PR, o unknown"
+check_eq "$(q '{e["pr"]: e["model"] for e in fin}')" "{9: 'claude-sonnet-5-5', 10: 'unknown'}" "finding lleva el modelo de la sesión que corrió gh pr create (no la que solo lo nombra), o unknown"
 check_eq "$(q '{e["pr"]: e["evidence_ref"] for e in fin}')" "{9: 'https://github.com/acme/demo/pull/9', 10: 'https://github.com/acme/demo/pull/10'}" "evidence_ref del hallazgo es la URL del PR"
 check_eq "$(q '{e["pr"]: e.get("area") for e in fin}')" "{9: 'infra', 10: None}" "area del hallazgo sale del issue de la rama del PR"
 check_eq "$(q '{e.get("role") for e in fin}')" "{'implementer'}" "el hallazgo es del implementer"
@@ -147,5 +151,28 @@ PY
 learn; rc=$?
 check_eq "$rc" 0 "con un store inválido learn termina bien"
 check_eq "$(grep -c '2099-01-01T12:00:00Z' "$BARRILETE_VAULT"/agents/data/events-*.jsonl | awk -F: '{s+=$NF} END {print s}')" 1 "y el desvío queda en el vault"
+
+# Si gh falla, se prueba una sola vez por issue en la corrida (cada intento puede esperar 30 s), y en la próxima de nuevo
+: >"$GH_CALLS"
+check_eq "$(BK_LEARN_STORE_STATE="$TMP/st-gh.json" python3 -c "
+import sys; sys.path.insert(0, '$ROOT/lib'); import learn_store as L
+s = L.Store(); print([s.area('$P', 8) for _ in range(3)])")" "['', '', '']" "con gh caído el area queda vacía"
+check_eq "$(wc -l <"$GH_CALLS" | tr -d ' ')" 1 "con gh caído, una sola llamada por issue en la corrida"
+check_eq "$(python3 -c "import json; print('acme/demo#8' in json.load(open('$TMP/st-gh.json')).get('areas', {}))" 2>/dev/null || echo False)" False \
+  "el fallo de gh no queda en la caché: se reintenta en otra corrida"
+
+# El recorte de los ya enviados se queda con los más nuevos, no con los de hash más alto
+kept=$(BK_LEARN_STORE_STATE="$TMP/st-max.json" python3 - "$ROOT/lib" <<'PY2'
+import sys
+sys.path.insert(0, sys.argv[1])
+import learn_store as L
+L.SENT_MAX = 2
+s = L.Store()
+s.sent = {"a": "2099-01-03T00:00:00Z", "z": "2099-01-01T00:00:00Z", "m": "2099-01-02T00:00:00Z"}
+s.save()
+print(sorted(L.Store().sent))
+PY2
+)
+check_eq "$kept" "['a', 'm']" "al recortar los enviados quedan los más nuevos"
 
 echo "1..$N"; [ "$FAILED" -eq 0 ]
