@@ -12,17 +12,19 @@ const [root] = process.argv.slice(2);
 const strip = (s) => s.replace(/^import [\s\S]*?;$/gm, '').replace(/^export (default )?/gm, '');
 const kit = strip(fs.readFileSync(`${root}/herdr/mods/pestanas/kit.js`, 'utf8'));
 const main = strip(fs.readFileSync(`${root}/herdr/mods/pestanas/main.js`, 'utf8'));
-const env = { focus: null, panes: [], terms: [], exec: async () => ({ code: 1, stdout: '' }) };
+const env = { focus: null, panes: [], terms: [], layout: {}, ran: [], exec: async () => ({ code: 1, stdout: '' }) };
+// Un elemento falso: cualquier método devuelve el mismo, para poder llamar a render()
+const el = new Proxy(function () {}, { get: (_t, k) => (k === 'then' ? undefined : () => el), apply: () => el });
 const store = new Map();
-const M = new Function('env', 'localStorage', `
-  const div = () => ({}), svg = div, image = div, h_flex = div, v_flex = div;
+const M = new Function('env', 'el', 'localStorage', `
+  const div = () => el, svg = div, image = div, h_flex = div, v_flex = div;
   class View {}
   const focused = () => env.focus, panes = () => env.panes, terminals = () => env.terms, home = () => '/h';
-  const exec = (...a) => env.exec(...a), shared = () => null, layout = () => ({}), agents = () => [], spaces = () => [];
-  const run = () => {}, theme = () => ({}), window = () => null, settings = () => ({});
+  const exec = (...a) => env.exec(...a), shared = () => null, layout = () => env.layout, agents = () => [], spaces = () => [];
+  const run = (...a) => env.ran.push(a), theme = () => ({}), window = () => null, settings = () => ({});
   ${kit}
   ${main}
-  return { chatArgs, context, waiting, Pestanas };`)(env, { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) });
+  return { chatArgs, context, waiting, Pestanas, HEIGHT };`)(env, el, { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) });
 let n = 0;
 const ok = (msg) => console.log(`ok ${++n} - ${msg}`);
 
@@ -83,6 +85,21 @@ env.exec = async () => ({ code: 1, stdout: '' });
 assert.equal(await bar.load(), true);
 assert.deepEqual([bar.todo, bar.epica], [null, null]);
 ok('otro chat y bk falla: no queda el issue del chat anterior');
+// El alto: crece con el renglón de avance, vuelve a uno sin él, y no salta mientras lee
+const tree = (px) => ({ id: 'root', children: [{ id: 'tabs', size: { px } }] });
+const resized = () => env.ran.filter((r) => r[0] === 'layout.resize').map((r) => r[1].px);
+const cx = { spawn: () => {} };
+env.focus = { terminal: 'tA', pane: 'pA', cwd: '/r' };
+bar.key = JSON.stringify(M.chatArgs()); bar.todo = { ...todo, items }; bar.epica = null;
+env.layout = tree(M.HEIGHT.one); env.ran = []; bar.render(cx);
+assert.deepEqual(resized(), [M.HEIGHT.two]);
+env.layout = tree(M.HEIGHT.two); env.ran = []; bar.render(cx);
+assert.deepEqual(resized(), []);
+bar.todo = { ...todo, items: [] }; env.ran = []; bar.render(cx);
+assert.deepEqual(resized(), [M.HEIGHT.one]);
+bar.busy = true; env.ran = []; bar.render(cx); bar.busy = false;
+assert.deepEqual(resized(), []);
+ok('el alto: dos renglones con avance, uno sin él, y quieto mientras lee otro chat');
 env.focus = null;
 await bar.load();
 assert.deepEqual([bar.key, bar.todo], ['-', null]);

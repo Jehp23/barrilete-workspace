@@ -14,6 +14,9 @@ import { PROSE, al, find, ids, said, mark, keycap, iconButton } from "./kit.js";
 
 const EVERY = 20000;   // bk _todo y bk _epica guardan lo de GitHub unos minutos: esto solo vuelve a leer su caché
 const WAIT_MAX = 4;    // chips de «te espera»; los demás, en un +N
+// El alto de la franja: un renglón, alineado con la marca de la barra izquierda (40 px, como su cabecera), o dos
+// con el avance. El primer renglón queda siempre a la altura de la marca y los botones de la ventana.
+export const HEIGHT = { one: 40, two: 56 };
 const bin = () => shared("bk.bin") || "bk";
 const gh = (url) => { if (/^https:\/\/github\.com\//.test(url ?? "")) exec("open", [url]); };
 
@@ -131,7 +134,7 @@ export default class Pestanas extends View {
       .child(div().flex_none().font_semibold().text_color(t.accent).child(`#${x.number}`))
       .when(Boolean(x.title), (el) => el.child(div().min_w(0).max_w(maxW).truncate().font_family(PROSE).text_color(color).child(x.title)));
     const doing = issue ? "" : said(me?.title, me?.program, here);
-    const line1 = h_flex().min_w(0).gap(7).items_center().text_size(12.5)
+    const line1 = h_flex().h(18).min_w(0).gap(7).items_center().text_size(12.5)
       .child(div().flex_none().font_medium().text_color(t.foreground).child(space?.name ?? "~"))
       .when(Boolean(epic), (el) => el.child(sep()).child(ref("ctx-epic", epic, t.muted, 220)))
       .when(Boolean(issue), (el) => el.child(sep()).child(ref("ctx-issue", issue, t.foreground, 420)))
@@ -161,6 +164,9 @@ export default class Pestanas extends View {
       ? Math.max(12, (root.traffic_lights[0] + 66) / (settings().zoom ?? 1) - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
       : 12;
     const panel = find(root, "panel"), body = find(root, "panel-body"), lado = find(root, "lado");
+    // Crece con el renglón de avance y vuelve a uno sin él. Mientras lee otro chat queda como está: sin saltos.
+    const strip = find(root, "tabs"), want = steps ? HEIGHT.two : HEIGHT.one;
+    if (strip && !this.busy && strip.size?.px !== want) run("layout.resize", { id: "tabs", px: want });
     const enabled = shared("workspace.panels") ?? ["files", "changes"];
     this.syncPanel(space, panel, body, enabled);
     const panelButton = (id, label, icon) => {
@@ -175,8 +181,8 @@ export default class Pestanas extends View {
     };
     const winButton = (id, label, action) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.dim)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop).on_click(action).child(label);
-    return h_flex().size_full().min_w(0).pr(8).pl(lightsPadding).gap(6).items_center().bg(t.chrome)
-      .child(v_flex().id("ctx").flex_1().min_w(0).gap(4).justify_center().child(line1).when(Boolean(line2), (el) => el.child(line2)))
+    return h_flex().size_full().min_w(0).pr(8).pl(lightsPadding).pt(8).gap(6).items_start().bg(t.chrome)
+      .child(v_flex().id("ctx").flex_1().min_w(0).pt(3).gap(7).child(line1).when(Boolean(line2), (el) => el.child(line2)))
       .when(wait.length > 0, (el) => el.child(h_flex().id("ctx-wait").flex_none().gap(4).items_center()
         .children(wait.slice(0, WAIT_MAX).map(chip))
         .when(more > 0, (x) => x.child(div().flex_none().text_size(11).text_color(t.blocked).tooltip(wait.slice(WAIT_MAX).map((a) => a.name || a.n).join(" · ")).child(`+${more}`)))))
