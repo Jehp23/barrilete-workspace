@@ -42,8 +42,9 @@ with tempfile.TemporaryDirectory() as tmp:
     def bg(sid, terminal, st, n):
         (states/f'{sid}.json').write_text(json.dumps({'pane':terminal,'ts':30,'state':st,'background':n}))
     bg('b1','t5','background',2); bg('b2','t6','done',0); bg('b3','t7','working',3); bg('b4','t8','background','x')
-    assert H.snapshot()['background']=={'t5':2},H.snapshot()['background']
-    print('ok - segundo plano por terminal: solo state background con una cuenta positiva')
+    bg('b5','t9','background',0); bg('b6','t10','background',True)
+    assert H.snapshot()['background']=={'t5':2,'t8':0,'t9':0,'t10':0},H.snapshot()['background']
+    print('ok - segundo plano por terminal: manda state background; una cuenta rota o en 0 queda en 0 (sin número)')
 PY
 
 node --input-type=module - "$ROOT" <<'JS'
@@ -62,8 +63,8 @@ calls=[];view.subRow({working:'#123456',foreground:'#ffffff'},rows[0],null,false
 assert.deepEqual(calls,[['pane.focus',{terminal:'t2'}]],'el hijo nativo sigue abriendo su terminal');
 console.log('ok - árbol mixto: clic en Claude sigue el transcript; clic nativo conserva la navegación');
 // Herdr ve quieto (listo o quieto) al chat que dejó tests corriendo: con bk contando comandos vivos, va como trabajando.
-const marked=withBackground([{address:'a',status:'done'},{address:'b',status:'idle'},{address:'c',status:'blocked'},{address:'d',status:'done'},{address:'e',status:'working'}],{a:2,b:1,c:1,e:4});
-assert.deepEqual(marked.map((a)=>[a.status,bgText(a)]),[['working','2 en 2º plano'],['working','1 en 2º plano'],['blocked',null],['done',null],['working',null]]);
+const marked=withBackground([{address:'a',status:'done'},{address:'b',status:'idle'},{address:'c',status:'blocked'},{address:'d',status:'done'},{address:'e',status:'working'},{address:'f',status:'done'}],{a:2,b:1,c:1,e:4,f:0});
+assert.deepEqual(marked.map((a)=>[a.status,bgText(a)]),[['working','2 en 2º plano'],['working','1 en 2º plano'],['blocked',null],['done',null],['working',null],['working','en 2º plano']]);
 assert.deepEqual(withBackground([{address:'a',status:'done'}],undefined),[{address:'a',status:'done'}],'sin datos de bk, manda Herdr');
 console.log('ok - en 2º plano: listo o quieto con comandos vivos pasa a trabajando; te espera y trabajando no cambian');
 JS

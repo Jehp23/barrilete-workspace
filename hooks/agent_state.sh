@@ -178,7 +178,9 @@ jq --arg state "$STATE" --arg cwd "$CWD" --arg tool "$TOOL_ARG" \
    --arg pane "$PANE" --argjson bg "${BG:-0}" \
    --argjson d "$DELTA" --argjson reset "$RESET_SUB" '
   (if $state != "" then .state = $state else . end)
-  | .background = $bg
+  # La cuenta solo se rehace con el estado: un SubagentStop (el resumen de "mientras no estabas" lo dispara después
+  # del Stop) no la recalcula y la dejaba en 0 con el estado todavía "background".
+  | (if $state != "" then .background = $bg else . end)
   | (if $cwd != "" then .cwd = $cwd else . end)
   | .ts = (now | floor)
   | (if $tool != "-" then .tool = $tool else . end)

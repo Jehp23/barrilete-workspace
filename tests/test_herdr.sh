@@ -241,6 +241,9 @@ check_eq "$(jq -r .pane "$STATE/s1.json")" "t9" "hook: en Herdr el pane es HC_TE
 check_eq "$([ -f "$STATE/bk-i99.json" ] && echo queda || echo borrado)" "borrado" "hook: al arrancar la sesión borra el pre-registro de esa terminal"
 ev s2 SessionStart | TMUX_PANE=%3 HC_TERMINAL_ID=t9 bash "$HOOK"
 check_eq "$(jq -r .pane "$STATE/s2.json")" "%3" "hook: dentro de tmux manda TMUX_PANE"
+echo '{"pane": "t9", "state": "background", "background": 2, "subagents": 1}' >"$STATE/s5.json"
+ev s5 SubagentStop | HC_TERMINAL_ID=t9 bash "$HOOK"
+check_eq "$(jq -r '.state + " " + (.background|tostring)' "$STATE/s5.json")" "background 2" "hook: un SubagentStop después del turno no borra la cuenta de lo que sigue en 2º plano"
 ev s3 SessionStart | bash "$HOOK"
 check_eq "$(jq -r '.pane // "nada"' "$STATE/s3.json")" "nada" "hook: fuera de tmux y de Herdr no anota pane"
 # ~/.claude/settings.json llega al hook por la ruta de cuando era un plugin de Sketchybar (~/.config/sketchybar apunta

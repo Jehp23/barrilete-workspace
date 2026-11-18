@@ -434,7 +434,7 @@ en una pestaña de solo lectura. No envía instrucciones al subagente.
 Un chat que terminó el turno dejando comandos en segundo plano (tests, CI, un `Monitor`) no aparece como listo:
 Herdr lo ve quieto, pero `bk _subagents` también devuelve cuántos comandos siguen corriendo en cada terminal (los que
 el hook contó al terminar el turno, `state: "background"`). La fila va como trabajando, con «N en 2º plano» en
-su segunda línea. Si Herdr ve que te espera o que trabaja, manda Herdr. La barra de abajo, las pestañas y la cabecera
+su segunda línea (sin el número si el hook no lo tiene). Si Herdr ve que te espera o que trabaja, manda Herdr. La barra de abajo, las pestañas y la cabecera
 del pane siguen con el estado de Herdr.
 
 ### Las épicas en la barra

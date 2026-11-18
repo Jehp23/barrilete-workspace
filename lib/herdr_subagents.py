@@ -14,9 +14,10 @@ import sidebar as S
 def snapshot():
     out, background = {}, {}
     for terminal, state in A.states().items():
-        n = state.get("background")
-        if state.get("state") == "background" and isinstance(n, int) and n > 0:
-            background[terminal] = n
+        # El estado manda: un hook viejo pudo dejar la cuenta en 0 (0 = sin cuenta, el mod no muestra el número).
+        if state.get("state") == "background":
+            n = state.get("background")
+            background[terminal] = n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 0
         children = []
         for description, path in A.subagents(state.get("_sid")):
             try:

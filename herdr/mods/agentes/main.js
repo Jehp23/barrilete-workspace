@@ -30,13 +30,14 @@ const kidStatus = (k, listed) => {
   return s === "error" ? "blocked" : s === "done" ? "idle" : s;
 };
 // Un turno que terminó dejando comandos en segundo plano (tests, CI…) no está listo: Herdr ve el chat quieto y lo
-// marca listo o quieto; el hook de bk cuenta lo que sigue corriendo (bk _subagents, "background"). Va como trabajando,
+// marca listo o quieto; el hook de bk lo anota (bk _subagents, "background": terminal → cuántos). Va como trabajando,
 // con «N en 2º plano» en su segunda línea. Si Herdr ve otra cosa (te espera, trabajando), manda Herdr.
 const withBackground = (list, bg) => list.map((a) => {
   const n = bg?.[a.address];
-  return n > 0 && (a.status === "done" || a.status === "idle") ? { ...a, status: "working", bgCount: n } : a;
+  return typeof n === "number" && (a.status === "done" || a.status === "idle") ? { ...a, status: "working", bgCount: n } : a;
 });
-const bgText = (a) => (a.bgCount > 0 ? `${a.bgCount} en 2º plano` : null);
+// Sin cuenta (0: el hook la perdió), sin número.
+const bgText = (a) => (typeof a.bgCount !== "number" ? null : a.bgCount > 0 ? `${a.bgCount} en 2º plano` : "en 2º plano");
 const SORTS = [
   { id: "priority", label: "Por prioridad", icon: "clock" },
   { id: "grouped", label: "Por espacio", icon: "layers" },
