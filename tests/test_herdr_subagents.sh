@@ -64,7 +64,13 @@ assert.deepEqual(calls,[['pane.focus',{terminal:'t2'}]],'el hijo nativo sigue ab
 console.log('ok - árbol mixto: clic en Claude sigue el transcript; clic nativo conserva la navegación');
 // Herdr ve quieto (listo o quieto) al chat que dejó tests corriendo: con bk contando comandos vivos, va como trabajando.
 const marked=withBackground([{address:'a',status:'done'},{address:'b',status:'idle'},{address:'c',status:'blocked'},{address:'d',status:'done'},{address:'e',status:'working'},{address:'f',status:'done'}],{a:2,b:1,c:1,e:4,f:0});
-assert.deepEqual(marked.map((a)=>[a.status,bgText(a)]),[['working','2 en 2º plano'],['working','1 en 2º plano'],['blocked',null],['done',null],['working',null],['working','en 2º plano']]);
+assert.deepEqual(marked.map((a)=>[a.status,bgText(a)]),[['background','2 en 2º plano'],['background','1 en 2º plano'],['blocked',null],['done',null],['working',null],['background','en 2º plano']]);
 assert.deepEqual(withBackground([{address:'a',status:'done'}],undefined),[{address:'a',status:'done'}],'sin datos de bk, manda Herdr');
-console.log('ok - en 2º plano: listo o quieto con comandos vivos pasa a trabajando; te espera y trabajando no cambian');
+// Su propia sección, entre Trabajando y Quietos; RANK sale del kit (el mismo en todas las copias)
+const kit=fs.readFileSync(`${process.argv[2]}/herdr/mods/agentes/kit.js`,'utf8');
+const RANK=JSON.parse(kit.match(/export const RANK = (\{[^}]*\})/)[1].replace(/(\w+):/g,'"$1":'));
+assert.ok(RANK.working>RANK.background&&RANK.background>RANK.idle,'en 2º plano va entre trabajando y quieto');
+assert.match(kit,/status === "background"\) return [^;]*frames\(\["◐", "◓", "◑", "◒"\]/,'en 2º plano tiene su marca, no la de trabajando');
+assert.match(source,new RegExp(`${RANK.background}: "En 2º plano"`),'la sección En 2º plano está en SECTION con el rango del kit');
+console.log('ok - en 2º plano: listo o quieto con comandos vivos pasa a background, con su sección; te espera y trabajando no cambian');
 JS

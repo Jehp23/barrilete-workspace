@@ -30,11 +30,12 @@ const kidStatus = (k, listed) => {
   return s === "error" ? "blocked" : s === "done" ? "idle" : s;
 };
 // Un turno que terminó dejando comandos en segundo plano (tests, CI…) no está listo: Herdr ve el chat quieto y lo
-// marca listo o quieto; el hook de bk lo anota (bk _subagents, "background": terminal → cuántos). Va como trabajando,
-// con «N en 2º plano» en su segunda línea. Si Herdr ve otra cosa (te espera, trabajando), manda Herdr.
+// marca listo o quieto; el hook de bk lo anota (bk _subagents, "background": terminal → cuántos). Va con su marca y su
+// sección (En 2º plano, debajo de Trabajando), con «N en 2º plano» en su segunda línea. Si Herdr ve otra cosa
+// (te espera, trabajando), manda Herdr.
 const withBackground = (list, bg) => list.map((a) => {
   const n = bg?.[a.address];
-  return typeof n === "number" && (a.status === "done" || a.status === "idle") ? { ...a, status: "working", bgCount: n } : a;
+  return typeof n === "number" && (a.status === "done" || a.status === "idle") ? { ...a, status: "background", bgCount: n } : a;
 });
 // Sin cuenta (0: el hook la perdió), sin número.
 const bgText = (a) => (typeof a.bgCount !== "number" ? null : a.bgCount > 0 ? `${a.bgCount} en 2º plano` : "en 2º plano");
@@ -43,8 +44,8 @@ const SORTS = [
   { id: "grouped", label: "Por espacio", icon: "layers" },
 ];
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
-const SECTION = { 4: "Te esperan", 3: "Listos", 2: "Trabajando", 1: "Quietos" };
-const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
+const SECTION = { 4: "Te esperan", 3: "Listos", 2: "Trabajando", 1.5: "En 2º plano", 1: "Quietos" };
+const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working", 1.5: "working" };
 // El color de cada espacio: el que eligió Herdr (shared "space.colors", un nombre del tema) o uno fijo por su id.
 const TINTS = ["ansi4", "ansi5", "ansi6", "ansi13", "ansi3", "ansi2"];
 const hash = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
