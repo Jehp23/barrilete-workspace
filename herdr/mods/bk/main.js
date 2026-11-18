@@ -205,7 +205,7 @@ export default class Bk extends View {
     this.closeSelf();
     // Este chat no tiene épica y hay varias: elegir cuál (el selector está en bk-agentes)
     if (!key) return openOverlay({ mod: "bk-agentes", kind: "dialog", width: 420, height: s.pickHeight ?? 34 + keys.length * 30 + 10, props: { epicPick: true } });
-    openOverlay({ mod: "bk-agentes", kind: "dialog", width: 520, height: s.epics?.[key]?.height ?? 400, props: { epic: key } });
+    openOverlay({ mod: "bk-agentes", kind: "dialog", width: 780, height: s.epics?.[key]?.height ?? 400, props: { epic: key } });
   }
 
   // La pestaña n (desde 1) del espacio a la vista cuya terminal cumple `pick`, en el orden de las pestañas
