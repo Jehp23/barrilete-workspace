@@ -314,9 +314,9 @@ check_eq "$sin_mod$(jq -r '[.. | objects | .content?.mod? // empty | select(star
 # su copia. Todas iguales (la de agentes es la referencia), y cada una se instala al lado del main.js que la importa
 KITS=$(cd "$ROOT/herdr/mods" && for d in *; do [ "$d" = hub ] || [ ! -f "$d/kit.js" ] || printf '%s ' "$d"; done)
 distintos=$(for m in $KITS; do cmp -s "$ROOT/herdr/mods/agentes/kit.js" "$ROOT/herdr/mods/$m/kit.js" || printf '%s ' "$m"; done)
-check_eq "$KITS| $distintos" "agentes cabecera lado marca pestanas | " "kit.js: las copias de agentes, cabecera, lado, marca y pestanas son el mismo archivo"
+check_eq "$KITS| $distintos" "agentes cabecera cerrar lado marca pestanas | " "kit.js: las copias de agentes, cabecera, cerrar, lado, marca y pestanas son el mismo archivo"
 sin_kit=$(grep -l 'from "./kit.js"' "$ROOT"/herdr/mods/*/main.js | while read -r f; do m=$(basename "$(dirname "$f")"); [ "$m" = hub ] || cmp -s "$ROOT/herdr/mods/$m/kit.js" "$APP/mods/bk-$m/kit.js" || printf '%s ' "$m"; done)
-check_eq "$(grep -l 'from "./kit.js"' "$ROOT"/herdr/mods/*/main.js | grep -vc '/hub/') $sin_kit" "5 " "kit.js: cada panel que lo importa lo tiene instalado en su carpeta"
+check_eq "$(grep -l 'from "./kit.js"' "$ROOT"/herdr/mods/*/main.js | grep -vc '/hub/') $sin_kit" "6 " "kit.js: cada panel que lo importa lo tiene instalado en su carpeta"
 # Los temas de bk: se instalan, siguen al repo mientras nadie los retoque y no pisan uno tuyo
 T1=$(ls "$ROOT/herdr/themes" | head -1)
 check_eq "$(ls "$ROOT/herdr/themes" | while read -r f; do cmp -s "$ROOT/herdr/themes/$f" "$APP/themes/$f" || printf '%s ' "$f"; done)$(jq -r --arg f "$T1" '.[$f]' "$APP/bk-temas.json")" "$(sha "$ROOT/herdr/themes/$T1")" "temas: instala los de herdr/themes y anota qué instaló"

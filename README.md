@@ -87,6 +87,10 @@ siguen todos en la sesión `agents`. `bk open` sin argumento lista los workspace
   (etiquetas `bk.from` en el nuevo y `bk.next` en el viejo) y en la barra de agentes el viejo no tiene fila propia:
   va debajo del nuevo, en una línea «antes» plegada que se despliega con un clic y se cierra con su cruz. Plegada
   igual lleva la marca si el viejo te espera o sigue trabajando, y el nuevo se ordena por lo más urgente de los dos.
+  Cerrar el nuevo (`Cerrar…` en el clic derecho de su terminal, o ctrl+x en `alt+s`) abre un popup con la cadena
+  entera de chats «antes» (título, cuándo, estado), todos marcados: Enter cierra los marcados, «Cerrar todos (N)» (o
+  ctrl+Enter) cierra todos, y espacio o un clic desmarca el que querés guardar. Un chat sin «antes» abierto se cierra
+  como siempre; un viejo fijado no entra en la cadena.
 
 ## Herdr en vez de tmux (`bk backend herdr`)
 `bk backend herdr` hace que los chats y los agentes vivan en la app [Herdr](https://herdr.dev) y no en tmux
@@ -148,7 +152,7 @@ pisan con los del repo (se editan acá).
   | `alt+t` | El panel derecho en la pestaña TODO: los pasos del issue que trabaja el chat que mirás (el issue sale como en `alt+p`), las casillas `- [ ]` de su cuerpo por sección, tildadas o no. Solo lee; el clic en el issue lo abre en GitHub. Otra vez `alt+t` vuelve a Estado | `bk _todo` |
   | `alt+a` | Agentes: los que te esperan arriba y, al lado, lo último de la terminal del elegido. Enter va a su pestaña, Tab le escribe, ctrl+x dos veces lo cierra, ctrl+o lo espía | `bk say`, `bk stop` |
   | `alt+n` | Nuevo: chat, chat en una rama, chat con nombre, el resumen de este chat para seguir en uno nuevo (abre `alt+h`), terminal, chat suelto, otro proyecto (o una ruta) y seguir desde un resumen listo | `bk chat …`, `bk open` |
-  | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta | `bk _hub session-go`, `bk stop` |
+  | `alt+s` | Sesiones: saltar a una abierta o retomar una reciente en un chat nuevo; ctrl+x dos veces cierra una abierta (una que siguió de otros chats abiertos: ctrl+x una vez abre el popup de su cadena «antes») | `bk _hub session-go`, `bk stop` |
   | `alt+h` | Resumen y seguir en un chat nuevo: se lo pide al chat que mirás, dejándolo abierto o cerrándolo cuando el nuevo abre. Abajo, los resúmenes listos | `bk handoff --term <t> [--cerrar]`, `bk chat --desde` |
   | `alt+g` | El panel derecho en la pestaña Cambios: lo sin commitear del proyecto y de los worktrees de los agentes. El clic en un archivo abre su diff en un popup (esc lo cierra). Otra vez `alt+g` vuelve a Estado | |
   | `alt+b` | Ramas de todos los proyectos, separadas por proyecto (el que mirás primero): si ya entró (PR mergeado o `bk land`), su PR, su worktree y lo sin commitear. Enter abre un chat en su worktree (o le crea uno); ctrl+x dos veces la borra, solo si no se pierde nada; ctrl+o abre su PR | `bk chat --carpeta`, `bk _hub branch-rm` |
@@ -214,7 +218,7 @@ pisan con los del repo (se editan acá).
   `lib/herdr.sh`, el instalador (teclas, mods, paneles, temas, layout y vista previa), los números fijos, la
   adopción y `bk handoff --term/--cerrar`; `tests/test_side.sh`, los datos del lado derecho; `tests/test_hub.sh`,
   los de los paneles. Partes de algunos mods corren en `node`, sin Herdr (`tests/test_herdr_subagents.sh`,
-  `tests/test_herdr_tasks.sh`, `tests/test_herdr_lineage.sh`, `tests/test_herdr_epica.sh`). Lo que no está probado: apretar las teclas. macOS no deja mandarle teclas a Herdr
+  `tests/test_herdr_tasks.sh`, `tests/test_herdr_lineage.sh`, `tests/test_herdr_cerrar.sh`, `tests/test_herdr_epica.sh`). Lo que no está probado: apretar las teclas. macOS no deja mandarle teclas a Herdr
   desde un script, así que ninguna prueba recorre tecla → mod → acción dentro de la app.
 
 ## Sesiones (`bk s` · `C-a s`)

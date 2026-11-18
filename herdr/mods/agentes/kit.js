@@ -1,7 +1,7 @@
 // Piezas de dibujo de bk-lavanda: la marca de estado, el chip con el número de ventana, el rótulo sobre una
 // línea y la tarjeta con título en el marco. Una sola versión de cada una para que la barra izquierda, las
 // pestañas, la cabecera de cada pane y el lado derecho se vean de una pieza.
-// Va igual en agentes, pestanas, cabecera, lado y marca (un mod de Herdr no puede importar de otra carpeta):
+// Va igual en agentes, pestanas, cabecera, lado, marca y cerrar (un mod de Herdr no puede importar de otra carpeta):
 // si lo cambiás, copialo a las demás.
 
 import { div, svg, image } from "gpui-kit";
