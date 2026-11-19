@@ -167,7 +167,7 @@ pisan con los del repo (se editan acá).
   | `alt+0` | Volver a la pestaña donde estabas | |
   | `alt+q` | Volver al chat del espacio | |
   | `alt+x` | Terminal rápida del espacio: la muestra y la esconde sin cerrarla | |
-  | `alt+y` | El ayudante del workspace: una sesión de Codex en un popup, en el repo de `bk` y con el encargo de `lib/ayudante.md`, para lo que no ande. Una sola para toda la ventana, sin pestaña ni fila en la lista de agentes; la tecla (o el botón «Ayudante» de la franja de arriba) la muestra y la esconde sin cerrarla. Codex corre con tu config de siempre. Temporal: hasta que el workspace quede pulido | `bk _ayuda` |
+  | `alt+y` | Piola, el ayudante del workspace: una sesión de Codex en un popup, en el repo de `bk`, para lo que no ande. El encargo de `lib/ayudante.md` (quién es, su voz, dónde mirar y qué no hacer solo) va como instrucciones de Codex, no como mensaje, y Piola se presenta al abrir. Una sola para toda la ventana, sin pestaña ni fila en la lista de agentes; la tecla (o el botón «Piola» de la franja de arriba, que muestra si trabaja, te espera o terminó) la muestra y la esconde sin cerrarla. El popup lleva una cabecera con su nombre, su estado y el botón de esconder: Esc no lo cierra, va a Codex. Codex corre con tu config de siempre. Temporal: hasta que el workspace quede pulido | `bk _ayuda` |
   | `alt+.` | Mostrar u ocultar el panel derecho | `layout.toggle:lado` de Herdr |
   | `alt+z` | Agrandar el pane | `pane.zoom` de Herdr |
 
@@ -193,7 +193,7 @@ pisan con los del repo (se editan acá).
 - **Los paneles del layout**: `bk backend herdr` copia cada carpeta de `herdr/mods` (menos `bk` y `hub`) a
   `mods/bk-<nombre>`, y el layout que las muestra, uno solo: `bk-lavanda` (ver *Estética Lavanda*). `agentes` es
   la barra izquierda (espacios y agentes, cada uno con el chip de su número), `marca` su cabecera y su pie,
-  `pestanas` la franja de arriba (el contexto del chat enfocado en un renglón: proyecto, épica, issue y rol, los agentes que te esperan y el botón «Ayudante» de `alt+y`), `cabecera` la de cada pane, `lado` el panel derecho y `barra` la barra de estado.
+  `pestanas` la franja de arriba (el contexto del chat enfocado en un renglón: proyecto, épica, issue y rol, los agentes que te esperan y el botón «Piola» de `alt+y`), `ayudante` la cabecera del popup de Piola, `cabecera` la de cada pane, `lado` el panel derecho y `barra` la barra de estado.
   `agentes`, `pestanas`, `cabecera`, `lado` y `marca` comparten las piezas de dibujo de `kit.js`: un mod no puede
   importar de otra carpeta, así que cada uno lleva su copia y un test falla si dejan de ser iguales. El lado
   derecho sale de `bk _side` (proyecto, rama, perfil de roles, contexto de la sesión de Claude de la carpeta, uso

@@ -18,6 +18,7 @@ const AVISOS = ".cache/bk/herdr-avisos";   // la cola de hd_notice (lib/herdr.sh
 const AVISO_NIVEL = { info: 5000, success: 5000, warning: 15000, error: 15000 };
 const POP = "bk.pop";   // el popup abierto, compartido entre las copias: { name, id, terminal, keep }
 const AYUDA = "ayuda";  // bk.kind de la terminal del ayudante (alt+y); la franja de arriba la busca con la misma
+const AYUDA_CABECERA = 48;   // alto de la cabecera del popup del ayudante (mods/ayudante)
 // Lo que corre esa terminal ($0 es bk): si puede arrancar, bk _ayuda toma su lugar; si no, queda el motivo a la vista
 const AYUDA_SH = `"$0" --dry-run _ayuda >/dev/null && exec "$0" _ayuda; printf '\\n  (enter para cerrar) '; read -r _`;
 
@@ -87,8 +88,8 @@ export default class Bk extends View {
     return was ? p.name : null;
   }
 
-  open(name, addr, spec, keep) {
-    const id = openOverlay({ kind: "dialog", modal: true, width: spec.w, height: spec.h, layout: { type: "block", content: { terminal: addr } } });
+  open(name, addr, spec, keep, layout = { type: "block", content: { terminal: addr } }) {
+    const id = openOverlay({ kind: "dialog", modal: true, width: spec.w, height: spec.h, layout });
     setShared(POP, { name, id, terminal: addr, keep });
   }
 
@@ -154,7 +155,7 @@ export default class Bk extends View {
     this.open("term", addr, { w: 0.85, h: 0.75 }, true);
   }
 
-  // alt+y, o el botón «Ayudante» de la franja de arriba (mods/pestanas): el ayudante del workspace, una sesión de
+  // alt+y, o el botón «Piola» de la franja de arriba (mods/pestanas): Piola, el ayudante del workspace, una sesión de
   // Codex en el repo de bk (bk _ayuda) en un popup. Uno solo para toda la ventana, sin pestaña ni fila en la lista
   // de agentes. Esconderlo no lo cierra: vuelve con su conversación; si saliste de Codex, la próxima vez empieza
   // uno nuevo. Si no puede arrancar (no está Codex: lo dice bk --dry-run _ayuda), el popup espera un enter para
@@ -169,7 +170,10 @@ export default class Bk extends View {
       if (r.code !== 0) throw new Error(r.stderr.trim() || "hc no abrió el ayudante");
       addr = JSON.parse(r.stdout).address;
     }
-    this.open("ayuda", addr, { w: 0.6, h: 0.85 }, true);
+    // Arriba, la cabecera de Piola (mods/ayudante: quién es, cómo está y el botón de esconder); abajo, su terminal
+    this.open("ayuda", addr, { w: 0.6, h: 0.85 }, true, { type: "column", children: [
+      { id: "ayudante-cabecera", type: "block", size: { px: AYUDA_CABECERA }, content: { mod: "bk-ayudante", props: { terminal: addr } } },
+      { id: "ayudante-terminal", type: "block", content: { terminal: addr } }] });
   }
 
   // Mostrar la pestaña de una terminal (su espacio, su pestaña y el foco en ella)

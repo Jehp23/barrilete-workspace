@@ -171,17 +171,22 @@ ok('seguir (el clic de «Resumen listo») abre bk handoff --seguir en un popup s
   assert.deepEqual(tryIt(0), [['--dry-run _ayuda', '_ayuda'], false]);
   assert.deepEqual(tryIt(1), [['--dry-run _ayuda'], true]);
   ok('ayuda: la terminal corre bk _ayuda; si no puede arrancar, no lo corre y espera un enter con el motivo a la vista');
-  assert.deepEqual([st.overlays.length, st.overlays[0].kind, st.overlays[0].modal, st.overlays[0].layout.content.terminal],
-    [1, 'dialog', true, 't9']);
+  const lay = st.overlays[0].layout;
+  assert.deepEqual([st.overlays.length, st.overlays[0].kind, st.overlays[0].modal, lay.type, lay.children.length, lay.children[1].content],
+    [1, 'dialog', true, 'column', 2, { terminal: 't9' }]);
+  // Arriba, la cabecera de Piola: el mod herdr/mods/ayudante (lib/herdr_install.py lo instala como bk-ayudante)
+  assert.deepEqual(lay.children[0].content, { mod: 'bk-ayudante', props: { terminal: 't9' } });
+  assert.ok(lay.children[0].size.px >= 40 && lay.children[0].size.px <= 60 && !lay.children[1].size, 'la cabecera es una franja; el resto es de la terminal');
+  assert.ok(fs.existsSync(`${root}/herdr/mods/ayudante/main.js`) && fs.existsSync(`${root}/herdr/mods/ayudante/mod.json`));
   assert.ok(st.overlays[0].width < 1 && st.overlays[0].height < 1, 'un popup sobre la ventana, no la ventana entera');
   assert.deepEqual(st.shared['bk.pop'], { name: 'ayuda', id: 'o1', terminal: 't9', keep: true });
-  ok('ayuda: la muestra en un popup sobre la ventana');
+  ok('ayuda: la muestra en un popup sobre la ventana, con la cabecera de Piola arriba de su terminal');
   st.terms = [{ address: 't9', state: 'live', labels: { 'bk.kind': 'ayuda' } }];
   await bk3.handle('ayuda');
   assert.deepEqual([st.hcs.length, st.overlays.length, st.closed, st.shared['bk.pop']], [1, 1, ['o1'], null]);
   ok('ayuda: otra vez la esconde, sin matar la terminal ni abrir otra');
   await bk3.handle('ayuda');
-  assert.deepEqual([st.hcs.length, st.overlays.length, st.overlays[1].layout.content.terminal], [1, 2, 't9']);
+  assert.deepEqual([st.hcs.length, st.overlays.length, st.overlays[1].layout.children[1].content.terminal], [1, 2, 't9']);
   ok('ayuda: la próxima vuelve a mostrar la misma sesión (no arranca otro Codex)');
   await bk3.handle('ayuda');   // escondida
   st.terms = [{ address: 't9', state: 'exited', labels: { 'bk.kind': 'ayuda' } }, { address: 't3', state: 'live', labels: { 'bk.kind': 'term' } }];

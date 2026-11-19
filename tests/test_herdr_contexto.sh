@@ -30,7 +30,7 @@ const M = new Function('env', 'el', 'localStorage', `
   const run = (...a) => env.ran.push(a), theme = () => ({}), window = () => null, settings = () => ({}), keys = () => env.keys;
   ${kit}
   ${main}
-  return { chatArgs, context, waiting, Pestanas, helperAlive, keyOfMod, helperTip, AYUDA, AYUDA_MOD };`)(env, el, { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) });
+  return { chatArgs, context, waiting, Pestanas, helperAlive, helperStatus, keyOfMod, helperTip, AYUDA, AYUDA_MOD, NOMBRE };`)(env, el, { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) });
 let n = 0;
 const ok = (msg) => console.log(`ok ${++n} - ${msg}`);
 
@@ -101,15 +101,53 @@ assert.deepEqual([M.helperAlive([]), M.helperAlive([{ state: 'live', labels: { '
 ok('ayudante: encendido solo con su terminal viva (no con otra terminal ni con una que ya salió)');
 assert.deepEqual([M.keyOfMod(M.AYUDA_MOD, realKeys), M.keyOfMod(M.AYUDA_MOD, []), M.keyOfMod('bk-go1', [{ section: 'global', keys: 'cmd-shift-1', action: 'mod.open:bk-go1' }])],
   ['⌥Y', '', '⌘⇧1']);
-assert.match(M.helperTip(false, '⌥Y'), /^Ayudante del workspace: .* · ⌥Y$/);
-assert.match(M.helperTip(true, ''), /volver a su conversación$/);
-ok('ayudante: el botón dice su tecla (la de keys.json) y, con la sesión abierta, que vuelve a su conversación');
+assert.match(M.helperTip(false, '⌥Y'), new RegExp(`^${M.NOMBRE}, el ayudante del workspace: .* · ⌥Y$`));
+assert.equal(M.helperTip(true, ''), `${M.NOMBRE} (Codex): volver a su conversación`);
+assert.equal(M.helperTip(true, '⌥Y', 'blocked'), `${M.NOMBRE} (Codex): volver a su conversación · te espera · ⌥Y`);
+ok('ayudante: el botón dice su nombre, su tecla (la de keys.json) y, con la sesión abierta, que vuelve a su conversación y cómo está');
+const helperT = (status, extra = {}) => [{ address: 't9', state: 'live', status, labels: { 'bk.kind': M.AYUDA }, ...extra }];
+assert.deepEqual([M.helperStatus([]), M.helperStatus(helperT('idle')), M.helperStatus(helperT('working')), M.helperStatus(helperT('blocked')),
+  M.helperStatus(helperT('done')), M.helperStatus(helperT('blocked', { labels: { 'bk.kind': 'chat' } })), M.helperStatus(helperT('blocked', { state: 'exited' }))],
+  [null, null, 'working', 'blocked', 'done', null, null]);
+ok('ayudante: el botón toma el estado de su terminal viva (trabaja, te espera, terminó), no el de otro chat');
 env.keys = realKeys; env.ran = []; env.clicks = {}; env.tips = {};
 bar.render({ spawn() {} });
 assert.equal(typeof env.clicks.ayudante, 'function', 'la franja dibuja el botón');
 env.clicks.ayudante();
 assert.deepEqual([env.ran, env.tips.ayudante], [[['mod.open', { name: 'bk-ayuda' }]], M.helperTip(false, '⌥Y')]);
-assert.ok(fs.existsSync(`${root}/herdr/mods/pestanas/ayuda.svg`) && main.includes('svg("mods/bk-pestanas/ayuda.svg")'));
+assert.ok(fs.existsSync(`${root}/herdr/mods/ayudante/piola.svg`) && main.includes('svg("mods/bk-ayudante/piola.svg")'));
 ok('ayudante: la franja dibuja el botón con su icono y el clic abre bk-ayuda');
+
+// La cabecera del popup de Piola (herdr/mods/ayudante → bk-ayudante): quién es, cómo está y cómo se esconde
+const cab = { terms: [], keys: realKeys, ran: [], clicks: {}, texts: [], lastId: null, props: { terminal: 't9' } };
+const cel = new Proxy(function () {}, { get: (_t, k) => (k === 'then' ? undefined : (...a) => {
+  if (k === 'id') cab.lastId = a[0];
+  if (k === 'on_click') cab.clicks[cab.lastId] = a[0];
+  if (k === 'child' && typeof a[0] === 'string') cab.texts.push(a[0]);
+  if (k === 'when' && a[0]) a[1](cel);
+  return cel;
+}), apply: () => cel });
+const C = new Function('cab', 'el', `
+  const div = () => el, svg = div, h_flex = div, v_flex = div;
+  class View {}
+  const terminals = () => cab.terms, keys = () => cab.keys, run = (...a) => cab.ran.push(a), props = () => cab.props, theme = () => ({});
+  ${strip(fs.readFileSync(`${root}/herdr/mods/ayudante/main.js`, 'utf8'))}
+  return { Ayudante, NOMBRE, LEMA, WORD, estado };`)(cab, cel);
+const brief = fs.readFileSync(`${root}/lib/ayudante.md`, 'utf8');
+const bkSh = fs.readFileSync(`${root}/bin/bk`, 'utf8');
+assert.deepEqual([C.NOMBRE, JSON.parse(fs.readFileSync(`${root}/herdr/mods/ayudante/mod.json`, 'utf8')).title, brief.startsWith(`Sos ${C.NOMBRE}, `),
+  bkSh.includes(`AYUDA_SALUDO="Hola, ${C.NOMBRE}."`)], [M.NOMBRE, M.NOMBRE, true, true]);
+ok(`ayudante: se llama igual (${C.NOMBRE}) en el botón, en la cabecera, en su encargo y en el saludo`);
+assert.deepEqual([C.estado('t9', helperT('working')), C.estado('t9', helperT('blocked', { state: 'exited' })), C.estado('t1', helperT('working')), C.estado('t9', [])],
+  ['working', '', '', '']);
+const draw = (terms) => { cab.terms = terms; cab.texts = []; cab.clicks = {}; new C.Ayudante().render(); return cab.texts; };
+const quiet = draw(helperT('idle'));
+assert.ok(quiet.includes(C.NOMBRE) && quiet.includes(C.LEMA) && quiet.includes('⌥Y') && quiet.includes('esconder'));
+assert.deepEqual(Object.values(C.WORD).filter((w) => quiet.includes(w)), []);
+assert.deepEqual([draw(helperT('blocked')).includes('te espera'), draw(helperT('working')).includes('trabajando'), draw(helperT('done')).includes('terminó')], [true, true, true]);
+ok('cabecera: nombre, lema y tecla de esconder; el estado solo cuando trabaja, te espera o terminó');
+cab.clicks['ay-hide']();
+assert.deepEqual(cab.ran, [['mod.open', { name: 'bk-ayuda' }]]);
+ok('cabecera: «esconder» pasa por el mismo mod que alt+y (así el popup y su estado quedan en orden)');
 console.log(`1..${n}`);
 JS

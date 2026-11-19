@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# bk _ayuda: el ayudante del workspace (alt+y en Herdr). Corre Codex en el repo de bk con el encargo de
-# lib/ayudante.md como primer mensaje. Acá bk ve un codex falso que solo anota dónde y con qué lo llamaron.
+# bk _ayuda: Piola, el ayudante del workspace (alt+y en Herdr). Corre Codex en el repo de bk con el encargo de
+# lib/ayudante.md como instrucciones (-c developer_instructions: no se ve en el chat) y un saludo como primer
+# mensaje. Acá bk ve un codex falso que solo anota dónde y con qué lo llamaron.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(dirname "$HERE")"
 TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$TMP"' EXIT
@@ -8,7 +9,8 @@ unset TMUX TMUX_PANE BK_ACCOUNT BK_BACKEND
 export HOME="$TMP/home"; mkdir -p "$HOME" "$TMP/fake" "$TMP/otra"
 cat >"$TMP/fake/codex" <<FAKE
 #!/bin/sh
-pwd -P >"$TMP/codex.cwd"; echo "\$#" >"$TMP/codex.argc"; printf '%s' "\$1" >"$TMP/codex.arg1"
+pwd -P >"$TMP/codex.cwd"; echo "\$#" >"$TMP/codex.argc"
+i=0; for a in "\$@"; do i=\$((i+1)); printf '%s' "\$a" >"$TMP/codex.arg\$i"; done
 FAKE
 chmod +x "$TMP/fake/codex"
 N=0; FAILED=0
@@ -23,8 +25,15 @@ check_eq "$(run --dry-run _ayuda)" "(dry-run: abriría codex en $ROOT con el enc
 check_eq "$([ -e "$TMP/codex.cwd" ] && echo corrió || echo no)" "no" "dry-run: no corre codex"
 run _ayuda >/dev/null
 check_eq "$(cat "$TMP/codex.cwd" 2>/dev/null)" "$REAL" "corre codex en el repo de bk, se lo llame desde donde se lo llame"
-check_eq "$(cat "$TMP/codex.argc" 2>/dev/null)" "1" "le pasa un solo argumento: el primer mensaje"
-check_eq "$(cat "$TMP/codex.arg1" 2>/dev/null)" "$(cat "$ROOT/lib/ayudante.md")" "el primer mensaje es el encargo de lib/ayudante.md, entero"
+check_eq "$(cat "$TMP/codex.argc" 2>/dev/null) $(cat "$TMP/codex.arg1" 2>/dev/null)" "3 -c" "le pasa una opción de config y el primer mensaje"
+# El valor de -c es clave=<cadena TOML>: se lee como la leería Codex (una cadena JSON es una cadena básica de TOML)
+decoded() { python3 -c 'import json, sys
+s = open(sys.argv[1], encoding="utf-8").read()
+k = "developer_instructions="
+sys.stdout.write(json.loads(s[len(k):]) if s.startswith(k) else "no es " + k)' "$TMP/codex.arg2" 2>&1; }
+check_eq "$(decoded)" "$(cat "$ROOT/lib/ayudante.md")" "el encargo de lib/ayudante.md va entero como instrucciones (developer_instructions)"
+check_eq "$(grep -c . "$TMP/codex.arg2" 2>/dev/null)" "1" "las instrucciones van en una sola línea: los saltos, escapados"
+check_eq "$(cat "$TMP/codex.arg3" 2>/dev/null)" "Hola, Piola." "el primer mensaje es solo un saludo: el encargo no se ve en el chat"
 if command -v codex >/dev/null 2>&1 && PATH="/usr/bin:/bin" command -v codex >/dev/null 2>&1; then
   echo "ok $((N+1)) - sin codex: # SKIP hay un codex en /usr/bin o /bin"; N=$((N+1))
 else

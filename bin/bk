@@ -147,7 +147,7 @@ Con Herdr (bk backend herdr) cada chat y cada agente tiene un número fijo de ve
   alt+h resumen y seguir en un chat nuevo · alt+g cambios · alt+u uso y costo · alt+m radio
   alt+, aspecto · alt+/ la hoja de teclas · alt+1…9 la ventana N · alt+shift+1…9 el agente N del espacio
   alt+j el próximo que te espera · alt+0 donde estabas · alt+q el chat del espacio · alt+x terminal rápida
-  alt+y el ayudante del workspace (un Codex en un popup, para lo que no ande; también el botón de arriba)
+  alt+y Piola, el ayudante del workspace (un Codex en un popup, para lo que no ande; también el botón de arriba)
   alt+. panel derecho · alt+z agrandar el pane
 Un agente abierto desde Herdr (sin etiquetas de bk) se adopta como chat de su proyecto y toma su número.
 
@@ -449,17 +449,22 @@ bot_env() {
   info "como el bot: $login"
 }
 
-# bk _ayuda: el ayudante del workspace (alt+y en Herdr, o el botón «Ayudante» de la franja de arriba; mods/bk): una
-# sesión de Codex en el repo de bk, con el encargo de lib/ayudante.md como primer mensaje. Codex corre con tu
-# config de siempre (modelo, permisos): acá no se le da ningún permiso de más. Temporal: hasta que el workspace
-# quede pulido.
+# bk _ayuda: Piola, el ayudante del workspace (alt+y en Herdr, o el botón «Piola» de la franja de arriba; mods/bk):
+# una sesión de Codex en el repo de bk. El encargo de lib/ayudante.md (quién es, su voz, dónde mirar y qué no hacer
+# solo) va como instrucciones (-c developer_instructions, una cadena TOML: no se ve en el chat) y el primer mensaje
+# es un saludo, para que se presente. Codex corre con tu config de siempre (modelo, permisos): acá no se le da
+# ningún permiso de más. Temporal: hasta que el workspace quede pulido.
+AYUDA_SALUDO="Hola, Piola."
 cmd_ayuda() {
-  local brief="$WS/lib/ayudante.md"
+  local brief="$WS/lib/ayudante.md" inst
   command -v codex >/dev/null || die "el ayudante es una sesión de Codex: Codex CLI no está instalado"
   [ -s "$brief" ] || die "falta el encargo del ayudante ($brief)"
   if [ "$DRY" -eq 1 ]; then info "(dry-run: abriría codex en $WS con el encargo de $brief)"; return 0; fi
+  # El texto como cadena JSON, que también es una cadena básica de TOML: comillas, barras y saltos de línea escapados
+  inst=$(python3 -c 'import json, sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read(), ensure_ascii=False))' "$brief") \
+    || die "no pude leer el encargo del ayudante ($brief)"
   cd "$WS" || die "no existe $WS"
-  exec codex "$(cat "$brief")"
+  exec codex -c "developer_instructions=$inst" "$AYUDA_SALUDO"
 }
 
 # Terminal rápida (alt+x): una sesión term-<proyecto> que sobrevive al popup. Se abre en la raíz del
@@ -1932,7 +1937,7 @@ case "${1:-}" in
   _todo)       shift; exec python3 "$WS/lib/herdr_todo.py" "$@" ;;    # los pasos del issue del chat enfocado (alt+t, pestaña TODO de herdr/mods/lado)
   _tasks)      shift; exec python3 "$WS/lib/herdr_tasks.py" "$@" ;;   # bk tasks --json con el título de cada issue o PR (herdr/mods/tareas)
   _adopt)      shift; hd_adopt "${1:?bk _adopt <terminal>}" ;;   # la barra de Herdr: que bk conozca esa terminal y le dé su número
-  _ayuda)      cmd_ayuda ;;   # el ayudante del workspace: un Codex en el repo de bk (alt+y, herdr/mods/bk)
+  _ayuda)      cmd_ayuda ;;   # Piola, el ayudante del workspace: un Codex en el repo de bk (alt+y, herdr/mods/bk)
   _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)
   _notice)     [ "$BACKEND" = herdr ] && hd_notice "${2:?bk _notice <título> <texto> [nivel]}" "${3:-}" "" "${4:-info}" || true ;;   # un aviso de Herdr (la limpieza de ramas)
   _hub)        shift; [ "$DRY" -eq 0 ] || export BK_DRY=1   # bk --dry-run _hub session-go: dice qué haría y no toca Herdr
