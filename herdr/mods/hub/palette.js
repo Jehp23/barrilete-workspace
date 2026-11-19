@@ -90,7 +90,7 @@ export default class Palette extends Panel {
       const all = [...args, ...extra];
       if (e.kind === "show") return goto("bk-out", { props: { title: e.label, args: all, dir: cwd() } });
       p.close();
-      if (e.kind === "view") return termPopup(args[0], `'${bin()}' ${all.join(" ")}`, cwd()).catch((err) => notify({ title: "bk", body: String(err?.message ?? err), level: "error" }));
+      if (e.kind === "view") return termPopup(args[0], `'${bin()}' ${all.join(" ")}`, cwd());
       launch(e.label, all);
     };
     if (e.arg) return p.askFor({ label: args[0], title: e.label, help: `Falta: ${e.arg}`, run: (text) => go(text.split(/\s+/)) });

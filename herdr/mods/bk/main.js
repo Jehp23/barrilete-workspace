@@ -17,6 +17,7 @@ const AVISOS = ".cache/bk/herdr-avisos";   // la cola de hd_notice (lib/herdr.sh
 // Lo que queda a la vista un aviso sin clic, por nivel: un error se tiene que poder leer
 const AVISO_NIVEL = { info: 5000, success: 5000, warning: 15000, error: 15000 };
 const POP = "bk.pop";   // el popup abierto, compartido entre las copias: { name, id, terminal, keep }
+const PEDIDO = "bk.pop.pedido";   // el popup que pide un panel del hub (termPopup en mods/hub/kit.js)
 const AYUDA = "ayuda";  // bk.kind de la terminal del ayudante (alt+y); la franja de arriba la busca con la misma
 const AYUDA_CABECERA = 48;   // alto de la cabecera del popup del ayudante (mods/ayudante)
 // Lo que corre esa terminal ($0 es bk): si puede arrancar, bk _ayuda toma su lugar; si no, queda el motivo a la vista
@@ -49,6 +50,7 @@ export default class Bk extends View {
   async handle(c) {
     const f = focused();
     if (c === "seguir") return this.popup(c, SEGUIR, f);
+    if (c === "pop") return this.pedido();
     if (c === "term") return this.term(f);
     if (c === "ayuda") return this.ayuda();
     if (c === "aviso") return this.aviso();
@@ -102,6 +104,15 @@ export default class Bk extends View {
       "--", "env", "BK_BACKEND=herdr", `BK_FROM_TERM=${f?.terminal ?? ""}`, "sh", "-c", cmd]);
     if (r.code !== 0) throw new Error(r.stderr.trim() || "hc no abrió el popup");
     this.open(name, JSON.parse(r.stdout).address, spec, false);
+  }
+
+  // bk-pop: el programa de pantalla completa que pidió un panel del hub (bk monitor desde alt+k, la radio, el editor
+  // de perfiles). El panel se cierra antes y no puede esperar a hc: deja el pedido en shared y abre este mod.
+  pedido() {
+    const p = shared(PEDIDO);
+    if (!p?.cmd) return;
+    setShared(PEDIDO, null);
+    return this.popup(String(p.name || "pop"), { cmd: String(p.cmd), w: p.w ?? 0.9, h: p.h ?? 0.85 }, { cwd: p.dir, terminal: p.from });
   }
 
   // Los avisos que pide bk (hd_notice en lib/herdr.sh): solo un mod puede avisar, así que bk deja cada uno en un

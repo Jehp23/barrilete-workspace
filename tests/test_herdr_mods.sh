@@ -121,7 +121,10 @@ const keys = JSON.parse(fs.readFileSync(`${root}/herdr/keys.json`, 'utf8'));
 const views = Object.keys(JSON.parse(fs.readFileSync(`${root}/herdr/mods/hub/views.json`, 'utf8')));
 const byKey = Object.values(keys).flatMap((b) => Object.values(b))
   .filter((a) => typeof a === 'string' && a.startsWith('mod.open:bk-')).map((a) => a.slice('mod.open:bk-'.length));
-const mine = [...new Set([...byKey.filter((c) => !views.includes(c)), 'aviso', 'seguir'])].sort();
+const mine = [...new Set([...byKey.filter((c) => !views.includes(c)), 'aviso', 'seguir', 'pop'])].sort();
+// Los que no tienen tecla salen de NO_KEY en lib/herdr_install.py: que sean los mismos que suma este test
+assert.deepEqual(/^NO_KEY = \(([^)]*)\)/m.exec(fs.readFileSync(`${root}/lib/herdr_install.py`, 'utf8'))[1].match(/bk-[a-z]+/g).sort(),
+  ['bk-aviso', 'bk-pop', 'bk-seguir']);
 let said = [], hcs = [], overlays = [];
 const Bk2 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
   'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
@@ -199,6 +202,41 @@ ok('seguir (el clic de «Resumen listo») abre bk handoff --seguir en un popup s
   await assert.rejects(() => bk3.handle('ayuda'), /sin core/);
   assert.equal(st.overlays.length, 3);
   ok('ayuda: si hc no la arranca, lo dice y no abre un popup vacío');
+}
+// bk-pop: un panel del hub (alt+k → «Monitor de agentes», la radio, el editor de perfiles) pide un programa de
+// pantalla completa. El panel se cierra antes de que hc conteste, así que termPopup (mods/hub/kit.js) no espera
+// nada: deja el pedido en shared y abre bk-pop; este mod lo lee y abre el popup (2026-11-19).
+{
+  const kitSrc = fs.readFileSync(`${root}/herdr/mods/hub/kit.js`, 'utf8');
+  const fn = /^export function termPopup[\s\S]*?^}$/m.exec(kitSrc)[0].replace(/^export /, '');
+  const st = { shared: {}, runs: [], hcs: [], overlays: [] };
+  // Sin hc ni exec a mano: si termPopup volviera a esperar a hc, esto tira ReferenceError
+  const termPopup = new Function('setShared', 'run', 'focused', 'cwd', 'PEDIDO', fn + '\nreturn termPopup;')(
+    (k, v) => { st.shared[k] = v; }, (n, a) => st.runs.push([n, a]), () => ({ terminal: 't1' }), () => '/proj', 'bk.pop.pedido');
+  const back = termPopup('monitor', "'bk' monitor", '/proj/sub');
+  assert.equal(back, undefined, 'termPopup no devuelve una promesa: no queda nada por esperar con el panel cerrado');
+  assert.deepEqual(st.runs, [['mod.open', { name: 'bk-pop' }]]);
+  assert.deepEqual(st.shared['bk.pop.pedido'], { name: 'monitor', cmd: "'bk' monitor", dir: '/proj/sub', from: 't1', w: 0.9, h: 0.85 });
+  assert.ok(kitSrc.includes('const PEDIDO = "bk.pop.pedido"') && source.includes('const PEDIDO = "bk.pop.pedido"'), 'kit.js y mods/bk usan el mismo shared');
+  ok('termPopup (mods/hub) deja el pedido en shared y abre bk-pop, sin esperar a hc');
+  const Bk4 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
+    'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
+    class {}, () => ({}), async (a) => { st.hcs.push(a); return { code: 0, stdout: '{"address":"t9"}', stderr: '' }; },
+    nope('exec'), nope('run'), () => ({}), (o) => { st.overlays.push(o); return 'o1'; }, () => {},
+    () => ({ space: 's1', tab: 'tb1', cwd: '/otro', terminal: 't5' }), () => [], () => [], () => [], () => '/home/yo',
+    nope('notify'), (k) => st.shared[k] ?? null, (k, v) => { st.shared[k] = v; }, nope('readTextFile'));
+  const bk4 = new Bk4();
+  await bk4.handle('pop');
+  const a = st.hcs[0] ?? [];
+  assert.equal(st.hcs.length, 1);
+  assert.deepEqual([a[a.indexOf('--cwd') + 1], a.includes('BK_FROM_TERM=t1'), a.at(-1).includes("'bk' monitor")], ['/proj/sub', true, true],
+    'corre el comando en la carpeta y desde la terminal que pidió el panel, no las de este mod');
+  assert.deepEqual([st.overlays.length, st.overlays[0].width, st.overlays[0].height, st.overlays[0].layout.content], [1, 0.9, 0.85, { terminal: 't9' }]);
+  assert.deepEqual([st.shared['bk.pop.pedido'], st.shared['bk.pop'].name], [null, 'monitor']);
+  ok('bk-pop abre el pedido en un popup sobre la ventana y lo borra');
+  await bk4.handle('pop');
+  assert.deepEqual([st.hcs.length, st.overlays.length], [1, 1]);
+  ok('bk-pop sin pedido no abre nada');
 }
 hcs = []; overlays = [];
 for (const v of views) {

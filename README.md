@@ -174,8 +174,9 @@ pisan con los del repo (se editan acá).
   Las catorce primeras abren un panel; las ocho que siguen son acciones sin panel; las dos últimas, comandos de Herdr.
   Sin tecla: `bk-out` (la salida de un comando que solo imprime: tokens, roles, cuentas…; lo abre `alt+k`),
   `bk-profiles` (perfiles de modelos y tareas; lo abre «Perfiles de modelos y tareas…» de `alt+k`),
-  `bk-aviso` (muestra los avisos que pide bk; solo un mod puede avisar) y `bk-seguir` (el clic del aviso «Resumen
-  listo»). El rastro de `alt+0` y la adopción los lleva el mod `bk-barra`, que está en `bk-lavanda`: en un layout
+  `bk-aviso` (muestra los avisos que pide bk; solo un mod puede avisar), `bk-seguir` (el clic del aviso «Resumen
+  listo») y `bk-pop` (abre en una terminal sobre la ventana lo que pide un panel que ya se cerró: «Monitor de agentes»
+  y «Ver un subagente» de `alt+k`, la radio a pantalla completa, el editor de perfiles). El rastro de `alt+0` y la adopción los lleva el mod `bk-barra`, que está en `bk-lavanda`: en un layout
   que no lo tenga, `alt+0` no tiene a dónde volver y adoptar queda para `bk _adopt <terminal>` o `bk handoff --term`.
 - **Ramas que se borran solas**: una rama que ya entró a la principal (su PR se mergeó en el mismo commit al que
   apunta, o la entró `bk land`) se borra sola con su worktree y, si apunta al mismo commit, la de GitHub. Lo hace
