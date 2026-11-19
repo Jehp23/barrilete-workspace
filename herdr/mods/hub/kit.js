@@ -83,11 +83,13 @@ export function goto(name, extra = {}) {
 }
 
 // Un programa de pantalla completa (bk monitor, la radio) en una terminal sobre la ventana; se cierra al salir.
-// Lo abre mods/bk (bk-pop), no el panel: quien lo pide se cierra antes, y un panel cerrado no termina lo que
-// esperaba (con el await de hc run acá, alt+k → «Monitor de agentes» no abría nada, 2026-11-19). Acá solo se
-// deja el pedido en shared "bk.pop.pedido" y se abre el mod, sin esperar nada: anda aunque el panel ya se haya ido.
-export function termPopup(name, cmd, dir, size = [0.9, 0.85]) {
+// Lo abre mods/bk (bk-pop), no el panel: un panel cerrado no termina lo que esperaba (con el await de hc run acá,
+// alt+k → «Monitor de agentes» no abría nada) ni guarda lo que escribe en shared después de cerrarse (con el pedido
+// después de p.close(), bk-pop lo encontraba vacío; 2026-11-19). Por eso el orden es este: el pedido, cerrar el
+// panel que lo pide (panel) y abrir bk-pop, todo sin esperar nada.
+export function termPopup(panel, name, cmd, dir, size = [0.9, 0.85]) {
   setShared(PEDIDO, { name, cmd, dir: dir || cwd(), from: focused()?.terminal ?? "", w: size[0], h: size[1] });
+  panel?.close();
   run("mod.open", { name: "bk-pop" });
 }
 

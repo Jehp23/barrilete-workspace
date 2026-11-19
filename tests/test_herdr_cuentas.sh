@@ -20,7 +20,7 @@ const pops = [];
 const NATIVE = new Function('div', 'h_flex', 'run', 'openOverlay', 'focused', 'notify', 'Panel', 'rank', 'bk', 'bin', 'launch',
   'goto', 'termPopup', 'chips', 'keyOf', 'lit', 'cwd', 'lastLine', psrc + '\nreturn NATIVE;')(
   el, el, () => {}, () => {}, () => null, () => {}, class {}, () => [], async () => ({}), () => '/repo/bin/bk', () => {},
-  () => {}, (...a) => pops.push(a), () => {}, () => {}, el, () => '/proj', (s) => s);
+  () => {}, (panel, ...a) => { pops.push(a); panel.close(); }, () => {}, () => {}, el, () => '/proj', (s) => s);
 let n = 0;
 const ok = (what) => console.log(`ok ${++n} - ${what}`);
 // Una paleta falsa: askFor guarda la pregunta; responder la corre como el enter del panel

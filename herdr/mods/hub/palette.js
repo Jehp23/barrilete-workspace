@@ -24,8 +24,7 @@ const NOMBRE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const cuenta = ({ title, help, verb, ok = (n) => n !== "default" && NOMBRE.test(n), cmd }) => {
   const ask = (p, error) => p.askFor({ label: "cuenta", title, help: error ?? help, verb, run: (text) => {
     if (!ok(text)) return ask(p, `«${text}» no sirve: minúsculas, números y guiones, empezando con letra o número.`);
-    p.close();
-    termPopup("account", `'${bin()}' ${cmd(text)}`, cwd(), [0.7, 0.6]);
+    termPopup(p, "account", `'${bin()}' ${cmd(text)}`, cwd(), [0.7, 0.6]);
   } });
   return (p) => ask(p);
 };
@@ -113,8 +112,8 @@ export default class Palette extends Panel {
     const go = (extra) => {
       const all = [...args, ...extra];
       if (e.kind === "show") return goto("bk-out", { props: { title: e.label, args: all, dir: cwd() } });
+      if (e.kind === "view") return termPopup(p, args[0], `'${bin()}' ${all.join(" ")}`, cwd());
       p.close();
-      if (e.kind === "view") return termPopup(args[0], `'${bin()}' ${all.join(" ")}`, cwd());
       launch(e.label, all);
     };
     if (e.arg) return p.askFor({ label: args[0], title: e.label, help: `Falta: ${e.arg}`, run: (text) => go(text.split(/\s+/)) });

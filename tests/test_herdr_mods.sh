@@ -209,16 +209,27 @@ ok('seguir (el clic de «Resumen listo») abre bk handoff --seguir en un popup s
 {
   const kitSrc = fs.readFileSync(`${root}/herdr/mods/hub/kit.js`, 'utf8');
   const fn = /^export function termPopup[\s\S]*?^}$/m.exec(kitSrc)[0].replace(/^export /, '');
-  const st = { shared: {}, runs: [], hcs: [], overlays: [] };
+  const st = { shared: {}, runs: [], hcs: [], overlays: [], closed: false };
+  // Como en Herdr: lo que un panel escribe en shared después de cerrarse se pierde (2026-11-19)
+  const panel = { close() { st.closed = true; } };
   // Sin hc ni exec a mano: si termPopup volviera a esperar a hc, esto tira ReferenceError
   const termPopup = new Function('setShared', 'run', 'focused', 'cwd', 'PEDIDO', fn + '\nreturn termPopup;')(
-    (k, v) => { st.shared[k] = v; }, (n, a) => st.runs.push([n, a]), () => ({ terminal: 't1' }), () => '/proj', 'bk.pop.pedido');
-  const back = termPopup('monitor', "'bk' monitor", '/proj/sub');
+    (k, v) => { if (!st.closed) st.shared[k] = v; }, (n, a) => st.runs.push([n, a, st.closed]), () => ({ terminal: 't1' }), () => '/proj', 'bk.pop.pedido');
+  const back = termPopup(panel, 'monitor', "'bk' monitor", '/proj/sub');
   assert.equal(back, undefined, 'termPopup no devuelve una promesa: no queda nada por esperar con el panel cerrado');
-  assert.deepEqual(st.runs, [['mod.open', { name: 'bk-pop' }]]);
-  assert.deepEqual(st.shared['bk.pop.pedido'], { name: 'monitor', cmd: "'bk' monitor", dir: '/proj/sub', from: 't1', w: 0.9, h: 0.85 });
+  assert.equal(st.closed, true, 'cierra el panel que lo pidió');
+  assert.deepEqual(st.runs, [['mod.open', { name: 'bk-pop' }, true]], 'abre bk-pop con el panel ya cerrado');
+  assert.deepEqual(st.shared['bk.pop.pedido'], { name: 'monitor', cmd: "'bk' monitor", dir: '/proj/sub', from: 't1', w: 0.9, h: 0.85 },
+    'el pedido se escribe antes de cerrar el panel');
   assert.ok(kitSrc.includes('const PEDIDO = "bk.pop.pedido"') && source.includes('const PEDIDO = "bk.pop.pedido"'), 'kit.js y mods/bk usan el mismo shared');
-  ok('termPopup (mods/hub) deja el pedido en shared y abre bk-pop, sin esperar a hc');
+  // Ningún panel cierra por su cuenta antes de pedir el popup: termPopup lo cierra después de dejar el pedido
+  for (const f of ['palette', 'song', 'profiles']) {
+    const src = fs.readFileSync(`${root}/herdr/mods/hub/${f}.js`, 'utf8');
+    const calls = src.match(/termPopup\(([^,]*),/g) ?? [];
+    assert.ok(calls.length && calls.every((c) => /termPopup\((p|this),/.test(c)), `${f}.js le pasa el panel a termPopup: ${calls}`);
+    assert.ok(!/close\(\);\s*\n?\s*(if \(.*\) return )?termPopup/.test(src), `${f}.js no cierra el panel antes de termPopup`);
+  }
+  ok('termPopup (mods/hub) deja el pedido en shared, después cierra el panel y abre bk-pop, sin esperar a hc');
   const Bk4 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
     'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
     class {}, () => ({}), async (a) => { st.hcs.push(a); return { code: 0, stdout: '{"address":"t9"}', stderr: '' }; },
