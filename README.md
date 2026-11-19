@@ -350,6 +350,9 @@ las mismas (`/resume` y `alt+s` ven todas).
   abierto sigue con la anterior hasta relanzarlo.
 - `bk account login <cuenta>` rehace el login de una cuenta; `bk account login default` el de la de siempre (`~/.claude`),
   aunque esta sesión use otra. Si dos cuentas muestran el mismo email en `bk account`, en la práctica son una sola.
+- En Herdr, `alt+k` tiene «Agregar una cuenta de Claude…», «Agregar una cuenta de Codex…» y «Volver a iniciar sesión en
+  una cuenta…»: piden el nombre (minúsculas, números y guiones; uno que no sirve vuelve a preguntar) y abren
+  `bk account new` o `bk account login` en una terminal sobre la ventana, que se cierra cuando termina el login.
 
 ## Lo que te espera (`bk monitor` · `bk checkpoints`)
 - `bk monitor`: pantalla para el otro monitor. Arriba *Te esperan* (preguntas, permisos y checkpoints, con el comando

@@ -18,6 +18,21 @@ const bitacora = (topic) => {
 const herdr = (name, args) => (p) => { p.close(); run(name, args); };
 const out = (title, args) => (p) => goto("bk-out", { props: { title, args, dir: cwd() } });
 
+// Las cuentas (bk account), sin tipear el comando: pide el nombre y hace el login en una terminal sobre la ventana.
+// El nombre se valida como en lib/accounts.py antes de llegar al shell; uno que no sirve vuelve a preguntar.
+const NOMBRE = /^[a-z0-9][a-z0-9-]{0,30}$/;
+const cuenta = ({ title, help, verb, ok = (n) => n !== "default" && NOMBRE.test(n), cmd }) => {
+  const ask = (p, error) => p.askFor({ label: "cuenta", title, help: error ?? help, verb, run: (text) => {
+    if (!ok(text)) return ask(p, `«${text}» no sirve: minúsculas, números y guiones, empezando con letra o número.`);
+    p.close();
+    termPopup("account", `'${bin()}' ${cmd(text)}`, cwd(), [0.7, 0.6]);
+  } });
+  return (p) => ask(p);
+};
+const nuevaCuenta = (prov, Prov) => cuenta({ title: `Nombre de la cuenta nueva de ${Prov}`, verb: "crear e iniciar sesión",
+  help: `Minúsculas, números y guiones (p. ej. trabajo). Después se abre el login de ${Prov}; las conversaciones son las mismas de siempre.`,
+  cmd: (n) => `account new ${prov} ${n}` });
+
 // [id, grupo, título, comando que se ve a la derecha, tecla (acción de keys.json) | null, palabras, acción]
 const NATIVE = [
   ["issues", "Agentes", "Implementar un issue…", "bk run", "mod.open:bk-issues", "lanzar implementer agente", view("issues")],
@@ -37,6 +52,11 @@ const NATIVE = [
     run: (text) => { p.close(); bitacora(text); } })],
   ["new", "Chats", "Nuevo… (rama, suelto, otro proyecto)", "bk new", "mod.open:bk-new", "workspace abrir proyecto worktree", view("new")],
   ["sessions", "Chats", "Sesiones: saltar o retomar", "bk s", "mod.open:bk-sessions", "resume recientes orca", view("sessions")],
+  ["account-claude", "Sesión", "Agregar una cuenta de Claude…", "bk account new claude", null, "cuenta login anthropic usuario mail nueva sumar", nuevaCuenta("claude", "Claude")],
+  ["account-codex", "Sesión", "Agregar una cuenta de Codex…", "bk account new codex", null, "cuenta login openai chatgpt usuario nueva sumar", nuevaCuenta("codex", "Codex")],
+  ["account-login", "Sesión", "Volver a iniciar sesión en una cuenta…", "bk account login", null, "cuenta login sesión vencida credenciales",
+    cuenta({ title: "¿En qué cuenta?", verb: "iniciar sesión", ok: (n) => NOMBRE.test(n),
+      help: "Su nombre, como lo muestra «Cuentas de Claude y Codex» (default: la de siempre de Claude).", cmd: (n) => `account login ${n}` })],
   ["handoff", "Chats", "Pedir el resumen y seguir en un chat nuevo", "bk handoff", "mod.open:bk-handoff", "contexto clear", view("handoff")],
   ["context", "Chats", "Umbral de contexto: con cuánto seguir en un chat nuevo…", "bk context", "mod.open:bk-handoff", "contexto ventana tokens umbral límite 200k handoff resumen",
     // alt+h ya parado en el umbral en uso; la forma del popup es la de "handoff" en views.json
