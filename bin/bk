@@ -159,7 +159,8 @@ EOF
 project_root() {
   local root
   root=$(git rev-parse --show-toplevel 2>/dev/null) || die "no estás en un repo git"
-  [ -f "$root/scripts/agents/guardrails.py" ] || die "$root no es un proyecto Barrilete (falta scripts/agents/guardrails.py)"
+  # Sin los scripts del kit no se lanza: lib/kit_check.py dice por qué (sin kit, un kit 0.x, una instalación a medias)
+  [ -f "$root/scripts/agents/guardrails.py" ] || die "$(python3 "$WS/lib/kit_check.py" "$root" || true)"
   printf '%s' "$root"
 }
 

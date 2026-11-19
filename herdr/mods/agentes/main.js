@@ -397,11 +397,14 @@ export default class Agents extends View {
     // ⏎ (o clic): en AHORA va al agente; en un libre pide confirmar el lanzamiento. GitHub es solo g.
     const enter = (r) => {
       if (r?.agent) { close(); return run("pane.focus", { terminal: r.agent.address }); }
-      if (r?.kind === "free" && e.dirs?.[r.repo] && !this.launched.has(r.key)) this.confirm = r.key;
+      if (r?.kind === "free" && canLaunch(r) && !this.launched.has(r.key)) this.confirm = r.key;
     };
+    // Se lanza solo en un repo con carpeta y con un kit que bk sabe usar (nolaunch: bk _epica dice por qué no)
+    const noWhy = (r) => e.nolaunch?.[r.repo] ?? "";
+    const canLaunch = (r) => Boolean(e.dirs?.[r.repo]) && !noWhy(r);
     const launch = (r, cx) => {
       const dir = e.dirs?.[r.repo];
-      if (!dir || this.busy) return;
+      if (!canLaunch(r) || this.busy) return;
       this.busy = r.key;
       this.errors.delete(r.key);
       cx.spawn(async (cx) => {
@@ -429,6 +432,7 @@ export default class Agents extends View {
         : r.kind === "wait" ? [div().text_color(t.dim).child(`espera ${r.blocked_by.map((b) => p.label.get(ekey(b)) ?? `${short(b.repo)}#${b.number}`).join(", ")}`)]
         : r.kind === "free" ? [this.busy === r.key ? div().text_color(t.dim).child("lanzando…")
           : this.launched.has(r.key) ? div().text_color(t.done).tooltip("bk avisa cuando el agente arranca, o si falló").child("lanzado")
+          : on && noWhy(r) ? div().id(`nolaunch-${r.key}`).text_color(t.blocked).tooltip(noWhy(r)).child("no se puede lanzar")
           : on && e.dirs?.[r.repo] ? div().id(`launch-${r.key}`).px(8).py(2).rounded(5).bg(t.accent).text_color(t.accent_foreground ?? t.background).font_medium().cursor_pointer()
             .on_click((_ev, cx) => { cx.stop_propagation(); this.confirm = r.key; cx.notify(); }).child("Lanzar")
           : on ? div().text_color(t.dim).child(`sin carpeta para ${short(r.repo)}`) : div()]
@@ -443,6 +447,8 @@ export default class Agents extends View {
         .child(div().flex_1().min_w(0).truncate().text_color(r.kind === "wait" || r.kind === "done" ? t.dim : t.foreground).child(r.title))
         .child(h_flex().flex_none().gap(6).items_center().text_size(11).children(right));
       const extra = [];
+      // Elegido en un repo donde no se puede lanzar: el motivo entero, debajo (lo mismo que diría bk run)
+      if (on && r.kind === "free" && noWhy(r) && !err) extra.push(div().id("epic-nolaunch").mx(POP.pad).ml(indent).mb(4).text_size(11).text_color(t.blocked).truncate().tooltip(noWhy(r)).child(noWhy(r)));
       if (err) extra.push(div().mx(POP.pad).ml(indent).mb(4).text_size(11).text_color(t.blocked).truncate().tooltip(err).child(err));
       if (this.confirm === r.key) {
         // Un solo renglón: el comando y su carpeta a la izquierda, los botones a la derecha

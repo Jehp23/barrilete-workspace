@@ -15,12 +15,13 @@ padre en GitHub, o el issue mismo si tiene sub-issues. Imprime un JSON:
 
   {"issue": 1152, "repo": "o/r", "epic": {"repo": "o/r", "number": 1150, "title": "…", "done": 5, "total": 7,
     "subs": [{"repo": "o/r", "number": 1151, "title": "…", "state": "open", "blocked_by": [{"repo": "o/x", "number": 9}]}, …],
-    "dirs": {"o/r": "/Users/yo/r", "o/x": "/Users/yo/x"}}}
+    "dirs": {"o/r": "/Users/yo/r", "o/x": "/Users/yo/x"}, "nolaunch": {"o/x": "x tiene el kit 0.9.0: …"}}}
 
 `epic` es null si el chat no tiene issue o el issue no tiene épica; `issue` es null sin issue; `repo` es el del issue
 (el de la carpeta del chat). `subs` son los sub-issues de la épica (pueden ser de otro repo), y de los abiertos, los
 issues abiertos que los bloquean (`blocked_by`). `dirs` dice dónde lanzar un sub-issue de cada repo (`bk run N` corre
-en esa carpeta): el checkout principal de los chats de esa épica, si no ~/<nombre del repo> si existe. Lo de GitHub se
+en esa carpeta): el checkout principal de los chats de esa épica, si no ~/<nombre del repo> si existe. `nolaunch`
+dice, de esos repos, en cuáles no se puede lanzar y por qué (lib/kit_check.py: sin barrilete-kit 2 o más nuevo). Lo de GitHub se
 guarda unos minutos en ~/.cache/bk/epica.json (BK_CACHE_DIR): la barra lo pide seguido y no debe pegarle a GitHub
 en cada dibujo. Sin red, lo último guardado aunque esté vencido; si no hay nada, epic null y "offline": true. Los
 sub-issues de cada épica, igual, en ~/.cache/bk/epica-subs.json (sin red y sin nada guardado, `subs` no está).
@@ -30,6 +31,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import agents as AG
+import kit_check
 
 TTL = 300
 CACHE = os.path.join(os.environ.get("BK_CACHE_DIR", os.path.expanduser("~/.cache/bk")), "epica.json")
@@ -301,6 +303,8 @@ def with_subs(out, main_dirs):
             if os.path.isdir(guess):
                 d[r] = guess
         e["dirs"] = d
+        # Los repos donde no se puede lanzar, con el motivo (un kit viejo): el popup lo dice en vez de «Lanzar»
+        e["nolaunch"] = {r: why for r, dir_ in sorted(d.items()) if (why := kit_check.problem(dir_))}
 
 
 def main(argv):
