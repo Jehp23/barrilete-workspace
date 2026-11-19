@@ -8,7 +8,9 @@ import { h_flex, v_flex } from "gpui-base";
 import { terminals, keys, run, props, theme } from "herdr";
 
 export const NOMBRE = "Piola";   // el mismo en mods/pestanas, en lib/ayudante.md y en el saludo de bk _ayuda
-export const LEMA = "el ayudante del workspace · Codex en el repo de bk";
+// Una sola columna de texto que se corta: en un popup angosto, una columna aparte para el aviso de Esc se le
+// montaba encima al estado (2026-11-19). Lo que importa va primero.
+export const LEMA = "esc interrumpe a Codex · el ayudante del workspace";
 const MOD = "bk-ayuda";          // el mod que lo muestra y lo esconde (alt+y)
 const GLYPH = { alt: "⌥", cmd: "⌘", ctrl: "⌃", shift: "⇧" };
 export const WORD = { working: "trabajando", blocked: "te espera", done: "terminó" };
@@ -40,12 +42,11 @@ export default class Ayudante extends View {
       .child(div().size(28).flex_none().rounded(8).bg(al(t.accent, "26")).flex().items_center().justify_center()
         .child(svg("mods/bk-ayudante/piola.svg").size(19).text_color(t.accent)))
       .child(v_flex().flex_1().min_w(0).gap(1)
-        .child(h_flex().gap(8).items_center()
+        .child(h_flex().min_w(0).gap(8).items_center().overflow_hidden()
           .child(div().flex_none().text_size(13.5).font_bold().text_color(t.foreground).child(NOMBRE))
           .when(Boolean(word), (el) => el.child(div().flex_none().px(6).h(17).flex().items_center().rounded(5).bg(al(color, "22"))
             .text_size(10.5).line_height(1).font_medium().text_color(color).child(word))))
         .child(div().truncate().font_family("Geist").text_size(11.5).text_color(t.dim).child(LEMA)))
-      .child(div().flex_none().font_family("Geist").text_size(11).text_color(t.dim).child("esc interrumpe a Codex"))
       .child(h_flex().id("ay-hide").h(26).pl(5).pr(9).gap(6).flex_none().items_center().rounded(7).cursor_pointer()
         .border_1().border_color(t.border).bg(t.raised).hover((s) => s.bg(t.hover))
         .tooltip("Esconder a Piola: la conversación sigue abierta")
