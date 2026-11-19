@@ -12,19 +12,25 @@ const [root] = process.argv.slice(2);
 const strip = (s) => s.replace(/^import [\s\S]*?;$/gm, '').replace(/^export (default )?/gm, '');
 const kit = strip(fs.readFileSync(`${root}/herdr/mods/pestanas/kit.js`, 'utf8'));
 const main = strip(fs.readFileSync(`${root}/herdr/mods/pestanas/main.js`, 'utf8'));
-const env = { focus: null, panes: [], terms: [], layout: {}, ran: [], exec: async () => ({ code: 1, stdout: '' }) };
+const env = { focus: null, panes: [], terms: [], layout: {}, ran: [], keys: [], clicks: {}, tips: {}, exec: async () => ({ code: 1, stdout: '' }) };
 // Un elemento falso: cualquier método devuelve el mismo, para poder llamar a render()
-const el = new Proxy(function () {}, { get: (_t, k) => (k === 'then' ? undefined : () => el), apply: () => el });
+// Anota el clic de cada elemento con id (env.clicks[id]), para poder apretarlo
+const el = new Proxy(function () {}, { get: (_t, k) => (k === 'then' ? undefined : (...a) => {
+  if (k === 'id') env.lastId = a[0];
+  if (k === 'on_click') env.clicks[env.lastId] = a[0];
+  if (k === 'tooltip') env.tips[env.lastId] = a[0];
+  return el;
+}), apply: () => el });
 const store = new Map();
 const M = new Function('env', 'el', 'localStorage', `
   const div = () => el, svg = div, image = div, h_flex = div, v_flex = div;
   class View {}
   const focused = () => env.focus, panes = () => env.panes, terminals = () => env.terms, home = () => '/h';
   const exec = (...a) => env.exec(...a), shared = () => null, layout = () => env.layout, agents = () => [], spaces = () => [];
-  const run = (...a) => env.ran.push(a), theme = () => ({}), window = () => null, settings = () => ({});
+  const run = (...a) => env.ran.push(a), theme = () => ({}), window = () => null, settings = () => ({}), keys = () => env.keys;
   ${kit}
   ${main}
-  return { chatArgs, context, waiting, Pestanas };`)(env, el, { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) });
+  return { chatArgs, context, waiting, Pestanas, helperAlive, keyOfMod, helperTip, AYUDA, AYUDA_MOD };`)(env, el, { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) });
 let n = 0;
 const ok = (msg) => console.log(`ok ${++n} - ${msg}`);
 
@@ -81,5 +87,29 @@ env.focus = null;
 await bar.load();
 assert.deepEqual([bar.key, bar.todo], ['-', null]);
 ok('sin terminal enfocada: nada');
+
+// El botón «Ayudante»: abre (o esconde) el popup del ayudante del workspace, el mismo mod que alt+y
+const bkSrc = fs.readFileSync(`${root}/herdr/mods/bk/main.js`, 'utf8');
+assert.equal(bkSrc.match(/^const AYUDA = "([^"]+)";/m)?.[1], M.AYUDA);
+const realKeys = Object.entries(JSON.parse(fs.readFileSync(`${root}/herdr/keys.json`, 'utf8')).global).map(([keys, action]) => ({ section: 'global', keys, action }));
+assert.equal(realKeys.filter((b) => b.action === `mod.open:${M.AYUDA_MOD}`).length, 1);
+assert.ok(bkSrc.includes(`if (c === "${M.AYUDA_MOD.slice(3)}") return this.ayuda();`));
+ok('ayudante: la franja busca la terminal con la misma etiqueta que le pone mods/bk, y su mod tiene tecla y acción');
+assert.deepEqual([M.helperAlive([]), M.helperAlive([{ state: 'live', labels: { 'bk.kind': 'term' } }]),
+  M.helperAlive([{ state: 'exited', labels: { 'bk.kind': M.AYUDA } }]), M.helperAlive([{ state: 'live', labels: { 'bk.kind': M.AYUDA } }])],
+  [false, false, false, true]);
+ok('ayudante: encendido solo con su terminal viva (no con otra terminal ni con una que ya salió)');
+assert.deepEqual([M.keyOfMod(M.AYUDA_MOD, realKeys), M.keyOfMod(M.AYUDA_MOD, []), M.keyOfMod('bk-go1', [{ section: 'global', keys: 'cmd-shift-1', action: 'mod.open:bk-go1' }])],
+  ['⌥Y', '', '⌘⇧1']);
+assert.match(M.helperTip(false, '⌥Y'), /^Ayudante del workspace: .* · ⌥Y$/);
+assert.match(M.helperTip(true, ''), /volver a su conversación$/);
+ok('ayudante: el botón dice su tecla (la de keys.json) y, con la sesión abierta, que vuelve a su conversación');
+env.keys = realKeys; env.ran = []; env.clicks = {}; env.tips = {};
+bar.render({ spawn() {} });
+assert.equal(typeof env.clicks.ayudante, 'function', 'la franja dibuja el botón');
+env.clicks.ayudante();
+assert.deepEqual([env.ran, env.tips.ayudante], [[['mod.open', { name: 'bk-ayuda' }]], M.helperTip(false, '⌥Y')]);
+assert.ok(fs.existsSync(`${root}/herdr/mods/pestanas/ayuda.svg`) && main.includes('svg("mods/bk-pestanas/ayuda.svg")'));
+ok('ayudante: la franja dibuja el botón con su icono y el clic abre bk-ayuda');
 console.log(`1..${n}`);
 JS

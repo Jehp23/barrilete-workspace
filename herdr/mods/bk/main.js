@@ -1,5 +1,5 @@
 // bk en Herdr: las acciones sin panel (ir a la ventana N, al agente N, al próximo que te espera, volver, chat
-// nuevo, terminal rápida) y los avisos que pide bk. Los paneles (comandos, issues, agentes…) son mods/hub.
+// nuevo, terminal rápida, el ayudante) y los avisos que pide bk. Los paneles (comandos, issues, agentes…) son mods/hub.
 // keys.json no puede correr un programa ni pasarle argumentos a un mod: cada tecla abre un mod con el nombre
 // del comando ("alt-j": "mod.open:bk-next"), que hace lo suyo y se cierra. Todos son este mismo archivo
 // (lib/herdr_install.py lo copia a mods/bk-<comando>); el comando sale del nombre con que Herdr lo abrió.
@@ -17,6 +17,9 @@ const AVISOS = ".cache/bk/herdr-avisos";   // la cola de hd_notice (lib/herdr.sh
 // Lo que queda a la vista un aviso sin clic, por nivel: un error se tiene que poder leer
 const AVISO_NIVEL = { info: 5000, success: 5000, warning: 15000, error: 15000 };
 const POP = "bk.pop";   // el popup abierto, compartido entre las copias: { name, id, terminal, keep }
+const AYUDA = "ayuda";  // bk.kind de la terminal del ayudante (alt+y); la franja de arriba la busca con la misma
+// Lo que corre esa terminal ($0 es bk): si puede arrancar, bk _ayuda toma su lugar; si no, queda el motivo a la vista
+const AYUDA_SH = `"$0" --dry-run _ayuda >/dev/null && exec "$0" _ayuda; printf '\\n  (enter para cerrar) '; read -r _`;
 
 const label = (t, k) => t.labels?.[k] ?? "";
 const live = (t) => t.state === "live";
@@ -46,6 +49,7 @@ export default class Bk extends View {
     const f = focused();
     if (c === "seguir") return this.popup(c, SEGUIR, f);
     if (c === "term") return this.term(f);
+    if (c === "ayuda") return this.ayuda();
     if (c === "aviso") return this.aviso();
     if (c === "back") return this.show(f, (t) => label(t, "bk.kind") === "chat", 1, "este espacio no tiene un chat de bk");
     if (c === "chat") return this.chat(f);
@@ -148,6 +152,24 @@ export default class Bk extends View {
       addr = JSON.parse(r.stdout).address;
     }
     this.open("term", addr, { w: 0.85, h: 0.75 }, true);
+  }
+
+  // alt+y, o el botón «Ayudante» de la franja de arriba (mods/pestanas): el ayudante del workspace, una sesión de
+  // Codex en el repo de bk (bk _ayuda) en un popup. Uno solo para toda la ventana, sin pestaña ni fila en la lista
+  // de agentes. Esconderlo no lo cierra: vuelve con su conversación; si saliste de Codex, la próxima vez empieza
+  // uno nuevo. Si no puede arrancar (no está Codex: lo dice bk --dry-run _ayuda), el popup espera un enter para
+  // que se lea por qué; salir de Codex, en cambio, lo cierra sin preguntar.
+  // Temporal: hasta que el workspace quede pulido.
+  async ayuda() {
+    if ((await this.closePop()) === "ayuda") return;
+    let addr = terminals().find((t) => live(t) && label(t, "bk.kind") === AYUDA)?.address;
+    if (!addr) {
+      const r = await hc(["run", "--json", "--bg", "--no-parent", "--rm", "--cwd", home(), "--label", `bk.kind=${AYUDA}`,
+        "--", "env", "BK_BACKEND=herdr", "sh", "-c", AYUDA_SH, shared("bk.bin") || "bk"]);
+      if (r.code !== 0) throw new Error(r.stderr.trim() || "hc no abrió el ayudante");
+      addr = JSON.parse(r.stdout).address;
+    }
+    this.open("ayuda", addr, { w: 0.6, h: 0.85 }, true);
   }
 
   // Mostrar la pestaña de una terminal (su espacio, su pestaña y el foco en ella)

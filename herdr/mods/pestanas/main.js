@@ -5,15 +5,33 @@
 // del issue no van acá (eran demasiado): están en la pestaña TODO del lado derecho.
 // A la derecha: los agentes que te esperan (de cualquier espacio, menos el enfocado), Archivos y Cambios si están
 // habilitados, y mostrar u ocultar el lado derecho. El panel Archivos/Cambios se recuerda por espacio.
+// Antes de esos, «Ayudante»: el Codex que ayuda con lo que no ande en el workspace, en un popup (alt+y, mods/bk).
+// Temporal: hasta que el workspace quede pulido.
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { exec, spaces, panes, terminals, agents, focused, run, theme, window, shared, layout, settings, home } from "herdr";
+import { exec, spaces, panes, terminals, agents, focused, run, theme, window, shared, layout, settings, home, keys } from "herdr";
 import { PROSE, al, find, ids, said, mark, keycap, iconButton } from "./kit.js";
 
 const EVERY = 20000;   // bk _todo y bk _epica guardan lo de GitHub unos minutos: esto solo vuelve a leer su caché
 const WAIT_MAX = 4;    // chips de «te espera»; los demás, en un +N
 const bin = () => shared("bk.bin") || "bk";
+const AYUDA = "ayuda";              // bk.kind de la terminal del ayudante (la misma que en mods/bk)
+const AYUDA_MOD = "bk-ayuda";       // el mod que lo abre y lo esconde (alt+y)
+const GLYPH = { alt: "⌥", cmd: "⌘", ctrl: "⌃", shift: "⇧" };
+
+// ¿Sigue abierta la sesión del ayudante? (su terminal vive aunque el popup esté escondido)
+export const helperAlive = (ts = terminals()) => ts.some((x) => x.state === "live" && x.labels?.["bk.kind"] === AYUDA);
+// La tecla que abre un mod, en símbolos ("alt-y" → "⌥Y"); "" si no tiene
+export function keyOfMod(name, all = keys()) {
+  const k = all.find((b) => b.section === "global" && b.action === `mod.open:${name}`)?.keys;
+  return k ? k.split("-").map((p) => GLYPH[p] ?? p.toUpperCase()).join("") : "";
+}
+// Lo que dice el botón al pasar por encima
+export function helperTip(alive, key) {
+  return (alive ? "Ayudante del workspace (Codex): volver a su conversación" : "Ayudante del workspace: un Codex para lo que no ande")
+    + (key ? ` · ${key}` : "");
+}
 const gh = (url) => { if (/^https:\/\/github\.com\//.test(url ?? "")) exec("open", [url]); };
 
 // Lo que bk necesita para saber el issue del chat enfocado (como el lado derecho y ÉPICAS): carpeta, rama, su
@@ -162,6 +180,13 @@ export default class Pestanas extends View {
           else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
         }).child(svg(icon).size(13)).child(label);
     };
+    // El ayudante: encendido mientras su sesión sigue abierta. El clic lo muestra o lo esconde, como alt+y.
+    const alive = helperAlive(ts);
+    const helper = () => h_flex().id("ayudante").h(24).px(8).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
+      .text_size(11.5).bg(alive ? al(t.accent, "1c") : "#00000000").text_color(alive ? t.accent : t.muted)
+      .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
+      .tooltip(helperTip(alive, keyOfMod(AYUDA_MOD))).on_click(() => run("mod.open", { name: AYUDA_MOD }))
+      .child(svg("mods/bk-pestanas/ayuda.svg").size(13)).child("Ayudante");
     const winButton = (id, label, action) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.dim)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop).on_click(action).child(label);
     return h_flex().size_full().min_w(0).pr(8).pl(lightsPadding).gap(6).items_center().bg(t.chrome)
@@ -169,6 +194,7 @@ export default class Pestanas extends View {
       .when(wait.length > 0, (el) => el.child(h_flex().id("ctx-wait").flex_none().gap(4).items_center()
         .children(wait.slice(0, WAIT_MAX).map(chip))
         .when(more > 0, (x) => x.child(div().flex_none().text_size(11).text_color(t.blocked).tooltip(wait.slice(WAIT_MAX).map((a) => a.name || a.n).join(" · ")).child(`+${more}`)))))
+      .child(helper())
       .when(enabled.includes("files"), (el) => el.child(panelButton("files", "Archivos", "mods/files/file.svg")))
       .when(enabled.includes("changes"), (el) => el.child(panelButton("changes", "Cambios", "mods/changes/changes.svg")))
       .when(Boolean(lado), (el) => el.child(iconButton(t, "lado-toggle", "mods/bk-pestanas/panel.svg", () => run("layout.toggle", { id: "lado" }), { tip: lado?.hidden ? "Mostrar el lado derecho" : "Ocultar el lado derecho", on: !lado?.hidden, stop: true, size: 15 })))

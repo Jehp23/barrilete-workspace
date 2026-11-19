@@ -47,6 +47,7 @@ const NATIVE = [
   ["branches", "Ver", "Ramas de todos los proyectos", "", "mod.open:bk-branches", "ramas branch worktree limpiar borrar", view("branches")],
   ["stats", "Ver", "Uso y costo", "bk stats · tokens", "mod.open:bk-stats", "estadísticas tokens modelos", view("stats")],
   ["term", "Ver", "Terminal rápida", "bk term", "mod.open:bk-term", "shell", view("term")],
+  ["ayuda", "Ver", "Ayudante del workspace (Codex)", "", "mod.open:bk-ayuda", "ayuda codex problema no anda arreglar soporte", view("ayuda")],
   ["keys", "Ver", "Teclas", "", "mod.open:bk-keys", "atajos ayuda shortcuts", view("keys")],
   ["music", "Ver", "Radio", "bk song", "mod.open:bk-song", "música song", view("song")],
   ["look", "Ventana", "Aspecto: tema, fuente y paneles", "", "mod.open:bk-look", "customize colores theme", view("look")],

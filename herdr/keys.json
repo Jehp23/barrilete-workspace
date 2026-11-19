@@ -18,6 +18,7 @@
     "alt-b": "mod.open:bk-branches",
     "alt-u": "mod.open:bk-stats",
     "alt-x": "mod.open:bk-term",
+    "alt-y": "mod.open:bk-ayuda",
     "alt-m": "mod.open:bk-song",
     "alt-/": "mod.open:bk-keys",
     "alt-,": "mod.open:bk-look",

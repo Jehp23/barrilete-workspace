@@ -142,6 +142,59 @@ await bk2.handle('seguir');
 assert.ok(hcs.length === 1 && hcs[0].at(-1).includes('bk handoff --seguir'), 'seguir corre bk handoff --seguir en una terminal');
 assert.deepEqual([overlays.length, overlays[0]?.width, overlays[0]?.height, overlays[0]?.layout?.content?.terminal], [1, 0.6, 0.3, 't9']);
 ok('seguir (el clic de «Resumen listo») abre bk handoff --seguir en un popup sobre la ventana');
+
+// alt+y: el ayudante del workspace, un Codex (bk _ayuda) en un popup que se esconde sin cerrarse
+{
+  const st = { terms: [], shared: { 'bk.bin': '/repo/bin/bk' }, hcs: [], overlays: [], closed: [], hcCode: 0 };
+  const Bk3 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
+    'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
+    class {}, () => ({}), async (a) => { st.hcs.push(a); return { code: st.hcCode, stdout: '{"address":"t9"}', stderr: 'sin core' }; },
+    nope('exec'), nope('run'), () => ({}), (o) => { st.overlays.push(o); return `o${st.overlays.length}`; }, (id) => st.closed.push(id),
+    () => ({ space: 's1', tab: 'tb1', cwd: '/proj', terminal: 't1' }), () => st.terms, () => [], () => [], () => '/home/yo',
+    nope('notify'), (k) => st.shared[k] ?? null, (k, v) => { st.shared[k] = v; }, nope('readTextFile'));
+  const bk3 = new Bk3();
+  await bk3.handle('ayuda');
+  const a = st.hcs[0] ?? [];
+  assert.equal(st.hcs.length, 1);
+  assert.deepEqual([a[0], a.includes('--bg'), a.includes('--rm'), a.includes('--no-parent'), a[a.indexOf('--label') + 1], a.at(-1)],
+    ['run', true, true, true, 'bk.kind=ayuda', '/repo/bin/bk']);
+  assert.deepEqual(a.slice(a.indexOf('--') + 1, -2), ['env', 'BK_BACKEND=herdr', 'sh', '-c']);
+  ok('ayuda: sin sesión abierta, arranca una terminal aparte (bk.kind=ayuda) con el bk del repo');
+  // Lo que corre esa terminal, de verdad y con un bk falso: arranca solo si bk --dry-run _ayuda dice que puede
+  const sh = a.at(-2), fake = `${home}/bk-falso`, log = `${home}/bk-falso.log`;
+  const tryIt = (rc) => {
+    fs.writeFileSync(fake, `#!/bin/sh\necho "$*" >>"${log}"\n[ "$1" = --dry-run ] && { echo "bk: no hay codex" >&2; exit ${rc}; }\nexit 0\n`, { mode: 0o755 });
+    fs.rmSync(log, { force: true });
+    const out = execFileSync('sh', ['-c', sh, fake], { encoding: 'utf8', input: '\n', stdio: ['pipe', 'pipe', 'pipe'] });
+    return [fs.readFileSync(log, 'utf8').trim().split('\n'), out.includes('enter para cerrar')];
+  };
+  assert.deepEqual(tryIt(0), [['--dry-run _ayuda', '_ayuda'], false]);
+  assert.deepEqual(tryIt(1), [['--dry-run _ayuda'], true]);
+  ok('ayuda: la terminal corre bk _ayuda; si no puede arrancar, no lo corre y espera un enter con el motivo a la vista');
+  assert.deepEqual([st.overlays.length, st.overlays[0].kind, st.overlays[0].modal, st.overlays[0].layout.content.terminal],
+    [1, 'dialog', true, 't9']);
+  assert.ok(st.overlays[0].width < 1 && st.overlays[0].height < 1, 'un popup sobre la ventana, no la ventana entera');
+  assert.deepEqual(st.shared['bk.pop'], { name: 'ayuda', id: 'o1', terminal: 't9', keep: true });
+  ok('ayuda: la muestra en un popup sobre la ventana');
+  st.terms = [{ address: 't9', state: 'live', labels: { 'bk.kind': 'ayuda' } }];
+  await bk3.handle('ayuda');
+  assert.deepEqual([st.hcs.length, st.overlays.length, st.closed, st.shared['bk.pop']], [1, 1, ['o1'], null]);
+  ok('ayuda: otra vez la esconde, sin matar la terminal ni abrir otra');
+  await bk3.handle('ayuda');
+  assert.deepEqual([st.hcs.length, st.overlays.length, st.overlays[1].layout.content.terminal], [1, 2, 't9']);
+  ok('ayuda: la próxima vuelve a mostrar la misma sesión (no arranca otro Codex)');
+  await bk3.handle('ayuda');   // escondida
+  st.terms = [{ address: 't9', state: 'exited', labels: { 'bk.kind': 'ayuda' } }, { address: 't3', state: 'live', labels: { 'bk.kind': 'term' } }];
+  await bk3.handle('ayuda');
+  assert.deepEqual([st.hcs.length, st.overlays.length], [2, 3]);
+  ok('ayuda: si saliste de Codex, arranca una sesión nueva (y la terminal rápida no cuenta como ayudante)');
+  st.terms = [{ address: 't9', state: 'live', labels: { 'bk.kind': 'ayuda' } }];
+  await bk3.handle('ayuda');   // escondida
+  st.terms = []; st.hcCode = 1;
+  await assert.rejects(() => bk3.handle('ayuda'), /sin core/);
+  assert.equal(st.overlays.length, 3);
+  ok('ayuda: si hc no la arranca, lo dice y no abre un popup vacío');
+}
 hcs = []; overlays = [];
 for (const v of views) {
   said = [];
