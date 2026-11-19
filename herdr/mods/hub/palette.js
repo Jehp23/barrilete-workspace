@@ -85,6 +85,9 @@ const NATIVE = [
 
 // Comandos de lib/palette.py que ya tienen entrada nativa arriba (no se repiten)
 const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|context|chat|song|profile|ask|models|bitacora)\b/;
+// Lo que en Herdr no va: el tema y la fuente de Ghostty (los de Herdr están en «Aspecto»), y elegir la cuenta
+// escribiendo su nombre (cada cuenta tiene su fila, accountEntries)
+const NOT_HERE = /^(theme|font)\b|^account use$/;
 const GROUPS = ["Recientes", "Perfil", "Agentes", "Chats", "Ver", "GitHub", "Sesión", "Barra", "Facultad", "Música", "Ventana"];
 
 export default class Palette extends Panel {
@@ -98,7 +101,8 @@ export default class Palette extends Panel {
   async load() {
     const d = await bk(["_hub", "palette"], { json: true, timeout: 8000 });
     this.profiles = d.profile ?? { active: null, profiles: [] };
-    this.extra = (d.items ?? []).filter((e) => !COVERED.test(e.cmd)).map((e) => ({
+    this.accounts = d.accounts ?? { space: "", using: {}, list: [] };
+    this.extra = (d.items ?? []).filter((e) => !COVERED.test(e.cmd) && !NOT_HERE.test(e.cmd)).map((e) => ({
       id: `bk:${e.cmd}`, group: GROUPS.includes(e.group) ? e.group : "Sesión", title: e.label, hint: `bk ${e.cmd}`, key: null, words: e.cmd,
       go: (p) => this.generic(p, e),
     }));
@@ -119,7 +123,25 @@ export default class Palette extends Panel {
 
   entries() {
     const native = NATIVE.map(([id, group, title, hint, action, words, go]) => ({ id, group, title, hint, key: action ? keyOf(action) : null, words, go }));
-    return [...native, ...this.profileEntries(), ...this.extra];
+    return [...native, ...this.profileEntries(), ...this.accountEntries(), ...this.extra];
+  }
+
+  // Un renglón por cuenta (bk account use, por espacio): la de siempre y las de bk account de cada proveedor que
+  // tenga alguna. Enter la elige para el espacio de acá; la que usa, marcada. El chat abierto sigue con la que
+  // tenía hasta relanzarlo («Usar otra cuenta y relanzar el chat»).
+  accountEntries() {
+    const { space, using = {}, list = [] } = this.accounts ?? {};
+    const PROV = { claude: "Claude", codex: "Codex" };
+    return Object.keys(PROV).filter((prov) => list.some((a) => a.provider === prov)).flatMap((prov) =>
+      ["default", ...list.filter((a) => a.provider === prov).map((a) => a.name)].map((name) => {
+        const shown = name === "default" ? "la de siempre" : name, on = (using[prov] ?? "default") === name;
+        return {
+          id: `account:${prov}:${name}`, group: "Sesión", key: null, hint: `bk account use ${name}${name === "default" ? ` ${prov}` : ""}`,
+          title: on ? `Cuenta de ${PROV[prov]}: ${shown} · en uso${space ? ` en ${space}` : ""}` : `Usar la cuenta de ${PROV[prov]} ${shown}${space ? ` en ${space}` : ""}`,
+          words: `cuenta usar cambiar ${prov} ${name} ${shown}`,
+          go: out(`Cuenta de ${PROV[prov]}`, ["account", "use", name, ...(name === "default" ? [prov] : [])]),
+        };
+      }));
   }
 
   // Un renglón por perfil de modelos (bk profile): escribir «barato» y enter lo cambia. El activo, marcado.

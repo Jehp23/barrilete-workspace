@@ -226,7 +226,8 @@ caller_session() {
 }
 
 # account_of <proveedor> -> la cuenta para lo que se lance desde acá (vacío: la principal)
-# Orden: bk … --account X (BK_ACCOUNT) > la del pane (la heredan los agentes) > la de la sesión de tmux.
+# Orden: bk … --account X (BK_ACCOUNT) > la del pane (la heredan los agentes) > la de la sesión de tmux o, con
+# Herdr, la del espacio del proyecto de acá (bk account use).
 account_of() {
   local prov="$1" v="" s
   if [ -n "${BK_ACCOUNT:-}" ]; then
@@ -234,7 +235,9 @@ account_of() {
     [ "$(python3 "$ACCOUNTS" provider "$BK_ACCOUNT")" = "$prov" ] && { printf '%s' "$BK_ACCOUNT"; return; }
   fi
   eval "v=\${BK_ACCOUNT_$(upper "$prov"):-}"
-  if [ -z "$v" ]; then
+  if [ -z "$v" ] && [ "$BACKEND" = herdr ]; then
+    v=$(python3 "$ACCOUNTS" space "$(project_of "$PWD")" "$prov")
+  elif [ -z "$v" ]; then
     s=$(caller_session)
     [ -z "$s" ] || v=$(tmux show-options -qv -t "$s" "@bk_account_$prov" 2>/dev/null || true)
   fi
@@ -262,7 +265,10 @@ cmd_account() {
     ""|ls|list)
       local s c x; s=$(caller_session)
       python3 "$ACCOUNTS" list
-      if [ -n "$s" ]; then
+      if [ "$BACKEND" = herdr ]; then
+        s=$(project_of "$PWD")
+        info "en el espacio $s: claude $(account_of claude | grep . || echo default) · codex $(account_of codex | grep . || echo default)"
+      elif [ -n "$s" ]; then
         c=$(tmux show-options -qv -t "$s" @bk_account_claude 2>/dev/null || true)
         x=$(tmux show-options -qv -t "$s" @bk_account_codex 2>/dev/null || true)
         info "en $s: claude ${c:-default} · codex ${x:-default}"
@@ -288,6 +294,7 @@ uso: bk account                       las cuentas (● con sesión iniciada) y l
      bk account use <nombre> [--relaunch]   usarla en esta sesión: lo que lances desde acá
                                        (agentes, chats) corre con ella. --relaunch: el chat principal
                                        también, retomando la misma conversación
+                                       (con Herdr, para el espacio del proyecto de acá)
      bk account use default [claude|codex]   volver a la de siempre
      bk run|fix|review|plan|orchestrate … --account <nombre>   solo para ese lanzamiento
 EOF
@@ -330,15 +337,28 @@ account_use() {
     shift
   done
   [ -n "$name" ] || die "bk account use <nombre> [--relaunch]"
-  local s; s=$(caller_session)
-  [ -n "$s" ] || die "bk account use va dentro de una sesión de bk (tmux)"
-  local provs=() p kv
+  local provs=() p kv s
   if [ "$name" = default ]; then
     if [ -n "$only" ]; then provs=("$only"); else provs=(claude codex); fi
   else
     p=$(python3 "$ACCOUNTS" provider "$name"); [ -n "$p" ] || die "no existe la cuenta $name (bk account)"
     provs=("$p")
   fi
+  # Herdr: la cuenta va con el espacio del proyecto de acá (no hay sesión de tmux donde anotarla)
+  if [ "$BACKEND" = herdr ]; then
+    s=$(project_of "$PWD")
+    [ "$DRY" -eq 1 ] && { info "(dry-run: el espacio $s usaría la cuenta $name)"; return 0; }
+    python3 "$ACCOUNTS" space-use "$s" "$name" ${only:+"$only"} || exit 1
+    info "el espacio $s usa la cuenta $name: los agentes y chats que lances desde ahí corren con ella"
+    if [ "$relaunch" = 1 ]; then
+      [[ " ${provs[*]} " == *" claude "* ]] && hd_relaunch_chat "$s"
+    else
+      info "el chat del espacio sigue con la anterior hasta relanzarlo (bk account use $name --relaunch)"
+    fi
+    return 0
+  fi
+  s=$(caller_session)
+  [ -n "$s" ] || die "bk account use va dentro de una sesión de bk (tmux o Herdr)"
   [ "$DRY" -eq 1 ] && { info "(dry-run: $s usaría la cuenta $name)"; return 0; }
   for p in "${provs[@]}"; do
     if [ "$name" = default ]; then

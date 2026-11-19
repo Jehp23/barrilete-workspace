@@ -113,7 +113,7 @@ pisan con los del repo (se editan acá).
   estado. `BK_NAMES_OFF=1` lo apaga.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
   su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`) avisa y no
-  corre: herdr-core ya mantiene vivas las terminales. `bk account use` sigue siendo de tmux; `--account X` anda.
+  corre: herdr-core ya mantiene vivas las terminales. `bk account use` va por espacio (ver *Cuentas*); `--account X` anda.
   `bk palette`, `new`, `changes`, `stats` y `s` en una terminal siguen siendo las pantallas de siempre; en Herdr
   sus teclas abren los paneles de abajo.
 - **Número fijo de ventana**: cada chat y cada agente toma al nacer el número libre más chico (la etiqueta `bk.id`
@@ -353,6 +353,11 @@ las mismas (`/resume` y `alt+s` ven todas).
 - En Herdr, `alt+k` tiene «Agregar una cuenta de Claude…», «Agregar una cuenta de Codex…» y «Volver a iniciar sesión en
   una cuenta…»: piden el nombre (minúsculas, números y guiones; uno que no sirve vuelve a preguntar) y abren
   `bk account new` o `bk account login` en una terminal sobre la ventana, que se cierra cuando termina el login.
+- Con Herdr no hay sesión de tmux: `bk account use` elige la cuenta para el espacio del proyecto donde lo corrés
+  (queda en `~/.local/state/bk/accounts/.espacios.json`), y lo que lances en ese espacio corre con ella; `bk account`
+  dice cuál usa. `--relaunch` abre el chat del espacio de nuevo con esa cuenta, retomando la conversación, y cierra el
+  viejo. En `alt+k` cada cuenta tiene su fila («Usar la cuenta de Claude trabajo en abra»; la que usa, marcada); los
+  temas y las fuentes de Ghostty no aparecen (los de Herdr están en «Aspecto»).
 
 ## Lo que te espera (`bk monitor` · `bk checkpoints`)
 - `bk monitor`: pantalla para el otro monitor. Arriba *Te esperan* (preguntas, permisos y checkpoints, con el comando
