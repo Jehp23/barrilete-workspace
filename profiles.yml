@@ -1,0 +1,35 @@
+# Perfiles de modelos: un juego de provider/modelo por rol, para cambiar todos de una vez.
+# Se elige con `bk profile <nombre>` o desde alt+k («Perfil: …»); el elegido vale para todos los proyectos.
+#
+# Este archivo trae los de fábrica. Al editar un perfil (bk profile set, bk profile new, el panel de alt+k)
+# bk copia este archivo a ~/.config/bk/profiles.yml y desde ahí lee y escribe: tus cambios no tocan el repo.
+#
+# Formato:
+#   <perfil>:
+#     <rol>: <provider>/<modelo>
+#   provider: claude (Claude Code) | codex (Codex CLI, todavía sin probar)
+#   modelo:   lo que acepte el CLI (claude: haiku, sonnet, opus o un id completo)
+#
+# Solo modelos: el modo (main | bk | sub) sale siempre de roles.yml. Un rol que el perfil no nombra también
+# sale de roles.yml, y el .barrilete/roles.yml de un proyecto le gana al perfil.
+
+normal:
+  planner: claude/opus
+  orchestrator: claude/opus
+  implementer: claude/sonnet
+  implementer-light: claude/haiku
+  reviewer: claude/sonnet
+
+barato:
+  planner: claude/sonnet
+  orchestrator: claude/sonnet
+  implementer: claude/sonnet
+  implementer-light: claude/haiku
+  reviewer: claude/haiku
+
+a-fondo:
+  planner: claude/opus
+  orchestrator: claude/opus
+  implementer: claude/opus
+  implementer-light: claude/sonnet
+  reviewer: claude/opus

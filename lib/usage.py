@@ -74,9 +74,53 @@ def context_tokens(u):
     return r["in"] + r["cw5"] + r["cw1h"] + r["cr"]
 
 
-# Desde cuánto contexto avisar: ámbar y rojo (la persona eligió dos niveles, 2026-11-05). Las sesiones más
-# caras de las dos semanas anteriores andaban en 350-450k de contexto medio.
-CTX_WARN, CTX_HIGH = 200_000, 400_000
+# Desde cuánto contexto avisar: ámbar y rojo (la persona eligió dos niveles, 2026-11-05). El rojo es el umbral:
+# ahí el agente deja el resumen y bk abre el chat nuevo. Lo elige la persona con `bk context <n>` (o alt+h) y queda
+# en ~/.config/bk/context (BK_CONTEXT_FILE lo cambia, para los tests); sin archivo, 200k, la ventana estándar de
+# contexto de Claude. El ámbar (sugerir /clear o un chat nuevo al terminar) va en 3/4 del umbral.
+CTX_DEFAULT = 200_000
+CTX_MIN, CTX_MAX = 50_000, 2_000_000
+_limit_cache = {}   # ruta -> (mtime, umbral)
+
+
+def ctx_file():
+    return os.environ.get("BK_CONTEXT_FILE") or os.path.expanduser("~/.config/bk/context")
+
+
+def parse_ctx(s):
+    """«200k», «200000», «1m», «1.5m» → tokens; None si no se entiende o queda fuera de CTX_MIN..CTX_MAX."""
+    m = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*([km]?)\s*", str(s or "").lower())
+    if not m:
+        return None
+    n = float(m.group(1).replace(",", ".")) * {"": 1, "k": 1_000, "m": 1_000_000}[m.group(2)]
+    n = int(round(n))
+    return n if CTX_MIN <= n <= CTX_MAX else None
+
+
+def ctx_limit():
+    """El umbral elegido (tokens): el de ~/.config/bk/context si se entiende; si no, CTX_DEFAULT."""
+    p = ctx_file()
+    try:
+        mt = os.path.getmtime(p)
+    except OSError:
+        return CTX_DEFAULT
+    hit = _limit_cache.get(p)
+    if hit and hit[0] == mt:
+        return hit[1]
+    try:
+        with open(p) as f:
+            n = parse_ctx(f.read()) or CTX_DEFAULT
+    except OSError:
+        n = CTX_DEFAULT
+    _limit_cache[p] = (mt, n)
+    return n
+
+
+def ctx_limits():
+    """(ámbar, rojo) en tokens: 3/4 del umbral y el umbral."""
+    high = ctx_limit()
+    return high * 3 // 4, high
+
 _ctx_cache = {}   # ruta -> (tamaño, tokens)
 TAIL = 512 * 1024
 
@@ -110,7 +154,7 @@ def context_of(sid=None, path=None):
 
 
 def context_of_cwd(cwd):
-    """El contexto de la sesión de Claude Code más reciente de esa carpeta: {"tokens", "level"} o None.
+    """El contexto de la sesión de Claude Code más reciente de esa carpeta: {"tokens", "level", "limit"} o None.
     Claude guarda los transcripts en PROJECTS/<ruta con "-" en todo lo que no es letra o número>; una carpeta
     sin sesiones (o un worktree, que tiene su propia ruta) da None."""
     if not cwd:
@@ -123,7 +167,7 @@ def context_of_cwd(cwd):
     if not files:
         return None
     tokens = context_of(path=max(files)[1])
-    return {"tokens": tokens, "level": ctx_level(tokens)} if tokens else None
+    return {"tokens": tokens, "level": ctx_level(tokens), "limit": ctx_limit()} if tokens else None
 
 
 def _last_turn(path, start):
@@ -146,14 +190,15 @@ def _last_turn(path, start):
 
 
 def ctx_level(tokens):
-    """"high" desde CTX_HIGH, "warn" desde CTX_WARN, "" por debajo o sin dato."""
+    """"high" desde el umbral, "warn" desde 3/4 del umbral (ctx_limits), "" por debajo o sin dato."""
     if not tokens:
         return ""
-    return "high" if tokens >= CTX_HIGH else "warn" if tokens >= CTX_WARN else ""
+    warn, high = ctx_limits()
+    return "high" if tokens >= high else "warn" if tokens >= warn else ""
 
 
 def human_ctx(tokens):
-    """412k (siempre en miles: es para comparar contra 200k y 400k)."""
+    """412k (siempre en miles: es para comparar contra el umbral)."""
     return f"{round(tokens / 1000)}k" if tokens else ""
 
 

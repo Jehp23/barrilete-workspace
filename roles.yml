@@ -9,7 +9,8 @@
 #             Criterio: bk para los roles que pueden necesitar una decisión tuya (business-logic, ADR, CI);
 #             sub para los que solo devuelven un resultado. Sin modo: bk.
 #
-# bk busca primero <proyecto>/.barrilete/roles.yml y, rol por rol, cae en este archivo.
+# bk busca primero <proyecto>/.barrilete/roles.yml, después el perfil de modelos activo (bk profile, profiles.yml;
+# solo el modelo) y, rol por rol, cae en este archivo.
 
 planner: claude/opus main
 orchestrator: claude/opus main

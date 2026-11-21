@@ -1,13 +1,14 @@
 // alt+n: crear sin salir de donde estás. Un chat más del proyecto que mirás (común, en una rama aparte o con
-// nombre), una terminal, un chat suelto, seguir desde un resumen listo (se ven los 3 más nuevos; buscando, todos)
+// nombre), el resumen del chat que mirás para seguir en uno nuevo (abre alt+h), una terminal, un chat suelto,
+// seguir desde un resumen listo (se ven los 3 más nuevos; buscando, todos)
 // u otro proyecto (bk muestra su espacio, o lo crea con su chat). Si escribís una ruta (/… o ~/…), la primera fila
 // abre esa carpeta. Lo hace todo bk (bk chat, bk open). Los datos: bk _hub projects y handoffs; los títulos de los
 // resúmenes salen de bk _hub sessions.
 
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { exec, run, home } from "herdr";
-import { Panel, rank, bk, launch, cwd, tilde, lit, pill, ago } from "./kit.js";
+import { exec, run, home, focused, agents } from "herdr";
+import { Panel, rank, bk, launch, goto, cwd, tilde, lit, pill, ago } from "./kit.js";
 
 const READY = 3;   // cuántos resúmenes se ven sin buscar (los más nuevos; buscando aparecen todos)
 const last = (path) => path.replace(/\/+$/, "").split("/").pop() || "/";
@@ -44,6 +45,8 @@ export default class New extends Panel {
     this.projects = [];
     this.handoffs = [];
     this.titles = {};     // sid → título de la sesión
+    const term = focused()?.terminal;   // ¿la terminal que mirás es un chat? (alt+h pide su resumen)
+    this.inChat = Boolean(term) && agents().some((a) => a.address === term);
   }
 
   subtitle() { return "desde " + tilde(this.dir); }
@@ -76,6 +79,9 @@ export default class New extends Panel {
     return [
       { key: "chat", group: 0, title: "Chat nuevo", hint: "bk chat", words: "claude otro pestaña", verb: "abrir el chat",
         go: () => { this.close(); launch("Chat nuevo", ["chat"], dir); } },
+      // Parado en un chat: su resumen y seguir en uno nuevo. Es alt+h (bk handoff --term), acá porque se busca en alt+n
+      ...(this.inChat ? [{ key: "resumen", group: 0, title: "Resumen de este chat y seguir en uno nuevo…", hint: "alt+h",
+        words: "handoff seguir contexto largo continuar", verb: "elegir cómo seguir", go: () => goto("bk-handoff") }] : []),
       { key: "rama", group: 0, title: "Chat en una rama aparte…", hint: "bk chat --rama", words: "branch worktree cambio", verb: "ponerle nombre a la rama",
         go: () => this.named("rama", "¿Cómo se llama el cambio?", "Queda en la rama chat/<nombre>, con su worktree y su espacio, desde la rama principal al día.",
           (text) => launch("Chat en la rama " + text, ["chat", "--rama", text], dir)) },

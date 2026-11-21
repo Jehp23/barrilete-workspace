@@ -3,12 +3,13 @@
 // Enter sobre una abierta muestra su pestaña (nativo, al instante); sobre una reciente, bk la retoma en un chat
 // nuevo de su proyecto (bk _hub session-go); sobre una abierta fuera de Herdr (tmux u otra terminal) solo avisa.
 // ctrl+x dos veces sobre una abierta la cierra: bk stop si es un agente del kit; si no, su pestaña (o solo su pane,
-// si la pestaña tiene más). Los datos: bk _hub sessions.
+// si la pestaña tiene más). Si siguió de otros chats abiertos (handoffs, bk.from), el primer ctrl+x abre bk-cerrar
+// (herdr/mods/cerrar) con la cadena entera para elegir cuáles cerrar. Los datos: bk _hub sessions.
 
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { terminals, spaces, panes, run, notify } from "herdr";
-import { Panel, rank, bk, launch, chips, lit, pill, dot, ago, tilde, reveal, lastLine } from "./kit.js";
+import { Panel, rank, bk, launch, chips, lit, pill, dot, ago, tilde, reveal, lastLine, goto } from "./kit.js";
 
 const SURE_MS = 4000;   // cuánto espera el segundo ctrl+x
 const ID_W = 22;
@@ -27,6 +28,13 @@ const STATE = {
   ended: [null, "terminó", "dim"],
 };
 const stateOf = (state) => STATE[state] ?? [null, state || "", "dim"];
+// ¿Siguió de otro chat que sigue abierto (bk.from, sin fijar)? Copia de before() de herdr/mods/menu (un test las compara)
+export const before = (term, all) => {
+  const from = term?.labels?.["bk.from"];
+  const old = from && from !== term.address && all.find((x) => x.address === from && x.state === "live");
+  return Boolean(old && !old.pinned && !old.labels?.["herdr.pinned"]);
+};
+const CERRAR = { kind: "dialog", width: 540, height: 400 };   // el SIZE de herdr/mods/cerrar
 
 export default class Sessions extends Panel {
   setup() {
@@ -105,7 +113,8 @@ export default class Sessions extends Panel {
     if (!row.open) return [["enter", "retomar en un chat nuevo"], ...tail];
     if (row.away) return tail;   // fuera de Herdr: no hay a dónde saltar
     if (!row.term) return [["enter", "buscarla con bk"], ...tail];
-    return [["enter", "ir a su pestaña"], ["ctrl-x", this.confirm === row.sid ? "de nuevo para cerrar" : "cerrar"], ...tail];
+    const shut = before(row.term, terminals()) ? "cerrar con sus chats de antes…" : this.confirm === row.sid ? "de nuevo para cerrar" : "cerrar";
+    return [["enter", "ir a su pestaña"], ["ctrl-x", shut], ...tail];
   }
 
   moved() {
@@ -136,6 +145,8 @@ export default class Sessions extends Panel {
   shut(row, cx) {
     const x = row.term, name = `«${row.title}»`;
     if (!x) return notify({ title: `No cierro ${name}`, body: "No vive en Herdr: cerrala en la terminal donde corre.", level: "warning", timeout: 5000 });
+    // Con chats de antes abiertos, el popup es la pregunta: no hace falta el segundo ctrl+x
+    if (before(x, terminals())) return goto("bk-cerrar", { props: { terminal: x.address }, overlay: CERRAR });
     if (this.confirm !== row.sid) {
       this.confirm = row.sid;
       const n = (this.asked = (this.asked ?? 0) + 1);

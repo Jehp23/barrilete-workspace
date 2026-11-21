@@ -9,7 +9,7 @@ import glob, json, os, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gentle as G
 import agents as AG   # título del issue/PR y "¿te pregunta algo?" (lo mismo que bk ls)
-import usage as U     # contexto de cada sesión (context_of) y sus umbrales: ámbar 200k, rojo 400k
+import usage as U     # contexto de cada sesión (context_of) y sus umbrales (bk context: rojo 200k por defecto, ámbar 3/4)
 from gentle import (AMBER, BOLD, FRAME, GREEN, IRIS, MUTED, PETAL, RED, ROSE, RST, TEXT,
                     card, cut, fit, lr, vlen)
 
@@ -189,7 +189,7 @@ def card_status(W, cwd, live, here_sid=None):
     else:
         rows += [f"{MUTED}Usage{RST}", f" {MUTED}hoy{RST} {TEXT}{human(u.get('tokens', 0))}{RST} {MUTED}tok ·{RST} "
                  f"{AMBER}${u.get('cost_usd', 0):.2f}{RST} {MUTED}≈API{RST}"]
-    # El contexto de este chat: cada llamada lo vuelve a leer y a pagar. Desde 200k, sugerir cortar.
+    # El contexto de este chat: cada llamada lo vuelve a leer y a pagar. Desde el ámbar, sugerir cortar.
     here_ctx = U.context_of(here_sid) if here_sid else None
     if here_ctx:
         hint = f" {MUTED}· /clear o chat nuevo (alt+n){RST}" if U.ctx_level(here_ctx) else ""
