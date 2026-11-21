@@ -374,8 +374,9 @@ las mismas (`/resume` y `alt+s` ven todas).
   las de Claude y las de Codex, con su mail y si tienen la sesión iniciada. Un clic en una la deja **activa** para esa
   IA (`~/.local/state/bk/accounts/activas.json`): todo lo que lances después corre con ella, y el chat de Claude que
   mirás se relanza con ella retomando la misma conversación (`/exit` y `claude --resume`; no si está trabajando o te
-  espera). Cada cuenta guarda su login, así que cambiar no pide iniciar sesión otra vez. «Agregar una cuenta…» la crea
-  y abre su login; `ctrl+l` lo rehace. Por comando: `bk account use <cuenta>` fuera de tmux
+  espera). Cada cuenta guarda su login, así que cambiar no pide iniciar sesión otra vez. «Agregar una cuenta…» abre el
+  login directo, como Orca (la cuenta se nombra sola: `claude-2`, `codex-2`…, y se la ve por su mail; el de Codex sale
+  del `auth.json` de su carpeta); `ctrl+l` rehace el login. Por comando: `bk account use <cuenta>` fuera de tmux
   (`--relaunch --terminal tX` relanza ese chat). Orden para elegir la cuenta de un lanzamiento: `--account X`, la de la
   terminal de donde se lanza, la de la sesión de tmux y, al final, la activa.
 - `bk account login <cuenta>` rehace el login de una cuenta; `bk account login default` el de la de siempre (`~/.claude`),

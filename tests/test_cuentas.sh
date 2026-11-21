@@ -47,6 +47,16 @@ check_eq "$(jq -c 'map([.name, .provider, .logged_in, .who, .active])' <<<"$L")"
   '[["default","claude",true,"yo@ejemplo.com",false],["default","codex",false,"Not logged in",true],["cdx","codex",false,"Not logged in",false],["trabajo","claude",true,"trabajo@ejemplo.com",true]]' \
   "list --json: cada cuenta dice si es la activa de su IA"
 
+# --- agregar una cuenta sin nombrarla (el panel): se nombra sola y se muestra por su mail ---
+check_eq "$(basename "$(acc new claude)") $(basename "$(acc new claude)") $(basename "$(acc new codex)")" "claude-2 claude-3 codex-2" \
+  "new sin nombre: claude-2, claude-3…, codex-2 (la de siempre es la 1)"
+jwt() { printf 'x.%s.y' "$(printf '{"email": "%s"}' "$1" | base64 | tr -d '=\n' | tr '/+' '_-')"; }
+printf '{"tokens": {"id_token": "%s"}}' "$(jwt cdx@ejemplo.com)" >"$ACC/cdx/auth.json"
+printf '{"tokens": {"id_token": "roto"}}' >"$ACC/codex-2/auth.json"
+check_eq "$(acc email cdx) $(acc email codex-2 || echo nada)" "cdx@ejemplo.com nada" "email de una cuenta de Codex: del id_token de su auth.json; uno roto, nada"
+check_eq "$(acc list --json | jq -r '.[] | select(.name == "cdx") | .email')" "cdx@ejemplo.com" "list --json: el mail de las de Codex también"
+rm -rf "$ACC/claude-2" "$ACC/claude-3" "$ACC/codex-2"
+
 # --- bk account use sin tmux: elige la activa (Herdr) ---
 acc set-active default claude
 out=$(bk account use trabajo 2>&1); rc=$?

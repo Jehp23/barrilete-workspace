@@ -269,9 +269,10 @@ cmd_account() {
       fi ;;
     new)
       local prov="${1:-}" name="${2:-}"
-      [ -n "$prov" ] && [ -n "$name" ] || die "bk account new <claude|codex> <nombre>"
-      [ "$DRY" -eq 1 ] && { info "(dry-run: crearía la cuenta $prov/$name)"; return 0; }
-      python3 "$ACCOUNTS" new "$prov" "$name" >/dev/null || exit 1
+      [ -n "$prov" ] || die "bk account new <claude|codex> [nombre]"
+      [ "$DRY" -eq 1 ] && { info "(dry-run: crearía una cuenta de $prov${name:+ llamada $name})"; return 0; }
+      name=$(python3 "$ACCOUNTS" new "$prov" "$name") || exit 1
+      name=$(basename "$name")
       info "cuenta $name creada: ahora el login de $prov (las conversaciones son las mismas de siempre)"
       account_login "$name" ;;
     login)
@@ -282,7 +283,7 @@ cmd_account() {
     -h|--help|help)
       cat <<'EOF'
 uso: bk account [--json]              las cuentas (● con sesión iniciada) y las de esta sesión
-     bk account new <claude|codex> <nombre>   crear una cuenta y hacer su login
+     bk account new <claude|codex> [nombre]   crear una cuenta y hacer su login (sin nombre: claude-2…)
      bk account login <nombre>        volver a hacer el login de una cuenta
      bk account login default [claude|codex]   el login de la de siempre (~/.claude, ~/.codex)
      bk account use <nombre> [--relaunch]   usarla en esta sesión: lo que lances desde acá

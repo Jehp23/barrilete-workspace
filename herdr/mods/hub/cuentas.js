@@ -4,7 +4,7 @@
 // guarda su propio login (bk account: una carpeta por cuenta), así que cambiar no pide iniciar sesión de nuevo.
 //   Enter       usar esta cuenta (una sin sesión: hacer su login)
 //   ctrl+l      volver a hacer el login de la elegida
-//   «Agregar una cuenta…»  el nombre y después el login, en una terminal sobre la ventana
+//   «Agregar una cuenta…»  abre el login directo, en una terminal sobre la ventana (como Orca: sin pedir nombre)
 // Lo decide y lo guarda `bk account` (lib/accounts.py); acá solo se elige.
 
 import { div } from "gpui-kit";
@@ -38,9 +38,10 @@ export default class Cuentas extends Panel {
     const out = [];
     for (const prov of Object.keys(IA)) {
       const mine = this.items.filter((a) => a.provider === prov)
-        .map((a) => ({ key: `${prov}:${a.name}`, a, label: a.name === "default" ? "la de siempre" : a.name }));
+        .map((a) => ({ key: `${prov}:${a.name}`, a, label: a.email || (a.name === "default" ? "la de siempre" : a.name),
+          sub: a.email ? (a.name === "default" ? "la de siempre" : a.name) : (a.logged_in ? a.who : "") }));
       const add = { key: `new:${prov}`, add: prov, label: `Agregar una cuenta de ${IA[prov]}…` };
-      const got = rank([...mine, add], this.query, (r) => [r.label, r.a?.email || r.a?.who || ""]);
+      const got = rank([...mine, add], this.query, (r) => [r.label, r.sub || ""]);
       if (!got.length) continue;
       const act = mine.find((r) => r.a.active);
       out.push({ head: IA[prov], note: act ? `activa: ${act.label}` : "" }, ...got.map(({ item, hits }) => ({ ...item, hits })));
@@ -56,8 +57,8 @@ export default class Cuentas extends Panel {
     if (r.add) return row.child(div().flex_1().text_color(t.dim).child(r.label));
     const a = r.a;
     return row
-      .child(div().w(130).flex_none().child(lit(t, r.label, r.hits, a.active ? t.accent : fg)))
-      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(a.email || (a.logged_in ? a.who : "") || ""))
+      .child(div().flex_1().min_w(0).truncate().child(lit(t, r.label, r.hits, a.active ? t.accent : fg)))
+      .child(div().w(150).flex_none().truncate().text_size(12).text_color(t.dim).child(r.sub || ""))
       .when(a.active, (el) => el.child(pill(t, "activa", t.accent)))
       .when(!a.logged_in, (el) => el.child(pill(t, "sin sesión", t.blocked)));
   }
@@ -71,21 +72,19 @@ export default class Cuentas extends Panel {
 
   // El login es interactivo (abre el navegador): en una terminal sobre la ventana
   login(a) {
-    const args = a.name === "default" ? `default ${a.provider}` : sq(a.name);
-    this.close();
-    termPopup("cuentas", `'${bin()}' account login ${args}`, cwd(), [0.7, 0.6])
-      .catch((err) => notify({ title: "bk", body: String(err?.message ?? err), level: "error" }));
+    this.popup(`'${bin()}' account login ${a.name === "default" ? `default ${a.provider}` : sq(a.name)}`);
   }
 
+  // Como en Orca: agregar es iniciar sesión. La cuenta se nombra sola (claude-2…) y se la reconoce por su mail
   add(prov) {
-    this.askFor({ label: IA[prov], title: `Cuenta nueva de ${IA[prov]}`,
-      help: "Un nombre corto para reconocerla: trabajo, personal… (minúsculas, números y guiones). Después, su login.",
-      verb: "seguir", run: (name) => {
-        name = name.toLowerCase().replace(/\s+/g, "-");
-        this.close();
-        termPopup("cuentas", `'${bin()}' account new ${prov} ${sq(name)}`, cwd(), [0.7, 0.6])
-          .catch((err) => notify({ title: "bk", body: String(err?.message ?? err), level: "error" }));
-      } });
+    this.popup(`'${bin()}' account new ${prov}`);
+  }
+
+  popup(cmd) {
+    const dir = cwd();
+    termPopup("cuentas", cmd, dir, [0.7, 0.6])
+      .then(() => this.close())
+      .catch((err) => notify({ title: "No pude abrir el login", body: String(err?.message ?? err), level: "error" }));
   }
 
   use(cx, a) {
