@@ -7,11 +7,12 @@ conversaciones, settings, skills, hooks…) es un symlink a la carpeta principal
 son las credenciales (Claude Code las guarda en el llavero con un sufijo por carpeta) y .claude.json.
 La cuenta "default" es la de siempre (~/.claude, ~/.codex) y no tiene carpeta.
 
-  accounts.py list [--json]              las cuentas, con su proveedor y si tienen sesión iniciada
-  accounts.py new <claude|codex> <nombre>  crear la carpeta (el login lo hace bk)
+  accounts.py list [--json] [--space <espacio>]   las cuentas, con su proveedor, su mail, si tienen sesión
+                                         iniciada y (con --space) si es la que usa ese espacio
+  accounts.py new <claude|codex> [nombre]  crear la carpeta (el login lo hace bk). Sin nombre: claude-2, claude-3…
   accounts.py provider <nombre>          claude | codex (default: vacío)
   accounts.py env <nombre>               VAR=valor para lanzar con esa cuenta (repara los symlinks)
-  accounts.py email [nombre]             el mail de esa cuenta de Claude (sin nombre: la de siempre)
+  accounts.py email [nombre]             el mail de esa cuenta (sin nombre: la de siempre de Claude)
   accounts.py space <espacio> <claude|codex>       en Herdr: la cuenta que eligió ese espacio (vacío: la de siempre)
   accounts.py space-use <espacio> <nombre> [prov]  en Herdr: elegirla para ese espacio (default: volver a la de siempre)
 """
@@ -59,16 +60,19 @@ def provider(name):
         return ""
 
 
-def email(name):
-    """El mail de la cuenta de Claude Code con ese nombre (default o vacío: la de siempre), leído de su
-    .claude.json (oauthAccount.emailAddress) sin preguntarle al CLI. None si no tiene sesión iniciada, si no
-    existe o si es de Codex. Barato: la barra de Herdr lo pide cada 10 s."""
+def email(name, prov=None):
+    """El mail de la cuenta con ese nombre (default o vacío: la de siempre de prov, Claude si no se dice), leído de
+    sus archivos sin preguntarle al CLI: Claude, de .claude.json (oauthAccount.emailAddress); Codex, del id_token de
+    auth.json (solo el campo email). None si no tiene sesión iniciada o no existe. Barato: la barra lo pide cada 10 s."""
     if name in (None, "", "default"):
-        f = os.environ.get("BK_CLAUDE_JSON") or os.path.join(HOME, ".claude.json")
-    elif provider(name) == "claude":
-        f = os.path.join(path(name), ".claude.json")
+        prov, d = prov or "claude", None
     else:
+        prov, d = provider(name), path(name)
+    if prov == "codex":
+        return codex_email(os.path.join(d or MAIN["codex"], "auth.json"))
+    if prov != "claude":
         return None
+    f = os.path.join(d, ".claude.json") if d else (os.environ.get("BK_CLAUDE_JSON") or os.path.join(HOME, ".claude.json"))
     try:
         with open(f, encoding="utf-8") as fh:
             acct = json.load(fh).get("oauthAccount") or {}
@@ -76,6 +80,26 @@ def email(name):
         return None
     e = acct.get("emailAddress") if isinstance(acct, dict) else None
     return e.strip() if isinstance(e, str) and "@" in e else None
+
+
+def codex_email(f):
+    import base64
+    try:
+        with open(f, encoding="utf-8") as fh:
+            tok = ((json.load(fh).get("tokens") or {}).get("id_token") or "").split(".")
+        body = tok[1] + "=" * (-len(tok[1]) % 4)
+        e = json.loads(base64.urlsafe_b64decode(body)).get("email")
+    except (OSError, ValueError, AttributeError, IndexError, TypeError):
+        return None
+    return e.strip() if isinstance(e, str) and "@" in e else None
+
+
+def free_name(prov):
+    """El primer nombre libre para una cuenta nueva sin nombre: claude-2, claude-3… (la de siempre es la 1)."""
+    n = 2
+    while os.path.exists(path(f"{prov}-{n}")):
+        n += 1
+    return f"{prov}-{n}"
 
 
 def names():
@@ -113,9 +137,10 @@ def seed_claude_json(d):
         json.dump(seed, f, indent=2)
 
 
-def new(prov, name):
+def new(prov, name=""):
     if prov not in VAR:
         die(f"proveedor desconocido: {prov} (claude | codex)")
+    name = name or free_name(prov)
     if name == "default" or not NAME.match(name):
         die(f"nombre inválido: {name!r} (minúsculas, números y guiones; 'default' es la de siempre)")
     d = path(name)
@@ -161,17 +186,25 @@ def status(prov, d):
         return False, "?"
 
 
-def listing(as_json):
+def listing(as_json, sp=""):
     rows = [{"name": "default", "provider": p, "dir": MAIN[p]} for p in ("claude", "codex")]
     rows += [{"name": n, "provider": provider(n), "dir": path(n)} for n in names()]
-    for r in rows:
-        r["logged_in"], r["who"] = status(r["provider"], None if r["name"] == "default" else r["dir"])
+    # En paralelo: cada status le pregunta al CLI y el panel Cuentas espera la lista entera
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        got = list(ex.map(lambda r: status(r["provider"], None if r["name"] == "default" else r["dir"]), rows))
+    mine = spaces().get(sp, {}) if sp else {}
+    mine = mine if isinstance(mine, dict) else {}
+    using = {p: (mine.get(p) if mine.get(p) and provider(mine.get(p)) == p else "default") for p in VAR}
+    for r, (logged, who) in zip(rows, got):
+        r["logged_in"], r["who"], r["email"] = logged, who, email(r["name"], r["provider"])
+        r["active"] = bool(sp) and using[r["provider"]] == r["name"]
     if as_json:
         print(json.dumps(rows, ensure_ascii=False))
         return
     for r in rows:
         mark = "●" if r["logged_in"] else "○"
-        print(f"{mark} {r['name']:<14} {r['provider']:<7} {r['who'] or 'sin sesión'}")
+        print(f"{mark} {r['name']:<14} {r['provider']:<7} {r['who'] or 'sin sesión'}{'  ← en uso' if r['active'] else ''}")
 
 
 def spaces():
@@ -214,9 +247,10 @@ def space_use(sp, name, only=""):
 def main(argv):
     cmd = argv[0] if argv else "list"
     if cmd == "list":
-        listing("--json" in argv)
-    elif cmd == "new" and len(argv) == 3:
-        new(argv[1], argv[2])
+        sp = argv[argv.index("--space") + 1] if "--space" in argv[:-1] else ""
+        listing("--json" in argv, sp)
+    elif cmd == "new" and len(argv) in (2, 3):
+        new(argv[1], argv[2] if len(argv) == 3 else "")
     elif cmd == "provider" and len(argv) == 2:
         print(provider(argv[1]))
     elif cmd == "email" and len(argv) <= 2:
