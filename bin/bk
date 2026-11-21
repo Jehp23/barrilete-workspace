@@ -1913,6 +1913,7 @@ case "${1:-}" in
   ask)         shift; exec python3 "$WS/lib/ask.py" "$@" ;;
   models)      shift; exec python3 "$WS/lib/models.py" "$@" ;;
   account|accounts) shift; cmd_account "$@" ;;
+  machines)    shift; [ "$DRY" -eq 0 ] || set -- "$@" --dry-run; exec python3 "$WS/lib/machines.py" "$@" ;;
   mode)        shift; [ -n "${1:-}" ] || die "bk mode <rol>"
                role_mode "$1" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; echo ;;
   tokens)      exec python3 "$WS/lib/usage.py" ;;
