@@ -7,7 +7,7 @@
 | backend | Dónde viven los chats y los agentes: el workspace de tmux o la app Herdr | `BK_BACKEND`, `~/.config/bk/backend`, `lib/herdr.sh` | — |
 | workspace | Con tmux, la sesión `bk-<proyecto>` con chat, riel y tira; uno por proyecto | `bk ws`, `@bk_id` | — |
 | espacio | Con Herdr, el lugar de un proyecto: su chat y una pestaña por agente | etiqueta `bk.project` | — |
-| lista de espacios | El orden, las carpetas, el color y la imagen de los espacios en la barra de Herdr; una copia por máquina (ADR-001) | `shared("bk.espacios")`, `herdr/mods/agentes/espacios.js` | — |
+| lista de espacios | El orden, las carpetas, el color y la imagen de los espacios en la barra de Herdr; una copia por máquina (ADR-001) | `shared("bk.espacios")` (mod `agentes`, de #8) | — |
 | máquina | Una computadora conectada a Herdr; entre máquinas se nombra por su hostname, no por el alias de `hc machine` (ADR-001) | `.machine`, `host` de `hc machine ls` | — |
 | chat | Un `claude` donde habla la persona; no tiene tarea | `bk chat`, `bk.kind` | — |
 | agente | Una sesión que bk lanza con un rol sobre un issue o un PR, en su ventana o pestaña | `launch` en `bin/bk`, `lib/agents.py` | — |
