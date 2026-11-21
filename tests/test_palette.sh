@@ -27,6 +27,8 @@ cmds = {e[2]: e for e in m.ENTRIES}
 for c, arg, kind in [("handoff", True, "show"), ("handoff --listos", False, "show"), ("chat --desde", True, "view")]:
     e = cmds.get(c)
     print(f"handoff\t{bool(e) and bool(e[3]) == arg and e[4] == kind}\t{c}")
+ctx = sorted(bool(e[3]) for e in m.ENTRIES if e[2] == "context")
+print(f"handoff\t{ctx == [False, True]}\tcontext (ver y cambiar el umbral)")
 EOF
 ) || { echo "not ok - no pude leer la paleta o bin/bk"; exit 1; }
 

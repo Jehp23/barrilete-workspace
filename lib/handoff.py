@@ -17,6 +17,7 @@ persona, bk abre solo el chat nuevo; si fue el aviso, con Herdr sale un aviso qu
   handoff.py pedido [--sid S] [--pane P] [--cwd D]   el pedido al agente, con la plantilla (y deja el .json)
   handoff.py find <ws|sesión|session_id>            "sid<TAB>carpeta<TAB>cuenta<TAB>sesión" del resumen listo
   handoff.py take <session_id>                      imprime el resumen y lo borra (.md y .json)
+  handoff.py brief <session_id>                     el título y el estado del resumen, en dos líneas (el nombre del chat nuevo)
   handoff.py list                                   los resumenes listos: "sid<TAB>ws<TAB>sesión<TAB>nombre"
   handoff.py listo <session_id>                     "via<TAB>de dónde" la primera vez que el resumen está escrito
   handoff.py dir                                    la carpeta de los resumenes
@@ -208,6 +209,40 @@ def listo(sid):
     return m
 
 
+def brief(sid, limit=70):
+    """(título, estado) del resumen, para nombrar el chat nuevo antes de que diga nada: el título sale de la
+    primera línea («# Seguir desde ws 5: <título>») y el estado, del primer paso de «Falta». Lo que quedó como
+    <placeholder> de la plantilla no cuenta."""
+    try:
+        with open(md_path(sid)) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return "", ""
+
+    def clean(s):
+        s = " ".join(s.replace("`", "").replace("\t", " ").split()).rstrip(".").strip()
+        if not s or (s.startswith("<") and s.endswith(">")):
+            return ""
+        return s if len(s) <= limit else s[: limit - 1].rstrip() + "…"
+
+    title = status = ""
+    if lines and lines[0].startswith("#") and ":" in lines[0]:
+        title = clean(lines[0].split(":", 1)[1])
+    falta = False
+    for line in lines:
+        if line.startswith("## "):
+            falta = line[3:].strip().lower().startswith("falta")
+            continue
+        s = line.strip()
+        if falta and s[:1].isdigit() and "." in s[:4]:
+            s = s.split(".", 1)[1].strip()
+            if s.lower().startswith("primer paso:"):
+                s = s.split(":", 1)[1]
+            status = clean(s)
+            break
+    return title, status
+
+
 def take(sid):
     try:
         with open(md_path(sid)) as f:
@@ -246,6 +281,8 @@ def main(argv):
             sys.exit(1)
         where = (f"ws {m['ws']}" if m.get("ws") else m.get("session") or m["sid"][:8]) + (f" «{m['name']}»" if m.get("name") else "")
         print("\t".join([m["via"], where]))
+    elif cmd == "brief" and len(argv) > 1:
+        print("\n".join(brief(argv[1])))
     elif cmd == "dir":
         print(folder())
     elif cmd == "list":

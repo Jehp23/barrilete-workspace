@@ -19,6 +19,10 @@ ENTRIES = [
     ("Agentes", "Corregir un PR abierto", "fix", "PR y la instrucción", "run"),
     ("Agentes", "Planear una feature", "plan", "idea", "run"),
     ("Agentes", "Orquestar (hasta 3 issues)", "orchestrate", None, "run"),
+    ("Agentes", "Perfiles de modelos", "profile", None, "show"),
+    ("Agentes", "Usar un perfil de modelos", "profile", "perfil (normal, barato, a-fondo…)", "show"),
+    ("Agentes", "Tareas por modelo (bk ask)", "ask", None, "show"),
+    ("Agentes", "Modelos de cada proveedor", "models", None, "show"),
     ("Agentes", "Cerrar la ventana de un agente", "stop", "ventana", "run"),
     ("Vistas", "Agentes en vivo", "watch --all", None, "view"),
     ("Vistas", "Cambios sin commitear", "changes", None, "view"),
@@ -40,7 +44,10 @@ ENTRIES = [
     ("Sesión", "Pedir el resumen para seguir en un chat nuevo", "handoff", "número de workspace", "show"),
     ("Sesión", "Resúmenes listos para seguir", "handoff --listos", None, "show"),
     ("Sesión", "Seguir en un chat nuevo desde un resumen", "chat --desde", "número de workspace", "view"),
+    ("Sesión", "Umbral de contexto: con cuánto seguir en un chat nuevo", "context", None, "show"),
+    ("Sesión", "Cambiar el umbral de contexto", "context", "tokens (300k, 1m o default)", "show"),
     ("Sesión", "Lecciones por revisar", "lessons", None, "show"),
+    ("Sesión", "Bitácora: guardar lo de este chat (/bitacora)", "bitacora", "tema (vacío: lo propone el chat)", "show"),
     ("Sesión", "Registrar desvíos (learn)", "learn", None, "show"),
     ("Apariencia","Tema de día", "theme day", None, "show"),
     ("Apariencia","Tema de noche", "theme night", None, "show"),
@@ -107,7 +114,7 @@ def ui(scr):
             if k == "\x1b":
                 ask, arg = False, ""
             elif k in ("\n", curses.KEY_ENTER):
-                if arg.strip():
+                if arg.strip() or "vacío" in chosen[3]:   # «(vacío: …)»: el argumento es opcional
                     return chosen, arg.strip()
             elif k in (curses.KEY_BACKSPACE, "\x7f", "\b"):
                 arg = arg[:-1]

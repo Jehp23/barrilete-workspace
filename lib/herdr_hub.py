@@ -65,15 +65,16 @@ principal si la carpeta es un worktree. Agentes, chats y espacios salen siempre 
                            la limpieza sola: borra las ramas terminadas (done y can_rm) de todos los proyectos y
                            avisa. La dispara status, cada 10 min como mucho. {removed, failed, dry}
   status [dir] [--terminal t7]
-                           {project, branch, dirty, account, mode, waiting, pending, working, tokens_today,
-                           cost_today, song, focus}  una llamada barata para la barra de estado: sin gh y sin leer
+                           {project, branch, dirty, account, waiting, pending, working, tokens_today,
+                           cost_today, song}  una llamada barata para la barra de estado: sin gh y sin leer
                            transcripts. waiting/pending/working: las tareas del kit de todos los proyectos por estado
                            (working = in_progress). account: la cuenta de Claude de esa terminal (o del chat
                            principal del proyecto); null es la de siempre. tokens_today y cost_today salen del estado
                            que deja lib/usage.py (~/.cache/barrilete/usage-<fecha>.json) y se renuevan en segundo
                            plano si tiene más de 60 s; null si todavía no hay. song: {playing, station, title} o
-                           null si no suena nada. focus: el pomodoro de bk focus ({label, left_min}) o null
-  palette                  {items: [{group, label, cmd, arg, kind}]}  las ENTRIES de lib/palette.py
+                           null si no suena nada
+  palette                  {items: [{group, label, cmd, arg, kind}], profile: {active, profiles: [{name, summary, models}]}}
+                           las ENTRIES de lib/palette.py y los perfiles de modelos (lib/profiles.py)
 
   herdr_hub.py _do [--cwd DIR] [--title T] -- <args de bk…>      (bk _do …)
       Corre `bk <args>` suelto de quien lo pidió (otra sesión: sobrevive al panel), con la salida en
@@ -701,8 +702,26 @@ def checkpoints(args):
 
 def palette(args):
     import palette as PAL
+    import profiles as PR
+    d = PR.data()
     return {"items": [{"group": g, "label": label, "cmd": cmd, "arg": arg, "kind": kind}
-                      for g, label, cmd, arg, kind in PAL.ENTRIES]}
+                      for g, label, cmd, arg, kind in PAL.ENTRIES],
+            "profile": {"active": d["active"], "profiles": [{"name": p["name"], "summary": p["summary"], "models": p["models"]} for p in d["profiles"]]},
+            "accounts": accounts_here()}
+
+
+def accounts_here():
+    """Las cuentas (sin preguntarle al CLI si tienen sesión: es lento) y cuál usa el espacio del proyecto de acá
+    (bk account use, lib/accounts.py)."""
+    import accounts as AC
+    try:
+        sp = project(os.getcwd())[0]
+    except Exception:
+        sp = ""
+    mine = AC.spaces().get(sp, {}) if sp else {}
+    mine = mine if isinstance(mine, dict) else {}
+    using = {p: (mine.get(p) if mine.get(p) and AC.provider(mine.get(p)) == p else "default") for p in AC.VAR}
+    return {"space": sp, "using": using, "list": [{"name": n, "provider": AC.provider(n)} for n in AC.names()]}
 
 
 # ---------- música ----------
@@ -800,17 +819,6 @@ def account_of(AG, term, name):
     return named(acct)
 
 
-def focus():
-    """El pomodoro de bk focus: ~/.cache/bk/focus guarda "fin etiqueta"."""
-    try:
-        with open(os.path.expanduser("~/.cache/bk/focus"), encoding="utf-8") as f:
-            end, _, label = f.read().strip().partition(" ")
-        left = int(end) - time.time()
-    except (OSError, ValueError):
-        return None
-    return {"label": label or "Estudio", "left_min": int(left // 60)} if left > 0 else None
-
-
 def branch_of(head):
     """La rama, de la primera línea de git status --branch ("main...origin/main [ahead 1]"). Sin rama (un HEAD
     suelto), "": lo mismo que git branch --show-current."""
@@ -844,11 +852,6 @@ def status(args):
     out["account"] = acct[0] if acct else None
     import accounts as ACC
     out["email"] = ACC.email(out["account"])
-    try:
-        with open(os.path.expanduser("~/.cache/sketchybar/mode"), encoding="utf-8") as f:
-            out["mode"] = f.read().strip() or None
-    except OSError:
-        out["mode"] = None
     by = {}
     for t in TK.tasks():
         by[t.get("status")] = by.get(t.get("status"), 0) + 1
@@ -856,7 +859,6 @@ def status(args):
     out["tokens_today"], out["cost_today"] = usage_today()
     now = now_playing()
     out["song"] = {k: now[k] for k in ("playing", "station", "title")} if now else None
-    out["focus"] = focus()
     if not os.environ.get("BK_NO_SWEEP"):   # la limpieza de ramas terminadas: suelta, cada 10 min como mucho
         import branches as BR
         if BR.due():

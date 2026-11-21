@@ -184,6 +184,31 @@ check_eq "$(( $(tabs) - n0 )) $(has "$last" "take 'rojo1'")" "1 si" "handoff --s
 rm -f "$BK_HANDOFF_DIR"/rojo1.*
 bk handoff --seguir >/dev/null 2>&1; check_eq "$?" "1" "handoff --seguir sin resumenes listos: falla"
 
+# --- el chat nuevo de un handoff sigue siendo el mismo trabajo: nombre, estado y unión con el viejo ---
+newterm() { st -r '.terms | keys_unsorted | last'; }
+lab() { st -r --arg t "$1" --arg k "$2" '.terms[$t].labels[$k] // ""'; }
+tabname() { st -r --arg id "$(lab "$1" herdr.tab)" '[.spaces[].tabs[] | select(.id == $id) | .name] | first // ""'; }
+resumen() {   # resumen <sid>: pedido desde t1 y escrito con la plantilla llena
+  (cd "$REPO" && HC_TERMINAL_ID=t1 BK_HC="$TMP/fake/hc" PATH="$TMP/fake:$PATH" python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import handoff; handoff.request(sys.argv[3], cwd=sys.argv[2])' "$ROOT/lib" "$REPO" "$1") >/dev/null
+  printf '# Seguir desde abc: Escáner de staff\nDe dónde: …\n\n## Hecho\n- PR #1090\n\n## Falta (en orden)\n1. Primer paso: mergear `#1095` y avisar.\n2. otro\n' >"$BK_HANDOFF_DIR/$1.md"
+}
+PATH="$TMP/fake:$PATH" hc label t1 "bk.autotitle=Release #1095" "bk.status=falta el deploy" >/dev/null
+resumen her1; bk chat --desde her1 >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T") | $(lab "$T" bk.autotitle) | $(lab "$T" bk.name)" "Release #1095 | Release #1095 | " "handoff: el chat nuevo nace con el título automático del viejo, que sigue siendo automático"
+check_eq "$(lab "$T" bk.status)" "sigue: mergear #1095 y avisar" "handoff: su estado es el primer paso de «Falta» del resumen"
+check_eq "$(lab "$T" bk.from) $(lab t1 bk.next)" "t1 $T" "handoff: el nuevo queda unido al viejo (bk.from) y el viejo sabe dónde siguió (bk.next)"
+PATH="$TMP/fake:$PATH" hc label t1 "bk.name=Mi tablero" >/dev/null
+resumen her2; bk chat --desde her2 >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T") | $(lab "$T" bk.name) | $(lab "$T" bk.autotitle)" "Mi tablero | Mi tablero | " "handoff: un nombre puesto a mano pasa como nombre a mano"
+resumen her3; bk chat --desde her3 --nombre Otro >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T") $(lab "$T" bk.name)" "Otro Otro" "handoff con --nombre: manda el nombre que pediste"
+PATH="$TMP/fake:$PATH" hc label t1 bk.name= bk.autotitle= >/dev/null
+resumen her4; bk chat --desde her4 >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T") | $(lab "$T" bk.autotitle)" "Escáner de staff | Escáner de staff" "handoff: sin nombre en el viejo, el título sale de la primera línea del resumen"
+resumen her5; printf '# Seguir desde abc: <en qué andabas, en pocas palabras>\n## Falta (en orden)\n1. Primer paso: <lo próximo>\n' >"$BK_HANDOFF_DIR/her5.md"
+bk chat --desde her5 >/dev/null 2>&1; T=$(newterm)
+check_eq "$(tabname "$T" | sed 's/[0-9]*$//') | $(lab "$T" bk.status) | $(lab "$T" bk.autotitle)" "chat- |  | " "handoff: lo que quedó como <placeholder> no nombra (pestaña chat-N, sin estado)"
+
 # --- bk s retoma una sesión cerrada (lib/sessions.py): bk chat con WS_CHAT_CMD, un chat más del proyecto ---
 n0=$(tabs); WS_CHAT_CMD="cd '$REPO' && claude --resume abc-123" BK_PROJECT="$REPO" bk chat >/dev/null 2>&1
 last=$(st -r '.terms | to_entries | last | .value | (.argv | join(" ")) + " | " + .labels["bk.kind"] + " " + .labels["bk.project"]')
@@ -216,6 +241,9 @@ check_eq "$(jq -r .pane "$STATE/s1.json")" "t9" "hook: en Herdr el pane es HC_TE
 check_eq "$([ -f "$STATE/bk-i99.json" ] && echo queda || echo borrado)" "borrado" "hook: al arrancar la sesión borra el pre-registro de esa terminal"
 ev s2 SessionStart | TMUX_PANE=%3 HC_TERMINAL_ID=t9 bash "$HOOK"
 check_eq "$(jq -r .pane "$STATE/s2.json")" "%3" "hook: dentro de tmux manda TMUX_PANE"
+echo '{"pane": "t9", "state": "background", "background": 2, "subagents": 1}' >"$STATE/s5.json"
+ev s5 SubagentStop | HC_TERMINAL_ID=t9 bash "$HOOK"
+check_eq "$(jq -r '.state + " " + (.background|tostring)' "$STATE/s5.json")" "background 2" "hook: un SubagentStop después del turno no borra la cuenta de lo que sigue en 2º plano"
 ev s3 SessionStart | bash "$HOOK"
 check_eq "$(jq -r '.pane // "nada"' "$STATE/s3.json")" "nada" "hook: fuera de tmux y de Herdr no anota pane"
 # ~/.claude/settings.json llega al hook por la ruta de cuando era un plugin de Sketchybar (~/.config/sketchybar apunta
@@ -237,7 +265,7 @@ faltan=$(jq -r '.global[] | select(type == "string" and startswith("mod.open:bk-
 check_eq "$faltan$(ls "$APP/mods" | grep -c '^bk$') $(ls "$APP/mods" | grep -cE '^bk-(aviso|seguir)$')" "0 2" "atajos: una carpeta con main.js y mod.json por cada tecla que abre un mod, más los dos sin tecla (bk-aviso, bk-seguir), y se va la versión anterior (mods/bk)"
 check_eq "$(jq -r '.global["alt-s"] + " " + .global["alt-shift-3"] + " " + .global["alt-9"]' "$APP/keys.json")" "mod.open:bk-sessions mod.open:bk-agent3 mod.open:bk-go9" "atajos: suma las teclas alt+…; alt+N va a la ventana con ese número"
 check_eq "$(jq -r '.global["alt-k"] + " " + .global["cmd-t"] + " " + .terminal["cmd-c"]' "$APP/keys.json")" "tab.close tab.new terminal.copy" "atajos: no pisa una tecla que ya hace otra cosa ni las demás"
-check_eq "$(jq -r '.global["alt-g"] + " " + .global["alt-0"] + " " + (.global["alt-f9"] // "sin")' "$APP/keys.json")" "mod.open:bk-changes mod.open:bk-last sin" "atajos: actualiza las teclas de la versión anterior de bk y saca la que ya no existe"
+check_eq "$(jq -r '.global["alt-g"] + " " + .global["alt-0"] + " " + (.global["alt-f9"] // "sin")' "$APP/keys.json")" "mod.open:bk-cambios mod.open:bk-last sin" "atajos: actualiza las teclas de la versión anterior de bk y saca la que ya no existe"
 check_eq "$(jq -r '.global["alt-2"] + " " + .global["alt-3"] + " " + .global["alt-,"]' "$APP/keys.json")" "mod.open:bk-go2 space.select:5 mod.open:bk-look" "atajos: una tecla que sigue como la dejó una versión anterior de bk se actualiza; una que cambiaste vos, no"
 # El mod de las acciones se abre y se cierra solo: su popup mide en px. Hasta 1 es una fracción de la ventana
 # (1×1 era un popup invisible a pantalla completa que se comía los clics mientras la acción corría)
@@ -254,7 +282,7 @@ cp "$APP/keys.json" "$TMP/keys.despues"; echo otra >"$APP/keys.json.antes-de-bk"
 bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$TMP/keys.despues" "$APP/keys.json" && echo igual)" "igual" "atajos: instalar de nuevo no cambia las teclas"
 jq 'del(.global["alt-g"])' "$TMP/keys.despues" >"$APP/keys.json"; bk backend herdr >/dev/null 2>&1
-check_eq "$(jq -r '.global["alt-g"]' "$APP/keys.json") $(cat "$APP/keys.json.antes-de-bk")" "mod.open:bk-changes otra" "atajos: repone una tecla que falta y no pisa el primer respaldo"
+check_eq "$(jq -r '.global["alt-g"]' "$APP/keys.json") $(cat "$APP/keys.json.antes-de-bk")" "mod.open:bk-cambios otra" "atajos: repone una tecla que falta y no pisa el primer respaldo"
 echo '{roto' >"$APP/keys.json"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cat "$APP/keys.json")" "{roto" "atajos: un keys.json inválido no se toca"
 
@@ -276,7 +304,7 @@ check_eq "$(cmp -s "$PVS" "$PVD" && echo igual) $(has "$out" "layout bk-lavanda:
 # no se puede copiar (hay una carpeta con su nombre): avisa y lo que viene después, las teclas, se instala igual
 rm -f "$PVD"; mkdir "$PVD"; jq 'del(.global["alt-g"])' "$APP/keys.json" >"$TMP/k" && mv "$TMP/k" "$APP/keys.json"
 out=$(bk backend herdr 2>&1)
-check_eq "$(has "$out" "no pude copiar la vista previa") $(jq -r '.global["alt-g"]' "$APP/keys.json") $(ls "$APP/layouts" | grep -c 'tmp$')" "si mod.open:bk-changes 0" "layout: si la vista previa no se puede copiar, avisa, no deja restos y el resto se instala igual"
+check_eq "$(has "$out" "no pude copiar la vista previa") $(jq -r '.global["alt-g"]' "$APP/keys.json") $(ls "$APP/layouts" | grep -c 'tmp$')" "si mod.open:bk-cambios 0" "layout: si la vista previa no se puede copiar, avisa, no deja restos y el resto se instala igual"
 rmdir "$PVD"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$PVS" "$PVD" && echo igual)" "igual" "layout: cuando se puede de nuevo, la vista previa vuelve"
 check_eq "$(log | grep -c 'layout.switch')" "0" "layout: instalar no cambia el layout que se muestra"
@@ -286,9 +314,9 @@ check_eq "$sin_mod$(jq -r '[.. | objects | .content?.mod? // empty | select(star
 # su copia. Todas iguales (la de agentes es la referencia), y cada una se instala al lado del main.js que la importa
 KITS=$(cd "$ROOT/herdr/mods" && for d in *; do [ "$d" = hub ] || [ ! -f "$d/kit.js" ] || printf '%s ' "$d"; done)
 distintos=$(for m in $KITS; do cmp -s "$ROOT/herdr/mods/agentes/kit.js" "$ROOT/herdr/mods/$m/kit.js" || printf '%s ' "$m"; done)
-check_eq "$KITS| $distintos" "agentes cabecera lado marca pestanas | " "kit.js: las copias de agentes, cabecera, lado, marca y pestanas son el mismo archivo"
+check_eq "$KITS| $distintos" "agentes cabecera cerrar lado marca pestanas | " "kit.js: las copias de agentes, cabecera, cerrar, lado, marca y pestanas son el mismo archivo"
 sin_kit=$(grep -l 'from "./kit.js"' "$ROOT"/herdr/mods/*/main.js | while read -r f; do m=$(basename "$(dirname "$f")"); [ "$m" = hub ] || cmp -s "$ROOT/herdr/mods/$m/kit.js" "$APP/mods/bk-$m/kit.js" || printf '%s ' "$m"; done)
-check_eq "$(grep -l 'from "./kit.js"' "$ROOT"/herdr/mods/*/main.js | grep -vc '/hub/') $sin_kit" "5 " "kit.js: cada panel que lo importa lo tiene instalado en su carpeta"
+check_eq "$(grep -l 'from "./kit.js"' "$ROOT"/herdr/mods/*/main.js | grep -vc '/hub/') $sin_kit" "6 " "kit.js: cada panel que lo importa lo tiene instalado en su carpeta"
 # Los temas de bk: se instalan, siguen al repo mientras nadie los retoque y no pisan uno tuyo
 T1=$(ls "$ROOT/herdr/themes" | head -1)
 check_eq "$(ls "$ROOT/herdr/themes" | while read -r f; do cmp -s "$ROOT/herdr/themes/$f" "$APP/themes/$f" || printf '%s ' "$f"; done)$(jq -r --arg f "$T1" '.[$f]' "$APP/bk-temas.json")" "$(sha "$ROOT/herdr/themes/$T1")" "temas: instala los de herdr/themes y anota qué instaló"
@@ -307,7 +335,7 @@ jq '.["bk-noche.json"] = "otro"' "$APP/bk-temas.json" >"$TMP/temas" && mv "$TMP/
 bk backend herdr >/dev/null 2>&1
 check_eq "$([ -e "$APP/themes/bk-noche.json" ] && echo queda)" "queda" "temas: un bk-noche retocado no se borra"
 rm -f "$APP/themes/bk-noche.json"
-# Los tres de bk: completos, legibles (contraste WCAG) y de la claridad que dicen; el layout los usa de par
+# Los siete de bk: completos, legibles (contraste WCAG) y de la claridad que dicen; el layout los usa de par
 check_eq "$(python3 - "$ROOT/herdr" <<'PY'
 import json, re, sys
 root = sys.argv[1]
@@ -321,7 +349,7 @@ def cr(a, b):
 NEED = ("canvas", "chrome", "background", "surface", "popover", "raised", "hover", "selected", "border", "input",
         "foreground", "muted", "dim", "accent", "accent_foreground", "working", "blocked", "done", "idle")
 bad = []
-for name, light in (("bk-neon", False), ("bk-pastel", False), ("bk-dia", True)):
+for name, light in (("bk-neon", False), ("bk-pastel", False), ("bk-gentleman", False), ("bk-gentleman-cute", False), ("bk-dia", True), ("bk-papel", True), ("bk-papel-night", False)):
     t = json.load(open(f"{root}/themes/{name}.json")); c = t.get("colors", {})
     hexes = [t["background"], t["foreground"], t["selection"], *t["ansi"], *c.values()]
     if len(t["ansi"]) != 16 or not all(re.fullmatch(r"#[0-9a-f]{6}", h) for h in hexes): bad.append(f"{name}: forma")
@@ -336,7 +364,7 @@ lay = json.load(open(f"{root}/layouts/bk-lavanda.json"))["theme"]
 if lay != {"light": "bk-dia", "dark": "bk-neon"}: bad.append(f"layout: {lay}")
 print(" ".join(bad) or "ok")
 PY
-)" "ok" "temas: bk-neon, bk-pastel y bk-dia completos, legibles y de su claridad; el layout usa bk-dia de día y bk-neon de noche"
+)" "ok" "temas: bk-neon, bk-pastel, bk-gentleman, bk-gentleman-cute, bk-dia, bk-papel y bk-papel-night completos, legibles y de su claridad; el layout usa bk-dia de día y bk-neon de noche"
 echo '{"id":"viejo"}' >"$L"; sha "$L" >"$MARK"; bk backend herdr >/dev/null 2>&1
 check_eq "$(cmp -s "$SRC" "$L" && echo igual) $(cat "$MARK")" "igual $(sha "$SRC")" "layout: una copia que bk instaló y nadie tocó se actualiza con la del repo"
 jq '.retoque = 1' "$SRC" >"$L"; cp "$L" "$TMP/retocado"; echo '<svg/>' >"$PVD"; out=$(bk backend herdr 2>&1)

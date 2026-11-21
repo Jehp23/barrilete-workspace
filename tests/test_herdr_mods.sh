@@ -121,7 +121,10 @@ const keys = JSON.parse(fs.readFileSync(`${root}/herdr/keys.json`, 'utf8'));
 const views = Object.keys(JSON.parse(fs.readFileSync(`${root}/herdr/mods/hub/views.json`, 'utf8')));
 const byKey = Object.values(keys).flatMap((b) => Object.values(b))
   .filter((a) => typeof a === 'string' && a.startsWith('mod.open:bk-')).map((a) => a.slice('mod.open:bk-'.length));
-const mine = [...new Set([...byKey.filter((c) => !views.includes(c)), 'aviso', 'seguir'])].sort();
+const mine = [...new Set([...byKey.filter((c) => !views.includes(c)), 'aviso', 'seguir', 'pop'])].sort();
+// Los que no tienen tecla salen de NO_KEY en lib/herdr_install.py: que sean los mismos que suma este test
+assert.deepEqual(/^NO_KEY = \(([^)]*)\)/m.exec(fs.readFileSync(`${root}/lib/herdr_install.py`, 'utf8'))[1].match(/bk-[a-z]+/g).sort(),
+  ['bk-aviso', 'bk-pop', 'bk-seguir']);
 let said = [], hcs = [], overlays = [];
 const Bk2 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
   'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
@@ -142,6 +145,110 @@ await bk2.handle('seguir');
 assert.ok(hcs.length === 1 && hcs[0].at(-1).includes('bk handoff --seguir'), 'seguir corre bk handoff --seguir en una terminal');
 assert.deepEqual([overlays.length, overlays[0]?.width, overlays[0]?.height, overlays[0]?.layout?.content?.terminal], [1, 0.6, 0.3, 't9']);
 ok('seguir (el clic de «Resumen listo») abre bk handoff --seguir en un popup sobre la ventana');
+
+// alt+y: el ayudante del workspace, un Codex (bk _ayuda) en un popup que se esconde sin cerrarse
+{
+  const st = { terms: [], shared: { 'bk.bin': '/repo/bin/bk' }, hcs: [], overlays: [], closed: [], hcCode: 0 };
+  const Bk3 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
+    'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
+    class {}, () => ({}), async (a) => { st.hcs.push(a); return { code: st.hcCode, stdout: '{"address":"t9"}', stderr: 'sin core' }; },
+    nope('exec'), nope('run'), () => ({}), (o) => { st.overlays.push(o); return `o${st.overlays.length}`; }, (id) => st.closed.push(id),
+    () => ({ space: 's1', tab: 'tb1', cwd: '/proj', terminal: 't1' }), () => st.terms, () => [], () => [], () => '/home/yo',
+    nope('notify'), (k) => st.shared[k] ?? null, (k, v) => { st.shared[k] = v; }, nope('readTextFile'));
+  const bk3 = new Bk3();
+  await bk3.handle('ayuda');
+  const a = st.hcs[0] ?? [];
+  assert.equal(st.hcs.length, 1);
+  assert.deepEqual([a[0], a.includes('--bg'), a.includes('--rm'), a.includes('--no-parent'), a[a.indexOf('--label') + 1], a.at(-1)],
+    ['run', true, true, true, 'bk.kind=ayuda', '/repo/bin/bk']);
+  assert.deepEqual(a.slice(a.indexOf('--') + 1, -2), ['env', 'BK_BACKEND=herdr', 'sh', '-c']);
+  ok('ayuda: sin sesión abierta, arranca una terminal aparte (bk.kind=ayuda) con el bk del repo');
+  // Lo que corre esa terminal, de verdad y con un bk falso: arranca solo si bk --dry-run _ayuda dice que puede
+  const sh = a.at(-2), fake = `${home}/bk-falso`, log = `${home}/bk-falso.log`;
+  const tryIt = (rc) => {
+    fs.writeFileSync(fake, `#!/bin/sh\necho "$*" >>"${log}"\n[ "$1" = --dry-run ] && { echo "bk: no hay codex" >&2; exit ${rc}; }\nexit 0\n`, { mode: 0o755 });
+    fs.rmSync(log, { force: true });
+    const out = execFileSync('sh', ['-c', sh, fake], { encoding: 'utf8', input: '\n', stdio: ['pipe', 'pipe', 'pipe'] });
+    return [fs.readFileSync(log, 'utf8').trim().split('\n'), out.includes('enter para cerrar')];
+  };
+  assert.deepEqual(tryIt(0), [['--dry-run _ayuda', '_ayuda'], false]);
+  assert.deepEqual(tryIt(1), [['--dry-run _ayuda'], true]);
+  ok('ayuda: la terminal corre bk _ayuda; si no puede arrancar, no lo corre y espera un enter con el motivo a la vista');
+  const lay = st.overlays[0].layout;
+  assert.deepEqual([st.overlays.length, st.overlays[0].kind, st.overlays[0].modal, lay.type, lay.children.length, lay.children[1].content],
+    [1, 'dialog', true, 'column', 2, { terminal: 't9' }]);
+  // Arriba, la cabecera de Piola: el mod herdr/mods/ayudante (lib/herdr_install.py lo instala como bk-ayudante)
+  assert.deepEqual(lay.children[0].content, { mod: 'bk-ayudante', props: { terminal: 't9' } });
+  assert.ok(lay.children[0].size.px >= 40 && lay.children[0].size.px <= 60 && !lay.children[1].size, 'la cabecera es una franja; el resto es de la terminal');
+  assert.ok(fs.existsSync(`${root}/herdr/mods/ayudante/main.js`) && fs.existsSync(`${root}/herdr/mods/ayudante/mod.json`));
+  assert.ok(st.overlays[0].width < 1 && st.overlays[0].height < 1, 'un popup sobre la ventana, no la ventana entera');
+  assert.deepEqual(st.shared['bk.pop'], { name: 'ayuda', id: 'o1', terminal: 't9', keep: true });
+  ok('ayuda: la muestra en un popup sobre la ventana, con la cabecera de Piola arriba de su terminal');
+  st.terms = [{ address: 't9', state: 'live', labels: { 'bk.kind': 'ayuda' } }];
+  await bk3.handle('ayuda');
+  assert.deepEqual([st.hcs.length, st.overlays.length, st.closed, st.shared['bk.pop']], [1, 1, ['o1'], null]);
+  ok('ayuda: otra vez la esconde, sin matar la terminal ni abrir otra');
+  await bk3.handle('ayuda');
+  assert.deepEqual([st.hcs.length, st.overlays.length, st.overlays[1].layout.children[1].content.terminal], [1, 2, 't9']);
+  ok('ayuda: la próxima vuelve a mostrar la misma sesión (no arranca otro Codex)');
+  await bk3.handle('ayuda');   // escondida
+  st.terms = [{ address: 't9', state: 'exited', labels: { 'bk.kind': 'ayuda' } }, { address: 't3', state: 'live', labels: { 'bk.kind': 'term' } }];
+  await bk3.handle('ayuda');
+  assert.deepEqual([st.hcs.length, st.overlays.length], [2, 3]);
+  ok('ayuda: si saliste de Codex, arranca una sesión nueva (y la terminal rápida no cuenta como ayudante)');
+  st.terms = [{ address: 't9', state: 'live', labels: { 'bk.kind': 'ayuda' } }];
+  await bk3.handle('ayuda');   // escondida
+  st.terms = []; st.hcCode = 1;
+  await assert.rejects(() => bk3.handle('ayuda'), /sin core/);
+  assert.equal(st.overlays.length, 3);
+  ok('ayuda: si hc no la arranca, lo dice y no abre un popup vacío');
+}
+// bk-pop: un panel del hub (alt+k → «Monitor de agentes», la radio, el editor de perfiles) pide un programa de
+// pantalla completa. El panel se cierra antes de que hc conteste, así que termPopup (mods/hub/kit.js) no espera
+// nada: deja el pedido en shared y abre bk-pop; este mod lo lee y abre el popup (2026-11-19).
+{
+  const kitSrc = fs.readFileSync(`${root}/herdr/mods/hub/kit.js`, 'utf8');
+  const fn = /^export function termPopup[\s\S]*?^}$/m.exec(kitSrc)[0].replace(/^export /, '');
+  const st = { shared: {}, runs: [], hcs: [], overlays: [], closed: false };
+  // Como en Herdr: lo que un panel escribe en shared después de cerrarse se pierde (2026-11-19)
+  const panel = { close() { st.closed = true; } };
+  // Sin hc ni exec a mano: si termPopup volviera a esperar a hc, esto tira ReferenceError
+  const termPopup = new Function('setShared', 'run', 'focused', 'cwd', 'PEDIDO', fn + '\nreturn termPopup;')(
+    (k, v) => { if (!st.closed) st.shared[k] = v; }, (n, a) => st.runs.push([n, a, st.closed]), () => ({ terminal: 't1' }), () => '/proj', 'bk.pop.pedido');
+  const back = termPopup(panel, 'monitor', "'bk' monitor", '/proj/sub');
+  assert.equal(back, undefined, 'termPopup no devuelve una promesa: no queda nada por esperar con el panel cerrado');
+  assert.equal(st.closed, true, 'cierra el panel que lo pidió');
+  assert.deepEqual(st.runs, [['mod.open', { name: 'bk-pop' }, true]], 'abre bk-pop con el panel ya cerrado');
+  assert.deepEqual(st.shared['bk.pop.pedido'], { name: 'monitor', cmd: "'bk' monitor", dir: '/proj/sub', from: 't1', w: 0.9, h: 0.85 },
+    'el pedido se escribe antes de cerrar el panel');
+  assert.ok(kitSrc.includes('const PEDIDO = "bk.pop.pedido"') && source.includes('const PEDIDO = "bk.pop.pedido"'), 'kit.js y mods/bk usan el mismo shared');
+  // Ningún panel cierra por su cuenta antes de pedir el popup: termPopup lo cierra después de dejar el pedido
+  for (const f of ['palette', 'song', 'profiles']) {
+    const src = fs.readFileSync(`${root}/herdr/mods/hub/${f}.js`, 'utf8');
+    const calls = src.match(/termPopup\(([^,]*),/g) ?? [];
+    assert.ok(calls.length && calls.every((c) => /termPopup\((p|this),/.test(c)), `${f}.js le pasa el panel a termPopup: ${calls}`);
+    assert.ok(!/close\(\);\s*\n?\s*(if \(.*\) return )?termPopup/.test(src), `${f}.js no cierra el panel antes de termPopup`);
+  }
+  ok('termPopup (mods/hub) deja el pedido en shared, después cierra el panel y abre bk-pop, sin esperar a hc');
+  const Bk4 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
+    'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
+    class {}, () => ({}), async (a) => { st.hcs.push(a); return { code: 0, stdout: '{"address":"t9"}', stderr: '' }; },
+    nope('exec'), nope('run'), () => ({}), (o) => { st.overlays.push(o); return 'o1'; }, () => {},
+    () => ({ space: 's1', tab: 'tb1', cwd: '/otro', terminal: 't5' }), () => [], () => [], () => [], () => '/home/yo',
+    nope('notify'), (k) => st.shared[k] ?? null, (k, v) => { st.shared[k] = v; }, nope('readTextFile'));
+  const bk4 = new Bk4();
+  await bk4.handle('pop');
+  const a = st.hcs[0] ?? [];
+  assert.equal(st.hcs.length, 1);
+  assert.deepEqual([a[a.indexOf('--cwd') + 1], a.includes('BK_FROM_TERM=t1'), a.at(-1).includes("'bk' monitor")], ['/proj/sub', true, true],
+    'corre el comando en la carpeta y desde la terminal que pidió el panel, no las de este mod');
+  assert.deepEqual([st.overlays.length, st.overlays[0].width, st.overlays[0].height, st.overlays[0].layout.content], [1, 0.9, 0.85, { terminal: 't9' }]);
+  assert.deepEqual([st.shared['bk.pop.pedido'], st.shared['bk.pop'].name], [null, 'monitor']);
+  ok('bk-pop abre el pedido en un popup sobre la ventana y lo borra');
+  await bk4.handle('pop');
+  assert.deepEqual([st.hcs.length, st.overlays.length], [1, 1]);
+  ok('bk-pop sin pedido no abre nada');
+}
 hcs = []; overlays = [];
 for (const v of views) {
   said = [];
@@ -191,26 +298,27 @@ ok('Aspecto: la fuente sigue guardándose igual');
 // El menú del clic derecho de bk (herdr/mods/menu → bk-menu)
 const menuSrc = fs.readFileSync(`${root}/herdr/mods/menu/main.js`, 'utf8')
   .replace(/^import .*;$/gm, '').replace('export default class Menu', 'class Menu').replace(/^export /gm, '');
-let mTerms = [], mPanes = [], mKeys = [], opened = [];
+let mTerms = [], mPanes = [], mKeys = [];
 const M = new Function('View', 'div', 'svg', 'v_flex', 'h_flex', 'run', 'props', 'closeOverlay', 'openOverlay', 'theme', 'keys',
-  'terminals', 'spaces', 'panes', 'exec', menuSrc + '\nreturn { items, height, shortcut, keyParts, openMenu, WIDTH };')(
-  class {}, () => ({}), () => ({}), () => ({}), () => ({}), () => {}, () => ({}), () => {}, (o) => opened.push(o), () => ({}),
+  'terminals', 'spaces', 'panes', 'exec', menuSrc + '\nreturn { items, height, shortcut, keyParts, WIDTH };')(
+  class {}, () => ({}), () => ({}), () => ({}), () => ({}), () => {}, () => ({}), () => {}, () => {}, () => ({}),
   () => mKeys, () => mTerms, () => [], () => mPanes, async () => ({ code: 1 }));
 mTerms = [{ address: 't1', labels: {} }, { address: 't2', parent: 't1', labels: { 'herdr.right-click': 'program' } }];
-mPanes = [{ pane: 'p1' }];
+mPanes = [{ pane: 'p1', tab: 'c1' }];
 const pane = M.items({ tab: 'pane', target: { pane: 'p1', terminal: 't1' } });
-assert.deepEqual(pane.map((x) => x[1]), ['pane.split', 'pane.split', 'pane.zoom', 'terminal.right_click', 'pane.close']);
-assert.deepEqual(pane.map((x) => x[0]), ['Dividir a la derecha', 'Dividir abajo', 'Agrandar', 'Clic derecho: al programa', 'Cerrar']);
-assert.ok(pane.every((x) => x[2].pane === 'p1' || x[2].terminal === 't1'), 'actúa sobre la terminal del clic');
+assert.deepEqual(pane.map((x) => x[1]), ['tab.rename', 'pane.split', 'pane.split', 'pane.zoom', 'terminal.right_click', 'pane.close']);
+assert.deepEqual(pane.map((x) => x[0]), ['Renombrar', 'Dividir a la derecha', 'Dividir abajo', 'Agrandar', 'Clic derecho: al programa', 'Cerrar']);
+assert.ok(pane.every((x) => x[2].pane === 'p1' || x[2].terminal === 't1' || x[2].id === 'c1'), 'actúa sobre la terminal del clic');
+assert.deepEqual(pane[0][2], { id: 'c1' }, 'Renombrar es el de la pestaña de esa terminal');
 ok('menú: las opciones de una terminal en una pestaña, en castellano, sobre la terminal del clic');
 const sub = M.items({ tab: 'pane', target: { pane: 'bloque', terminal: 't2' } });
 assert.deepEqual(sub.map((x) => x[0]), ['Clic derecho: menú de Herdr', 'Devolver a t1']);
 ok('menú: una terminal fuera de una pestaña no se divide ni se cierra; un sub-agente se devuelve a su padre');
 assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, 'linked').map((x) => x[1]), ['space.rename', 'worktree', 'worktree', 'worktree', 'space.close']);
 assert.deepEqual(M.items({ tab: 'space', target: { id: 's' } }, null).map((x) => x[1]), ['space.rename', 'space.close']);
-assert.deepEqual(M.items({ tab: 'tab', target: { id: 'c', space: 's' } }).map((x) => x[1]), ['tab.rename', 'tab.new', 'tab.close']);
-ok('menú: espacio (con los worktrees si es un repo) y pestaña');
-assert.equal(M.height(pane), 12 + 5 * 32 + 2 * 9);
+assert.deepEqual(M.items({ tab: 'tab', target: { id: 'c', space: 's' } }).map((x) => x[1]), ['space.new', 'app.help'], 'las pestañas ya no tienen menú propio');
+ok('menú: espacio (con los worktrees si es un repo); las pestañas no tienen menú propio');
+assert.equal(M.height(pane), 12 + 6 * 32 + 2 * 9);
 assert.equal(JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.height, M.height(pane));
 assert.ok(M.WIDTH >= 280 && JSON.parse(fs.readFileSync(`${root}/herdr/mods/menu/mod.json`, 'utf8')).overlay.width === M.WIDTH);
 ok('menú: el alto justo para las opciones de una terminal, y ancho para el texto y las teclas');
@@ -218,20 +326,26 @@ mKeys = [{ section: 'global', keys: 'cmd-d', action: 'pane.split:right' }, { sec
 assert.deepEqual([M.keyParts(M.shortcut('pane.split', { direction: 'right', pane: 'p1' })), M.keyParts(M.shortcut('pane.close', { pane: 'p1' })), M.shortcut('pane.zoom', {})],
   [['⌘', 'D'], ['⌘', '⇧', 'W'], '']);
 ok('menú: las teclas en símbolos (⌘ ⇧ D), solo las globales');
-M.openMenu('pane', { pane: 'p1', terminal: 't1' });
-assert.deepEqual([opened[0].mod, opened[0].width, opened[0].height], ['bk-menu', M.WIDTH, M.height(pane)]);
 const lay = JSON.parse(fs.readFileSync(`${root}/herdr/layouts/bk-lavanda.json`, 'utf8'));
-const users = ['agentes', 'pestanas'].map((m) => fs.readFileSync(`${root}/herdr/mods/${m}/main.js`, 'utf8'));
-assert.deepEqual([lay.terminal_menu, users.map((u) => u.includes('mod: "bk-menu"') && !u.includes('mod: "menu"'))], ['bk-menu', [true, true]]);
-ok('menú: el layout, la lista de agentes y las pestañas usan bk-menu, no el de Herdr');
+const users = ['agentes'].map((m) => fs.readFileSync(`${root}/herdr/mods/${m}/main.js`, 'utf8'));
+assert.deepEqual([lay.terminal_menu, users.map((u) => u.includes('mod: "bk-menu"') && !u.includes('mod: "menu"'))], ['bk-menu', [true]]);
+ok('menú: el layout y la lista de agentes usan bk-menu, no el de Herdr');
+const menuH = new Function(`${users[0].match(/^const MENU_H = .*;$/m)[0]}\nreturn MENU_H;`)();
+assert.deepEqual(menuH, { pane: M.height(pane), space: M.height(M.items({ tab: 'space', target: { id: 's' } }, 'linked')) });
+assert.ok(!/overflow_y_scroll/.test(menuSrc), 'bk-menu sin scroll: en el popup se ve como una raya');
+ok('menú: la lista de agentes lo abre con el alto justo para sus opciones, sin scroll');
 console.log(`1..${n}`);
 JS
 # La lista de agentes (herdr/mods/agentes): la antigüedad de la fila no va en una caja de ancho fijo. En 28 px
 # entraba «12m» y «ahora» se partía en dos renglones (2026-11-15).
-row=$(grep -c 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js")
+row=$(grep -c 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js" || true)
 fit=$(grep 'ago(now - when)' "$ROOT/herdr/mods/agentes/main.js" | grep -c 'div()\.flex_none()\.min_w(28)\.whitespace_nowrap()\.text_right()[^()]*(timeColor)\.child(ago(now - when))')
 [ "$row $fit" = "1 1" ] || { echo "not ok - agentes: la antigüedad de la fila va en una caja de ancho fijo o se puede partir ($row $fit)"; exit 1; }
 echo "ok - agentes: la antigüedad de la fila no se parte (ancho mínimo, sin salto de renglón)"
+# Doble clic en una fila de la lista de agentes abre Renombrar de su pestaña (como las pestañas de arriba)
+dbl=$(grep -c 'on_mouse_down("left", (e) => { if (e.click_count === 2 && a.tab) run("tab.rename", { id: a.tab }); })' "$ROOT/herdr/mods/agentes/main.js" || true)
+[ "$dbl" = 1 ] || { echo "not ok - agentes: el doble clic en una fila no abre Renombrar ($dbl)"; exit 1; }
+echo "ok - agentes: doble clic en una fila abre Renombrar de su pestaña"
 # La cuenta en la barra y en el panel lado: el mail que dan bk _hub status y bk _side (--account de la terminal)
 B="$ROOT/herdr/mods/barra/main.js"; LD="$ROOT/herdr/mods/lado/main.js"
 c1=$(grep -c 'when(Boolean(d?.account || d?.email)' "$B"); c2=$(grep -c 'child(d.email)' "$B"); c3=$(grep -c 'svg("mods/bk-barra/cuenta.svg")' "$B")

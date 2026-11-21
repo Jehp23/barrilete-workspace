@@ -142,21 +142,26 @@ hd_launch() {
 
 # hd_chat <nombre del chat> <espacio> <pestaña> <carpeta> <proyecto>: un claude en una pestaña del espacio (que se
 # crea si no está) y a la vista. WS_CHAT_CMD cambia lo que corre (bk chat --desde); BK_WS_NAME lo nombra.
+# HD_TAB (un nombre automático de la pestaña) y HD_LABELS (etiquetas de más) los pone hd_chat_from; la terminal
+# nueva queda en HD_NEW_TERM.
 hd_chat() {
   local ws="$1" space="$2" tab="$3" dir="$4" top="$5" t kv CTA envv=()
   account_args claude
   for kv in "${CTA[@]+"${CTA[@]}"}"; do [ "$kv" = -e ] || envv+=("$kv"); done
   hd_up
+  tab="${BK_WS_NAME:-${HD_TAB:-$tab}}"
   if [ -n "${WS_CHAT_CMD:-}" ]; then
-    t=$(hd_open_tab "$space" "${BK_WS_NAME:-$tab}" "$dir" \
+    t=$(hd_open_tab "$space" "$tab" "$dir" \
           env BK_BACKEND=herdr "BK_PROJECT=$top" "${envv[@]+"${envv[@]}"}" bash -c "$WS_CHAT_CMD") || exit 1
   else
-    t=$(hd_open_tab "$space" "${BK_WS_NAME:-$tab}" "$dir" \
+    t=$(hd_open_tab "$space" "$tab" "$dir" \
           env BK_BACKEND=herdr "BK_PROJECT=$top" "${envv[@]+"${envv[@]}"}" claude) || exit 1
   fi
+  HD_NEW_TERM="$t"
   local lab=(bk.kind=chat "bk.win=$ws" "bk.project=$(project_of "$top")") cta
   cta=$(account_of claude); [ -z "$cta" ] || lab+=("bk.account=$cta")
   [ -z "${BK_WS_NAME:-}" ] || lab+=("bk.name=$BK_WS_NAME")
+  lab+=("${HD_LABELS[@]+"${HD_LABELS[@]}"}")
   hd_hc label "$t" "${lab[@]}" >/dev/null 2>&1 || info "(no pude etiquetar el chat $ws: bk ls no lo va a mostrar)"
   local n; n=$(hd_id_give "$t" 2>/dev/null) || n=""
   info "chat $ws → Herdr, espacio $space${n:+ · ventana $n}"
@@ -167,6 +172,25 @@ hd_free() {
   local k=2
   while [ -n "$(hd_chat_term "$1-$k")" ]; do k=$((k + 1)); done
   printf '%s-%s' "$1" "$k"
+}
+
+# hd_relaunch_chat <espacio>: el chat del espacio vuelve a arrancar con la cuenta del espacio (bk account use
+# --relaunch), retomando su conversación: uno nuevo con claude --resume en el mismo espacio y después se cierra el
+# viejo (si el nuevo no abre, el viejo queda). No si está trabajando o esperando una respuesta tuya.
+hd_relaunch_chat() {
+  local name="$1" t sid="" st="" j dir nm
+  t=$(hd_chat_term "$name"); [ -n "$t" ] || die "el espacio $name no tiene un chat de bk"
+  read -r sid st < <(pane_sid "$t"; echo)
+  case "$st" in working|waiting|background) die "el chat está trabajando o te espera: relanzalo cuando termine" ;; esac
+  case "$sid" in bk-*) sid="" ;; esac
+  j=$(hd_hc get "$t" --json 2>/dev/null) || die "no encuentro el chat de $name en Herdr"
+  dir=$(jq -r '.cwd // ""' <<<"$j"); [ -d "$dir" ] || dir=$PWD
+  nm=$(jq -r '.labels["bk.name"] // ""' <<<"$j")
+  # Sin la cuenta que traía este bk (la del chat viejo, si se corrió desde ahí): manda la del espacio
+  BK_ACCOUNT="" BK_ACCOUNT_CLAUDE="" BK_WS_NAME="$nm" WS_CHAT_CMD="claude${sid:+ --resume $(sq "$sid")}" \
+    hd_chat "$name" "$name" chat "$dir" "$(project_top "$dir")"
+  hd_hc kill "$t" >/dev/null 2>&1 || info "(no pude cerrar el chat anterior, $t)"
+  info "chat relanzado${sid:+ (retoma $sid)}"
 }
 
 # hd_workspace [carpeta]: el espacio del proyecto de esa carpeta con su chat. Si ya está, lo muestra; si se le
@@ -257,9 +281,23 @@ hd_chat_from() {
   BK_ACCOUNT="$acct"
   WS_CHAT_CMD="p=\$(python3 $(sq "$WS/lib/handoff.py") take $(sq "$sid")) && claude -- \"\$p\" || claude"
   if [ "$DRY" -eq 1 ]; then printf '%s\t%s\t%s\t%s\n' "$name" "$dir" "$acct" "$WS_CHAT_CMD"; return; fi
+  # Sigue siendo el mismo trabajo: el chat nuevo nace con el nombre del viejo y en qué quedó, y queda unido a él
+  # (bk.from) para que la barra de agentes lo muestre en su lugar. El resumen se lee ahora: el chat nuevo lo
+  # borra apenas arranca. Un nombre puesto a mano pasa como nombre a mano (bk name o doble clic lo cambian); uno
+  # automático pasa como automático, y lib/names.py lo sigue actualizando si el tema cambia.
+  local oldt="" hand="" auto="" title="" status=""
+  [ -z "$old" ] || oldt=$(hd_chat_term "$old")
+  if [ -n "$oldt" ]; then hand=$(hd_label "$oldt" bk.name); auto=$(hd_label "$oldt" bk.autotitle); fi
+  { IFS= read -r title; IFS= read -r status; } < <(python3 "$WS/lib/handoff.py" brief "$sid" 2>/dev/null) || true
+  HD_LABELS=()
+  if [ -n "$hand" ] && [ -z "${BK_WS_NAME:-}" ]; then BK_WS_NAME="$hand"
+  elif [ -n "${auto:-$title}" ]; then HD_TAB="${auto:-$title}"; HD_LABELS+=("bk.autotitle=$HD_TAB"); fi
+  [ -z "$status" ] || HD_LABELS+=("bk.status=sigue: $status")
+  [ -z "$oldt" ] || HD_LABELS+=("bk.from=$oldt")
   ws=$(hd_free "$name")
   hd_chat "$ws" "$name" "chat-${ws##*-}" "$dir" "$top"
-  info "→ $ws sigue desde ${old:-$sid}, con la cuenta $acct. El chat viejo sigue abierto: cerrá su pestaña cuando quieras"
+  [ -z "$oldt" ] || [ -z "${HD_NEW_TERM:-}" ] || hd_hc label "$oldt" "bk.next=$HD_NEW_TERM" >/dev/null 2>&1 || true
+  info "→ $ws sigue desde ${old:-$sid}, con la cuenta $acct. El chat viejo queda debajo del nuevo en la barra: cerralo cuando quieras"
 }
 
 # bk name ["nombre" | -]: el nombre del chat de esta terminal (la etiqueta bk.name y el de su pestaña)

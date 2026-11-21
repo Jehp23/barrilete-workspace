@@ -4,7 +4,7 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(dirname "$HERE")"
 TMP=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$TMP"' EXIT
-export HOME="$TMP/home"; mkdir -p "$HOME"
+export HOME="$TMP/home"; mkdir -p "$HOME"; unset BK_CONTEXT_FILE   # el umbral sale de este HOME
 unset BK_BACKEND BK_PROJECT GIT_DIR GIT_WORK_TREE
 N=0; FAILED=0
 check_eq() { N=$((N+1)); if [ "$1" = "$2" ]; then echo "ok $N - $3"; else echo "not ok $N - $3 (got '$1', want '$2')"; FAILED=$((FAILED+1)); fi; }
@@ -38,12 +38,15 @@ sesion() { # <carpeta> <archivo> <tokens de entrada> <segundos de antigüedad>
   touch -t "$(date -v-"$4"S +%Y%m%d%H%M.%S)" "$d/$2.jsonl"
 }
 check_eq "$(side "$REPO" | jq -c '.context')" "null" "contexto: sin sesión de Claude en la carpeta es null"
-sesion "$REPO" vieja 450000 600; sesion "$REPO" nueva 250000 5
-check_eq "$(side "$REPO" | jq -c '.context')" '{"tokens":250000,"level":"warn"}' "contexto: toma la sesión más reciente de la carpeta y dice el nivel (ámbar desde 200k)"
-sesion "$REPO" nueva 450000 5
-check_eq "$(side "$REPO" | jq -c '.context.level')" '"high"' "contexto: rojo desde 400k"
+sesion "$REPO" vieja 450000 600; sesion "$REPO" nueva 170000 5
+check_eq "$(side "$REPO" | jq -c '.context')" '{"tokens":170000,"level":"warn","limit":200000}' "contexto: toma la sesión más reciente de la carpeta, dice el nivel (ámbar desde 150k) y el umbral"
+sesion "$REPO" nueva 250000 5
+check_eq "$(side "$REPO" | jq -c '.context.level')" '"high"' "contexto: rojo desde 200k (el umbral por defecto)"
+mkdir -p "$HOME/.config/bk"; echo 300k >"$HOME/.config/bk/context"
+check_eq "$(side "$REPO" | jq -c '[.context.level, .context.limit]')" '["warn",300000]' "contexto: con bk context 300k, 250k es ámbar y el umbral sale en limit"
+rm -f "$HOME/.config/bk/context"
 sesion "$REPO" nueva 90000 5
-check_eq "$(side "$REPO" | jq -c '.context')" '{"tokens":90000,"level":""}' "contexto: por debajo de 200k sin nivel"
+check_eq "$(side "$REPO" | jq -c '.context')" '{"tokens":90000,"level":"","limit":200000}' "contexto: por debajo de 150k sin nivel"
 check_eq "$(side "$WT" | jq -c '.context')" "null" "contexto: un worktree no hereda la sesión del repo principal"
 
 echo "1..$N"

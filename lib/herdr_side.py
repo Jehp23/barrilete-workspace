@@ -6,11 +6,12 @@
 
   project, path   el proyecto de esa carpeta: su repo principal aunque la carpeta sea un worktree
   branch, dirty   la rama de la carpeta y cuántos archivos tiene sin commitear
-  profile         [{role, model, mode}] de `bk roles` en el proyecto
+  profile         [{role, model, mode}] de `bk roles` en el proyecto (model con su provider si no es claude)
+  profile_name    el perfil de modelos activo (bk profile), o ""
   changes         [{name, branch, path, files: [{code, path, add, del}], more}] por cada worktree del proyecto con
                   algo sin commitear (hasta MAX_FILES archivos; `more` dice cuántos quedaron afuera)
-  context         {tokens, level} de la sesión de Claude más reciente de esa carpeta (level: "", "warn" desde
-                  200k, "high" desde 400k), o null si no tiene ninguna
+  context         {tokens, level, limit} de la sesión de Claude más reciente de esa carpeta (level: "", "warn"
+                  desde 3/4 del umbral, "high" desde el umbral; limit: el umbral de bk context), o null si no tiene
   usage           solo con --usage (lee los transcripts, tarda más): tokens y costo de hoy, acá y en total
   email           el mail de la cuenta de Claude de esa terminal (--account, la etiqueta bk.account; sin ella, la
                   de siempre), o null si no tiene sesión iniciada
@@ -68,8 +69,16 @@ def profile(top):
     for l in sh(os.path.join(os.path.dirname(HERE), "bin", "bk"), "roles", cwd=top or None).splitlines():
         p = l.split()
         if len(p) >= 2 and "/" in p[1]:
-            rows.append({"role": p[0], "model": p[1].split("/")[-1], "mode": p[2] if len(p) > 2 else ""})
+            prov, _, model = p[1].partition("/")
+            rows.append({"role": p[0], "model": model if prov == "claude" else p[1], "mode": p[2] if len(p) > 2 else ""})
     return rows
+
+
+def profile_name():
+    """El perfil de modelos activo (bk profile), o "" si no hay o ya no existe."""
+    sys.path.insert(0, HERE)
+    import profiles as PR
+    return PR.data()["active"] or ""
 
 
 def usage(name):
@@ -99,7 +108,7 @@ def main():
     home = os.path.expanduser("~")
     top = project_top(cwd) if os.path.isdir(cwd) else ""
     out = {"project": os.path.basename(top) if top else "", "path": (top or cwd).replace(home, "~", 1),
-           "branch": "", "dirty": 0, "profile": profile(top), "changes": [],
+           "branch": "", "dirty": 0, "profile": profile(top), "profile_name": profile_name(), "changes": [],
            "context": context(cwd)}
     if top:
         out["branch"] = sh("git", "-C", cwd, "branch", "--show-current").strip()

@@ -1,7 +1,7 @@
 // Piezas de dibujo de bk-lavanda: la marca de estado, el chip con el número de ventana, el rótulo sobre una
 // línea y la tarjeta con título en el marco. Una sola versión de cada una para que la barra izquierda, las
 // pestañas, la cabecera de cada pane y el lado derecho se vean de una pieza.
-// Va igual en agentes, pestanas, cabecera, lado y marca (un mod de Herdr no puede importar de otra carpeta):
+// Va igual en agentes, pestanas, cabecera, lado, marca y cerrar (un mod de Herdr no puede importar de otra carpeta):
 // si lo cambiás, copialo a las demás.
 
 import { div, svg, image } from "gpui-kit";
@@ -12,8 +12,9 @@ export const ICONS = "mods/workspace-chrome/";
 // La interfaz va en la fuente de la terminal (ui_font del layout). Solo la prosa que se corta (lo que hace un
 // agente, el título de un PR) va en Geist, que viene con Herdr y entra un tercio más de texto en el mismo ancho.
 export const PROSE = "Geist";
-export const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
-export const WORD = { blocked: "te espera", done: "listo", working: "trabajando", idle: "quieto" };
+// background: el turno terminó pero dejó comandos corriendo (tests, CI); lo marca bk, no Herdr (mods/agentes).
+export const RANK = { blocked: 4, done: 3, working: 2, background: 1.5, idle: 1 };
+export const WORD = { blocked: "te espera", done: "listo", working: "trabajando", background: "en 2º plano", idle: "quieto" };
 
 // Un color del tema con transparencia ("22"); uno que ya la trae queda como está.
 export const al = (c, a) => (/^#[0-9a-fA-F]{6}$/.test(c ?? "") ? c + a : c ?? "#00000000");
@@ -72,11 +73,14 @@ export function picto(p, size, color) {
 
 // La marca de estado, la misma en toda la ventana, en una caja de `box` px. Cada estado tiene forma y color
 // propios: trabajando, un punto que late (un cuadro cada 450 ms: no redibuja la ventana 30 veces por segundo como un
-// spinner); te espera, un disco ámbar con !; listo, un tilde verde; quieto, un anillo apagado.
+// spinner); en 2º plano, un medio círculo que gira; te espera, un disco ámbar con !; listo, un tilde verde; quieto, un anillo apagado.
 export function mark(t, status, box = 14) {
   const wrap = (el) => div().size(box).flex_none().flex().items_center().justify_center().child(el);
   if (status === "working") return div().size(box).flex_none().flex().items_center().justify_center()
     .text_size(box - 2).line_height(1).text_color(t.working).frames(["●", "●", "•"], 450);
+  // En 2º plano: un medio círculo que gira despacio (como el riel de bk-shell), no el punto que late.
+  if (status === "background") return div().size(box).flex_none().flex().items_center().justify_center()
+    .text_size(box - 2).line_height(1).text_color(t.working).frames(["◐", "◓", "◑", "◒"], 900);
   if (status === "blocked") return div().size(box).flex_none().rounded_full().bg(t.blocked).flex().items_center().justify_center()
     .text_size(box - 4).line_height(1).font_bold().text_color(t.accent_foreground).child("!");
   if (status === "done") return wrap(svg(ICONS + "check.svg").size(box - 1).text_color(t.done));

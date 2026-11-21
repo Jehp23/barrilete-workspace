@@ -52,18 +52,20 @@ uso: bk [comando] [--dry-run]
   rerun [--go] [pr…]  volver a correr los checks de Actions que fallaron (sin --go: solo muestra)
   new | n           popup "Nuevo": chat nuevo en este proyecto u otro workspace (alt+n, o + en la tira)
                     Con Herdr, alt+n abre el panel Nuevo: chat, en una rama, con nombre, suelto, una terminal,
-                    otro proyecto o seguir desde un resumen
+                    otro proyecto, seguir desde un resumen o (parado en un chat) pedir su resumen y seguir (alt+h)
   chat [--suelto]   un claude nuevo en el proyecto del workspace (o sin proyecto), en el lugar del chat (alt+q vuelve)
   chat --nombre X   el chat nuevo se llama X (bk ls, bk say X "…", bk go X); también con --rama
   chat --carpeta D  un chat en esa carpeta (el worktree de una rama: Enter en alt+b), en su propio espacio
   chat --desde N    seguir en un chat nuevo desde el resumen del workspace N (misma carpeta y cuenta; alt+n también)
   handoff [N]       pedirle al chat del workspace N (o de este) el resumen para seguir; --listos: los que hay
+  context [n|default]  con cuánto contexto un chat deja su resumen y sigue en uno nuevo (200k por defecto; el
+                    aviso ámbar sale en 3/4). bk context 300k lo cambia para todos los chats. En alt+h: «Umbral»
                     cuando el chat lo guarda, el chat nuevo se abre solo (si lo pidió el aviso de contexto: un
                     aviso de Herdr con clic; --seguir abre el más nuevo)
                     Con Herdr, N es el número fijo de la ventana (o el nombre del chat). --term <terminal> se lo
                     pide al chat de esa terminal desde afuera (lo usa alt+h; si bk no la conocía, la adopta) y
                     --cerrar cierra el chat viejo cuando el nuevo abre
-  name ["nombre"]   nombrar el chat de este workspace (sin nombre: el de /rename o el título de Claude; - lo borra)
+  name ["nombre"]   nombrar el chat de este workspace (sin nombre: el de /rename o, en Herdr, el del tema de ahora; - lo borra)
   open [proyecto]   abrir el workspace de otro proyecto en una ventana nueva (sin argumento: los abiertos)
   plan "<idea>"     planner: /plan-feature en la raíz del proyecto
   run <issue>       routing.py elige el rol → prepare.sh crea worktree → implementer en tmux
@@ -77,7 +79,7 @@ uso: bk [comando] [--dry-run]
   go <agente>       saltar a un agente. <agente>: la ventana (i42, pr57), un número (#240) o una palabra del título
                     Con Herdr, un número de una o dos cifras es primero el número fijo de la ventana de un chat
                     o un agente (bk go 3, lo mismo que alt+3); si nadie lo tiene, vale como antes
-  changes           lo que los agentes dejaron sin commitear, con diff (alt+g; con Herdr, alt+g abre su panel)
+  changes           lo que los agentes dejaron sin commitear, con diff (alt+g; con Herdr, alt+g muestra la pestaña Cambios del panel derecho)
   palette | k       todos los comandos con búsqueda (alt+k; con Herdr, alt+k abre el panel Comandos)
   monitor           pantalla para el otro monitor: qué te espera, agentes, tareas, costo y desvíos en vivo (los graves suenan)
                     (c o bk monitor --clear limpian los desvíos: lo anterior no vuelve aunque relea los transcripts)
@@ -85,6 +87,11 @@ uso: bk [comando] [--dry-run]
   chat [--rama N]   otro chat del proyecto, como un workspace más (alt+N); con --rama, en su worktree y rama chat/N
   sound [on|off|test]  sonidos de los agentes: terminó (Glass), pregunta (Ping), permiso (Purr), error (Basso)
   mode <rol>        cómo lo lanza el orquestador: main, bk (ventana propia) o sub (subagente)
+  profile [nombre]  perfiles de modelos (normal, barato, a-fondo…): un provider/modelo por rol, para todos los
+                    proyectos. set <perfil> <rol> <provider>/<modelo> lo edita; new, rm, edit, off. En alt+k: «Perfil»
+  ask [tarea "…"]   un trabajo puntual al modelo de una tarea (imagenes e investigar → codex…): corre sin
+                    pantalla y devuelve la respuesta y los archivos. set <tarea> <provider>/<modelo> <para qué>, rm
+  models [provider] los modelos que se pueden elegir (codex sale de su CLI; claude y gemini de models.yml)
   sub [transcript]  ver en vivo un subagente (sin argumento: elegir de los vivos); clic en └ de la tira
   term [dir]        terminal rápida del proyecto, persistente (alt+x la muestra y la esconde)
   metrics [--repo R] por PR: costo, rondas de review, desvíos y si las lecciones los bajan
@@ -121,20 +128,26 @@ uso: bk [comando] [--dry-run]
                     new <claude|codex> <nombre> · use <nombre> [--relaunch] · --account <nombre> en
                     cualquier lanzamiento
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
-  learn             registra desvíos de los agentes en Obsidian y propone lecciones
+  learn             registra desvíos de los agentes en Obsidian y propone lecciones; los de proyectos con el kit
+                    (y los hallazgos de review) van también a su store (.barrilete/learning, ADR-007)
   lessons           lecciones por revisar (status: proposed) en el vault
-  learn effect      ¿las reglas aceptadas bajan los hallazgos que dicen evitar? antes/después por ronda de
-                    review (agents/efecto.md); las que no bajan, para reescribir o retirar
+  bitacora [tema]   le pide /bitacora [tema] al chat que mirás si es un Claude, o al chat del espacio: la skill
+                    bitacora del kit guarda lo de esa conversación en docs/bitacora.html (sin tema, lo propone el
+                    chat). --to <terminal|pane>: el que mirás (alt+k se lo pasa)
+  learn effect      ¿las reglas que aplica cada proyecto (rules.lock + .barrilete/rules/) bajan los hallazgos que
+                    dicen evitar? antes/después por ronda de review y fallos de su check (agents/efecto.md)
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
   theme [day|night|auto]  tema de Ghostty: violeta pastel / violeta oscuro / según macOS
   font [sf|jetbrains|menlo]  tipografía de Ghostty: SF Mono / JetBrains Mono (la que trae) / Menlo
 
 Con Herdr (bk backend herdr) cada chat y cada agente tiene un número fijo de ventana, y todo tiene tecla:
   alt+k comandos · alt+i implementar un issue · alt+r revisar o corregir un PR · alt+e te esperan
+  alt+t el panel derecho en TODO: los pasos del issue de este chat
   alt+a agentes: ver, escribirles, cerrar · alt+n nuevo · alt+c chat nuevo · alt+s sesiones
   alt+h resumen y seguir en un chat nuevo · alt+g cambios · alt+u uso y costo · alt+m radio
   alt+, aspecto · alt+/ la hoja de teclas · alt+1…9 la ventana N · alt+shift+1…9 el agente N del espacio
   alt+j el próximo que te espera · alt+0 donde estabas · alt+q el chat del espacio · alt+x terminal rápida
+  alt+y Piola, el ayudante del workspace (un Codex en un popup, para lo que no ande; también el botón de arriba)
   alt+. panel derecho · alt+z agrandar el pane
 Un agente abierto desde Herdr (sin etiquetas de bk) se adopta como chat de su proyecto y toma su número.
 
@@ -146,18 +159,37 @@ EOF
 project_root() {
   local root
   root=$(git rev-parse --show-toplevel 2>/dev/null) || die "no estás en un repo git"
-  [ -f "$root/scripts/agents/guardrails.py" ] || die "$root no es un proyecto Barrilete (falta scripts/agents/guardrails.py)"
+  # Sin los scripts del kit no se lanza: lib/kit_check.py dice por qué (sin kit, un kit 0.x, una instalación a medias)
+  [ -f "$root/scripts/agents/guardrails.py" ] || die "$(python3 "$WS/lib/kit_check.py" "$root" || true)"
   printf '%s' "$root"
 }
 
-# role_spec <rol> [root] -> "provider/modelo"
+# profile_spec <rol> -> "provider/modelo" del perfil activo (bk profile), o nada si no hay perfil o no nombra el rol.
+# Lee como lib/profiles.py (parse): un renglón sin sangría «nombre:» abre un perfil; los roles van con sangría.
+# En awk y no en Python porque corre una vez por rol (bk roles, el panel derecho).
+profile_spec() {
+  local role="$1" name f
+  name=$(cat "$HOME/.config/bk/profile" 2>/dev/null) || return 0
+  [ -n "$name" ] || return 0
+  f="$HOME/.config/bk/profiles.yml"; [ -f "$f" ] || f="$WS/profiles.yml"
+  [ -f "$f" ] || return 0
+  awk -v p="$name" -v r="$role" '
+    /^[^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { h = $0; sub(/:.*/, "", h); gsub(/^[[:space:]]+|[[:space:]]+$/, "", h); inb = (h == p); next }
+    /^[^[:space:]#]/ { inb = 0; next }
+    inb && match($0, /^[[:space:]]+[^[:space:]:#]+:[[:space:]]*[^[:space:]#]+/) {
+      s = substr($0, 1, RLENGTH); sub(/^[[:space:]]+/, "", s); k = s; sub(/:.*/, "", k)
+      if (k == r) { sub(/^[^:]*:[[:space:]]*/, "", s); print s; exit }
+    }' "$f"
+}
+
+# role_spec <rol> [root] -> "provider/modelo". Orden: el .barrilete/roles.yml del proyecto, el perfil activo
+# (bk profile) y roles.yml del workspace
 role_spec() {
-  local role="$1" root="${2:-}" f spec=""
-  for f in ${root:+"$root/.barrilete/roles.yml"} "$WS/roles.yml"; do
-    [ -f "$f" ] || continue
-    spec=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*([^#[:space:]]+).*/\1/p" "$f" | head -1)
-    [ -n "$spec" ] && break
-  done
+  local role="$1" root="${2:-}" spec=""
+  [ -n "$root" ] && [ -f "$root/.barrilete/roles.yml" ] &&
+    spec=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*([^#[:space:]]+).*/\1/p" "$root/.barrilete/roles.yml" | head -1)
+  [ -n "$spec" ] || spec=$(profile_spec "$role")
+  [ -n "$spec" ] || spec=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*([^#[:space:]]+).*/\1/p" "$WS/roles.yml" 2>/dev/null | head -1)
   [ -n "$spec" ] || die "el rol '$role' no está en roles.yml"
   printf '%s' "$spec"
 }
@@ -194,7 +226,8 @@ caller_session() {
 }
 
 # account_of <proveedor> -> la cuenta para lo que se lance desde acá (vacío: la principal)
-# Orden: bk … --account X (BK_ACCOUNT) > la del pane (la heredan los agentes) > la de la sesión de tmux.
+# Orden: bk … --account X (BK_ACCOUNT) > la del pane (la heredan los agentes) > la de la sesión de tmux o, con
+# Herdr, la del espacio del proyecto de acá (bk account use).
 account_of() {
   local prov="$1" v="" s
   if [ -n "${BK_ACCOUNT:-}" ]; then
@@ -202,7 +235,9 @@ account_of() {
     [ "$(python3 "$ACCOUNTS" provider "$BK_ACCOUNT")" = "$prov" ] && { printf '%s' "$BK_ACCOUNT"; return; }
   fi
   eval "v=\${BK_ACCOUNT_$(upper "$prov"):-}"
-  if [ -z "$v" ]; then
+  if [ -z "$v" ] && [ "$BACKEND" = herdr ]; then
+    v=$(python3 "$ACCOUNTS" space "$(project_of "$PWD")" "$prov")
+  elif [ -z "$v" ]; then
     s=$(caller_session)
     [ -z "$s" ] || v=$(tmux show-options -qv -t "$s" "@bk_account_$prov" 2>/dev/null || true)
   fi
@@ -230,7 +265,10 @@ cmd_account() {
     ""|ls|list)
       local s c x; s=$(caller_session)
       python3 "$ACCOUNTS" list
-      if [ -n "$s" ]; then
+      if [ "$BACKEND" = herdr ]; then
+        s=$(project_of "$PWD")
+        info "en el espacio $s: claude $(account_of claude | grep . || echo default) · codex $(account_of codex | grep . || echo default)"
+      elif [ -n "$s" ]; then
         c=$(tmux show-options -qv -t "$s" @bk_account_claude 2>/dev/null || true)
         x=$(tmux show-options -qv -t "$s" @bk_account_codex 2>/dev/null || true)
         info "en $s: claude ${c:-default} · codex ${x:-default}"
@@ -256,6 +294,7 @@ uso: bk account                       las cuentas (● con sesión iniciada) y l
      bk account use <nombre> [--relaunch]   usarla en esta sesión: lo que lances desde acá
                                        (agentes, chats) corre con ella. --relaunch: el chat principal
                                        también, retomando la misma conversación
+                                       (con Herdr, para el espacio del proyecto de acá)
      bk account use default [claude|codex]   volver a la de siempre
      bk run|fix|review|plan|orchestrate … --account <nombre>   solo para ese lanzamiento
 EOF
@@ -298,15 +337,28 @@ account_use() {
     shift
   done
   [ -n "$name" ] || die "bk account use <nombre> [--relaunch]"
-  local s; s=$(caller_session)
-  [ -n "$s" ] || die "bk account use va dentro de una sesión de bk (tmux)"
-  local provs=() p kv
+  local provs=() p kv s
   if [ "$name" = default ]; then
     if [ -n "$only" ]; then provs=("$only"); else provs=(claude codex); fi
   else
     p=$(python3 "$ACCOUNTS" provider "$name"); [ -n "$p" ] || die "no existe la cuenta $name (bk account)"
     provs=("$p")
   fi
+  # Herdr: la cuenta va con el espacio del proyecto de acá (no hay sesión de tmux donde anotarla)
+  if [ "$BACKEND" = herdr ]; then
+    s=$(project_of "$PWD")
+    [ "$DRY" -eq 1 ] && { info "(dry-run: el espacio $s usaría la cuenta $name)"; return 0; }
+    python3 "$ACCOUNTS" space-use "$s" "$name" ${only:+"$only"} || exit 1
+    info "el espacio $s usa la cuenta $name: los agentes y chats que lances desde ahí corren con ella"
+    if [ "$relaunch" = 1 ]; then
+      [[ " ${provs[*]} " == *" claude "* ]] && hd_relaunch_chat "$s"
+    else
+      info "el chat del espacio sigue con la anterior hasta relanzarlo (bk account use $name --relaunch)"
+    fi
+    return 0
+  fi
+  s=$(caller_session)
+  [ -n "$s" ] || die "bk account use va dentro de una sesión de bk (tmux o Herdr)"
   [ "$DRY" -eq 1 ] && { info "(dry-run: $s usaría la cuenta $name)"; return 0; }
   for p in "${provs[@]}"; do
     if [ "$name" = default ]; then
@@ -416,6 +468,24 @@ bot_env() {
         -e "GIT_CONFIG_KEY_0=credential.helper" -e "GIT_CONFIG_VALUE_0="
         -e "GIT_CONFIG_KEY_1=credential.helper" -e "GIT_CONFIG_VALUE_1=!python3 $WS/lib/ghapp.py credential")
   info "como el bot: $login"
+}
+
+# bk _ayuda: Piola, el ayudante del workspace (alt+y en Herdr, o el botón «Piola» de la franja de arriba; mods/bk):
+# una sesión de Codex en el repo de bk. El encargo de lib/ayudante.md (quién es, su voz, dónde mirar y qué no hacer
+# solo) va como instrucciones (-c developer_instructions, una cadena TOML: no se ve en el chat) y el primer mensaje
+# es un saludo, para que se presente. Codex corre con tu config de siempre (modelo, permisos): acá no se le da
+# ningún permiso de más. Temporal: hasta que el workspace quede pulido.
+AYUDA_SALUDO="Hola, Piola."
+cmd_ayuda() {
+  local brief="$WS/lib/ayudante.md" inst
+  command -v codex >/dev/null || die "el ayudante es una sesión de Codex: Codex CLI no está instalado"
+  [ -s "$brief" ] || die "falta el encargo del ayudante ($brief)"
+  if [ "$DRY" -eq 1 ]; then info "(dry-run: abriría codex en $WS con el encargo de $brief)"; return 0; fi
+  # El texto como cadena JSON, que también es una cadena básica de TOML: comillas, barras y saltos de línea escapados
+  inst=$(python3 -c 'import json, sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read(), ensure_ascii=False))' "$brief") \
+    || die "no pude leer el encargo del ayudante ($brief)"
+  cd "$WS" || die "no existe $WS"
+  exec codex -c "developer_instructions=$inst" "$AYUDA_SALUDO"
 }
 
 # Terminal rápida (alt+x): una sesión term-<proyecto> que sobrevive al popup. Se abre en la raíz del
@@ -691,6 +761,35 @@ open_menu() {
   local scr; scr=$(be_screen "$1" | grep -v '^[[:space:]]*$' | tail -n 25 || true)
   grep -qE 'Enter to (select|confirm)|Esc to (cancel|exit)|↑/↓ to navigate' <<<"$scr" || return 0
   grep -E '^[[:space:]]*(❯[[:space:]]*)?[0-9]+\.[[:space:]]' <<<"$scr" | sed -E 's/^[[:space:]]*//' | head -n 9
+}
+
+# bk bitacora [--to <terminal|pane>] [tema]: le escribe /bitacora [tema] a un chat de Claude, que guarda lo de su
+# conversación en docs/bitacora.html con la skill bitacora del kit (barrilete-kit#343). A cuál: al que mirás (--to;
+# sin él, la terminal o el pane desde donde corre) si es un Claude (el hook tiene su estado), si no al chat de bk de
+# ese espacio. Con un menú abierto no escribe: el Enter elegiría la opción marcada (como bk say).
+bitacora() {
+  need_backend
+  local to="" tp="" sp
+  [ "${1:-}" = --to ] && { to="${2:-}"; shift 2 || shift; }
+  local topic="$*"; topic="${topic#"${topic%%[![:space:]]*}"}"; topic="${topic%"${topic##*[![:space:]]}"}"
+  if [ "$BACKEND" = herdr ]; then to="${to:-${HC_TERMINAL_ID:-}}"
+  else to="${to:-${TMUX_PANE:-$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)}}"; fi
+  if [ -n "$to" ] && [ -n "$(pane_state "$to")" ]; then tp="$to"
+  elif [ "$BACKEND" = herdr ]; then
+    sp=$(hd_label "${to:-_}" herdr.space)
+    [ -n "$sp" ] && tp=$(hd_find bk.kind=chat "herdr.space=$sp" | head -1)
+  elif [ -n "$to" ]; then
+    # tmux: el chat del workspace es el pane de <sesión>:main que no es el riel ni la barra (sin crearlo)
+    sp=$(tmux display-message -p -t "$to" '#S' 2>/dev/null || true)
+    [ -n "$sp" ] && tp=$(tmux list-panes -t "$sp:main" -F '#{pane_id} #{pane_start_command}' 2>/dev/null \
+                         | grep -v -e 'bk rail' -e 'bk sidebar' | head -1 | cut -d' ' -f1)
+  fi
+  [ -n "$tp" ] || die "bitácora: lo que mirás no es un chat de Claude y su espacio no tiene un chat de bk"
+  local menu; menu=$(open_menu "$tp")
+  [ -z "$menu" ] || die "bitácora: el chat ($tp) tiene un menú abierto; respondelo y volvé a pedirla"
+  local msg="/bitacora${topic:+ $topic}"
+  be_type "$tp" "$msg" || die "no pude escribirle al chat ($tp)"
+  info "→ $tp: $msg"
 }
 
 say() {
@@ -1445,6 +1544,45 @@ cmd_sound() {
   esac
 }
 
+# bk context [n|default|--json]: el umbral de contexto (lib/usage.py, ~/.config/bk/context). Desde ahí el aviso
+# rojo pide el resumen y bk abre el chat nuevo; el ámbar sale en 3/4. Vale para todos los chats, desde el próximo turno.
+cmd_context() {
+  python3 - "$WS/lib" "$@" <<'PY'
+import json, os, sys
+sys.path.insert(0, sys.argv[1]); import usage as U
+args = sys.argv[2:]
+k = lambda n: U.human_ctx(n)
+f = U.ctx_file()
+if not args or args[0] == "--json":
+    warn, high = U.ctx_limits()
+    custom = os.path.exists(f) and U.parse_ctx(open(f).read()) is not None
+    if args:
+        print(json.dumps({"limit": high, "warn": warn, "default": U.CTX_DEFAULT, "custom": custom}))
+    else:
+        print(f"{k(high)}{'' if custom else ' (por defecto)'}: ahí el chat deja su resumen y sigue en uno nuevo; "
+              f"aviso ámbar desde {k(warn)}")
+    sys.exit(0)
+if len(args) != 1:
+    sys.exit("bk context [<n>|default]   (por ejemplo: bk context 300k)")
+if args[0] in ("default", "reset"):
+    try:
+        os.remove(f)
+    except FileNotFoundError:
+        pass
+    print(f"umbral de contexto: {k(U.CTX_DEFAULT)} (por defecto)")
+    sys.exit(0)
+n = U.parse_ctx(args[0])
+if n is None:
+    sys.exit(f"«{args[0]}» no es un umbral: un número de tokens entre {k(U.CTX_MIN)} y {k(U.CTX_MAX)} (200k, 350000, 1m)")
+os.makedirs(os.path.dirname(f), exist_ok=True)
+with open(f + ".tmp", "w") as fh:
+    fh.write(f"{n}\n")
+os.replace(f + ".tmp", f)
+warn, high = U.ctx_limits()
+print(f"umbral de contexto: {k(high)} (aviso ámbar desde {k(warn)}); vale desde el próximo turno de cada chat")
+PY
+}
+
 # role_mode <rol> [raíz]: cómo lo lanza el orquestador (main | bk | sub), la 3.ª columna de roles.yml
 role_mode() {
   local role="$1" root="${2:-}" f mode=""
@@ -1458,7 +1596,9 @@ role_mode() {
 }
 
 roles() {
-  local root; root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  local root p; root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  p=$(cat "$HOME/.config/bk/profile" 2>/dev/null || true)
+  [ -z "$p" ] || printf 'perfil: %s (bk profile para cambiarlo)\n' "$p"
   for r in planner orchestrator implementer implementer-light reviewer; do
     printf '%-18s %-16s %s\n' "$r" "$(role_spec "$r" "$root")" "$(role_mode "$r" "$root")"
   done
@@ -1769,6 +1909,9 @@ case "${1:-}" in
   _prs)        cmd_prs ;;
   _drain)      task_drain "${2:?}" "${3:?}" ;;
   roles)       roles ;;
+  profile|perfil) shift; exec python3 "$WS/lib/profiles.py" "$@" ;;
+  ask)         shift; exec python3 "$WS/lib/ask.py" "$@" ;;
+  models)      shift; exec python3 "$WS/lib/models.py" "$@" ;;
   account|accounts) shift; cmd_account "$@" ;;
   mode)        shift; [ -n "${1:-}" ] || die "bk mode <rol>"
                role_mode "$1" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; echo ;;
@@ -1780,6 +1923,7 @@ case "${1:-}" in
   learn)       shift; [ "${1:-}" = effect ] && { shift; exec python3 "$WS/lib/effect.py" "$@"; }
                exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
+  bitacora)    shift; bitacora "$@" ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
   font)        shift; font "${1:-status}" ;;
@@ -1805,16 +1949,20 @@ case "${1:-}" in
   sub)         shift; exec python3 "$WS/lib/subwatch.py" "$@" ;;
   _botenv)     shift; env=(); bot_env "${1:?}" >/dev/null 2>&1; for kv in "${env[@]+"${env[@]}"}"; do [ "$kv" = -e ] || printf '%s\n' "$kv"; done ;;
   sound)       shift; cmd_sound "${1:-status}" ;;
+  context)     shift; cmd_context "$@" ;;
   name)        shift; cmd_name "$@" ;;
   _nth)        tmux_only _nth "los espacios de Herdr"; ws_ids | awk -F'\t' -v n="${2:-1}" '$1 == n {print $2}' ;;   # alt+N: el workspace con ese número
   _ids)        tmux_only _ids "los espacios de Herdr"; ws_ids ;;
   _subagents)  shift; exec python3 "$WS/lib/herdr_subagents.py" "$@" ;;
+  _epica)      shift; exec python3 "$WS/lib/herdr_epica.py" "$@" ;;   # la épica del chat enfocado y su avance (herdr/mods/agentes)
+  _todo)       shift; exec python3 "$WS/lib/herdr_todo.py" "$@" ;;    # los pasos del issue del chat enfocado (alt+t, pestaña TODO de herdr/mods/lado)
   _tasks)      shift; exec python3 "$WS/lib/herdr_tasks.py" "$@" ;;   # bk tasks --json con el título de cada issue o PR (herdr/mods/tareas)
   _adopt)      shift; hd_adopt "${1:?bk _adopt <terminal>}" ;;   # la barra de Herdr: que bk conozca esa terminal y le dé su número
   # Lo que otra máquina de Herdr le pregunta a esta (hc exec --on <máquina> bk …): los estados de sus agentes
   # (lib/agents.py) y el proyecto de una carpeta (hd_adopt)
   _states)     exec python3 "$WS/lib/agents.py" states ;;
   _project)    project_of "${2:?bk _project <carpeta>}" ;;
+  _ayuda)      cmd_ayuda ;;   # Piola, el ayudante del workspace: un Codex en el repo de bk (alt+y, herdr/mods/bk)
   _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)
   _notice)     [ "$BACKEND" = herdr ] && hd_notice "${2:?bk _notice <título> <texto> [nivel]}" "${3:-}" "" "${4:-info}" || true ;;   # un aviso de Herdr (la limpieza de ramas)
   _hub)        shift; [ "$DRY" -eq 0 ] || export BK_DRY=1   # bk --dry-run _hub session-go: dice qué haría y no toca Herdr

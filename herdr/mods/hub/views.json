@@ -76,12 +76,7 @@
     }
   },
   "changes": {
-    "title": "Cambios",
-    "overlay": {
-      "kind": "dialog",
-      "width": 0.92,
-      "height": 0.88
-    }
+    "title": "Cambios"
   },
   "stats": {
     "title": "Uso",
@@ -139,6 +134,16 @@
       "offset": 64,
       "width": 860,
       "height": 0.8
+    }
+  },
+  "profiles": {
+    "title": "Perfiles de modelos",
+    "overlay": {
+      "kind": "popup",
+      "at": "top",
+      "offset": 64,
+      "width": 760,
+      "height": 0.7
     }
   }
 }
