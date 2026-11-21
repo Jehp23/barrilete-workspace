@@ -304,7 +304,7 @@ cabecera (número, programa, qué hace, carpeta y rama). A la derecha, tres pest
 cada archivo en un popup al hacerle clic (`alt+g`). `alt+.` esconde el panel. Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, CPU y memoria de cada computadora, radio y las
 teclas de comandos y de la hoja de teclas. La cuenta es la de Claude de la terminal que mirás: su mail (de su
 `.claude.json`, sin preguntarle a Claude) y, si no es la de siempre, el nombre de `bk account` delante; el panel
-derecho muestra lo mismo. La marca de estado es la misma en todos, con los colores `blocked`, `done` y `working`
+derecho muestra lo mismo. Un clic en ella abre el panel Cuentas para cambiarla. La marca de estado es la misma en todos, con los colores `blocked`, `done` y `working`
 del tema: en `bk-neon`, ámbar te espera, verde listo y rosa trabajando.
 
 **Espacios en carpetas.** La lista de espacios se ordena a mano y se agrupa en carpetas de un nivel. El botón de
@@ -371,6 +371,7 @@ Cada sesión de bk puede usar otra cuenta de Claude Code o de Codex, y pueden co
 las mismas (`/resume` y `alt+s` ven todas).
 - `bk account new claude trabajo` crea la cuenta en `~/.local/state/bk/accounts/trabajo` y abre su login. Lo compartido
   (`projects/`, settings, `CLAUDE.md`, skills, hooks) es un symlink a `~/.claude`; las credenciales son propias.
+  Sin nombre (`bk account new claude`) se nombra sola: `claude-2`, `claude-3`… (la de siempre es la 1).
 - `bk account use trabajo` la pone en esta sesión: los agentes y chats que lances desde acá corren con ella
   (`--relaunch`: también el chat principal, retomando su conversación). `bk account use default` vuelve a la de siempre.
 - `bk run … --account X` solo para un lanzamiento. El riel muestra en Status el mail de la cuenta de la sesión,
@@ -386,6 +387,14 @@ las mismas (`/resume` y `alt+s` ven todas).
   dice cuál usa. `--relaunch` abre el chat del espacio de nuevo con esa cuenta, retomando la conversación, y cierra el
   viejo. En `alt+k` cada cuenta tiene su fila («Usar la cuenta de Claude trabajo en abra»; la que usa, marcada); los
   temas y las fuentes de Ghostty no aparecen (los de Herdr están en «Aspecto»).
+- **Panel Cuentas** (clic en la cuenta de la barra de abajo, o «Cuentas: cambiar de cuenta con un clic…» en `alt+k`): las
+  cuentas de Claude y de Codex por su mail (el de Codex sale del `auth.json` de la cuenta), con la que usa el espacio
+  marcada «en uso» y las que no tienen sesión, «sin sesión». Un clic (o enter) en una es `bk account use` para el espacio
+  de la terminal que mirás y, si esa terminal es un chat de Claude, lo relanza ahí mismo con la cuenta nueva
+  retomando su conversación (`bk account use <cuenta> --relaunch --terminal tX`: sale con `/exit` y vuelve a abrir
+  `claude --resume`; no toca un chat que trabaja o te espera, ni uno del que no sabe qué conversación retomar).
+  Una sin sesión abre su login; `ctrl+l` rehace el de la elegida. «Agregar una cuenta…» abre el login directo, sin pedir
+  nombre (`bk account new claude`), en una terminal sobre la ventana.
 
 ## Lo que te espera (`bk monitor` · `bk checkpoints`)
 - `bk monitor`: pantalla para el otro monitor. Arriba *Te esperan* (preguntas, permisos y checkpoints, con el comando

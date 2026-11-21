@@ -193,6 +193,40 @@ hd_relaunch_chat() {
   info "chat relanzado${sid:+ (retoma $sid)}"
 }
 
+# hd_relaunch <terminal> <cuenta>: el Claude de esa terminal sale (/exit) y vuelve a arrancar en la misma shell con
+# la cuenta nueva, retomando su conversación (--resume con el id que anotó el hook de estado). No toca un chat que
+# trabaja o te espera, una terminal sin Claude, ni uno sin conversación conocida: avisa y sale con 1.
+hd_relaunch() {
+  local t="$1" acct="$2" j app state sid="" st="" i cmd kv
+  j=$(hd_hc get "$t" --json 2>/dev/null) || { info "no encuentro la terminal $t en Herdr"; return 1; }
+  app=$(jq -r '.status.app // ""' <<<"$j"); state=$(jq -r '.status.state // ""' <<<"$j")
+  [ "$app" = claude-code ] || { info "$t no tiene un Claude abierto: los chats nuevos ya salen con la cuenta nueva"; return 1; }
+  [ "$(jq -r '.labels["bk.account"] // "" | if . == "" then "default" else . end' <<<"$j")" != "$acct" ] \
+    || { info "el chat de $t ya usa la cuenta $acct"; return 0; }
+  case "$state" in working|blocked|waiting|background)
+    info "el chat de $t está trabajando o te espera: sigue con la cuenta anterior hasta que lo relances"; return 1 ;;
+  esac
+  read -r sid st < <(pane_sid "$t"; echo)
+  case "$st" in working|waiting|background)
+    info "el chat de $t está trabajando o te espera: sigue con la cuenta anterior hasta que lo relances"; return 1 ;;
+  esac
+  case "$sid" in ""|bk-*) info "no sé qué conversación retoma el chat de $t: no lo cierro (abrí uno nuevo, ya sale con la cuenta nueva)"; return 1 ;; esac
+  if [ "$acct" = default ]; then cmd="env -u CLAUDE_CONFIG_DIR -u BK_ACCOUNT_CLAUDE claude --resume $sid"
+  else kv=$(python3 "$ACCOUNTS" env "$acct") || return 1; cmd="env $kv BK_ACCOUNT_CLAUDE=$acct claude --resume $sid"; fi
+  hd_hc send "$t" "/exit" >/dev/null 2>&1 || { info "no pude cerrar el Claude de $t"; return 1; }
+  for i in $(seq $(( ${BK_RELAUNCH_WAIT:-10} * 5 ))); do
+    [ "$(hd_hc get "$t" --json 2>/dev/null | jq -r '.status.app // ""')" = claude-code ] || break
+    sleep 0.2
+  done
+  # Si Claude sigue abierto, el comando le llegaría como un mensaje: mejor no mandarlo
+  [ "$(hd_hc get "$t" --json 2>/dev/null | jq -r '.status.app // ""')" != claude-code ] \
+    || { info "el Claude de $t no salió: no lo relanzo (salí con /exit y corré $cmd)"; return 1; }
+  hd_hc send "$t" "$cmd" >/dev/null 2>&1 || { info "no pude volver a abrir Claude en $t: corré $cmd"; return 1; }
+  local lab="$acct"; [ "$acct" != default ] || lab=""
+  hd_hc label "$t" "bk.account=$lab" >/dev/null 2>&1 || true
+  info "chat de $t relanzado con la cuenta $acct (retoma $sid)"
+}
+
 # hd_workspace [carpeta]: el espacio del proyecto de esa carpeta con su chat. Si ya está, lo muestra; si se le
 # cerró el chat, le pone uno nuevo.
 hd_workspace() {
