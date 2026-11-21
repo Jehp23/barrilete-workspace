@@ -1958,6 +1958,10 @@ case "${1:-}" in
   _todo)       shift; exec python3 "$WS/lib/herdr_todo.py" "$@" ;;    # los pasos del issue del chat enfocado (alt+t, pestaña TODO de herdr/mods/lado)
   _tasks)      shift; exec python3 "$WS/lib/herdr_tasks.py" "$@" ;;   # bk tasks --json con el título de cada issue o PR (herdr/mods/tareas)
   _adopt)      shift; hd_adopt "${1:?bk _adopt <terminal>}" ;;   # la barra de Herdr: que bk conozca esa terminal y le dé su número
+  # Lo que otra máquina de Herdr le pregunta a esta (hc exec --on <máquina> bk …): los estados de sus agentes
+  # (lib/agents.py) y el proyecto de una carpeta (hd_adopt)
+  _states)     exec python3 "$WS/lib/agents.py" states ;;
+  _project)    project_of "${2:?bk _project <carpeta>}" ;;
   _ayuda)      cmd_ayuda ;;   # Piola, el ayudante del workspace: un Codex en el repo de bk (alt+y, herdr/mods/bk)
   _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)
   _notice)     [ "$BACKEND" = herdr ] && hd_notice "${2:?bk _notice <título> <texto> [nivel]}" "${3:-}" "" "${4:-info}" || true ;;   # un aviso de Herdr (la limpieza de ramas)
