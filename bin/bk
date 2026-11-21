@@ -102,6 +102,9 @@ uso: bk [comando] [--dry-run]
                     carpetas (retomar con claude --resume). En tmux: prefijo + s
                     Con Herdr, cada abierta lleva el id de su terminal (t2d) y Enter muestra su pestaña; una
                     reciente se retoma en un chat más de su proyecto. alt+s abre lo mismo en un panel
+  revive [id…]      retoma todos juntos los chats que murieron sin avisar (se cerró su terminal o quedó la
+                    consola vacía), cada uno en un chat de su proyecto. Con ids (o su principio), solo esos;
+                    --forget los saca de la lista sin retomarlos; bk --dry-run revive solo los lista
   peek [ventana] [n] ver qué hace un agente sin entrar (sin ventana: todos, últimas líneas)
   say [agente] "…"  escribirle a un agente (o a un chat por su nombre) como si estuvieras ahí; sin agente, al que te espera.
                     Si el agente está trabajando, se encola y se escribe al terminar su turno (--now: ya)
@@ -1982,6 +1985,7 @@ case "${1:-}" in
   bot)         exec python3 "$WS/lib/ghapp.py" check ;;
   customize)   exec python3 "$WS/lib/customize.py" ;;
   s|sessions)  exec python3 "$WS/lib/sessions.py" ;;
+  revive)      shift; [ "$DRY" -eq 0 ] || export BK_DRY=1; exec python3 "$WS/lib/sessions.py" revive "$@" ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;
 esac
