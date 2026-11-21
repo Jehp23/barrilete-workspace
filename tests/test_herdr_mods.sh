@@ -121,7 +121,10 @@ const keys = JSON.parse(fs.readFileSync(`${root}/herdr/keys.json`, 'utf8'));
 const views = Object.keys(JSON.parse(fs.readFileSync(`${root}/herdr/mods/hub/views.json`, 'utf8')));
 const byKey = Object.values(keys).flatMap((b) => Object.values(b))
   .filter((a) => typeof a === 'string' && a.startsWith('mod.open:bk-')).map((a) => a.slice('mod.open:bk-'.length));
-const mine = [...new Set([...byKey.filter((c) => !views.includes(c)), 'aviso', 'seguir'])].sort();
+const mine = [...new Set([...byKey.filter((c) => !views.includes(c)), 'aviso', 'seguir', 'pop'])].sort();
+// Los que no tienen tecla salen de NO_KEY en lib/herdr_install.py: que sean los mismos que suma este test
+assert.deepEqual(/^NO_KEY = \(([^)]*)\)/m.exec(fs.readFileSync(`${root}/lib/herdr_install.py`, 'utf8'))[1].match(/bk-[a-z]+/g).sort(),
+  ['bk-aviso', 'bk-pop', 'bk-seguir']);
 let said = [], hcs = [], overlays = [];
 const Bk2 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
   'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
@@ -142,6 +145,110 @@ await bk2.handle('seguir');
 assert.ok(hcs.length === 1 && hcs[0].at(-1).includes('bk handoff --seguir'), 'seguir corre bk handoff --seguir en una terminal');
 assert.deepEqual([overlays.length, overlays[0]?.width, overlays[0]?.height, overlays[0]?.layout?.content?.terminal], [1, 0.6, 0.3, 't9']);
 ok('seguir (el clic de «Resumen listo») abre bk handoff --seguir en un popup sobre la ventana');
+
+// alt+y: el ayudante del workspace, un Codex (bk _ayuda) en un popup que se esconde sin cerrarse
+{
+  const st = { terms: [], shared: { 'bk.bin': '/repo/bin/bk' }, hcs: [], overlays: [], closed: [], hcCode: 0 };
+  const Bk3 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
+    'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
+    class {}, () => ({}), async (a) => { st.hcs.push(a); return { code: st.hcCode, stdout: '{"address":"t9"}', stderr: 'sin core' }; },
+    nope('exec'), nope('run'), () => ({}), (o) => { st.overlays.push(o); return `o${st.overlays.length}`; }, (id) => st.closed.push(id),
+    () => ({ space: 's1', tab: 'tb1', cwd: '/proj', terminal: 't1' }), () => st.terms, () => [], () => [], () => '/home/yo',
+    nope('notify'), (k) => st.shared[k] ?? null, (k, v) => { st.shared[k] = v; }, nope('readTextFile'));
+  const bk3 = new Bk3();
+  await bk3.handle('ayuda');
+  const a = st.hcs[0] ?? [];
+  assert.equal(st.hcs.length, 1);
+  assert.deepEqual([a[0], a.includes('--bg'), a.includes('--rm'), a.includes('--no-parent'), a[a.indexOf('--label') + 1], a.at(-1)],
+    ['run', true, true, true, 'bk.kind=ayuda', '/repo/bin/bk']);
+  assert.deepEqual(a.slice(a.indexOf('--') + 1, -2), ['env', 'BK_BACKEND=herdr', 'sh', '-c']);
+  ok('ayuda: sin sesión abierta, arranca una terminal aparte (bk.kind=ayuda) con el bk del repo');
+  // Lo que corre esa terminal, de verdad y con un bk falso: arranca solo si bk --dry-run _ayuda dice que puede
+  const sh = a.at(-2), fake = `${home}/bk-falso`, log = `${home}/bk-falso.log`;
+  const tryIt = (rc) => {
+    fs.writeFileSync(fake, `#!/bin/sh\necho "$*" >>"${log}"\n[ "$1" = --dry-run ] && { echo "bk: no hay codex" >&2; exit ${rc}; }\nexit 0\n`, { mode: 0o755 });
+    fs.rmSync(log, { force: true });
+    const out = execFileSync('sh', ['-c', sh, fake], { encoding: 'utf8', input: '\n', stdio: ['pipe', 'pipe', 'pipe'] });
+    return [fs.readFileSync(log, 'utf8').trim().split('\n'), out.includes('enter para cerrar')];
+  };
+  assert.deepEqual(tryIt(0), [['--dry-run _ayuda', '_ayuda'], false]);
+  assert.deepEqual(tryIt(1), [['--dry-run _ayuda'], true]);
+  ok('ayuda: la terminal corre bk _ayuda; si no puede arrancar, no lo corre y espera un enter con el motivo a la vista');
+  const lay = st.overlays[0].layout;
+  assert.deepEqual([st.overlays.length, st.overlays[0].kind, st.overlays[0].modal, lay.type, lay.children.length, lay.children[1].content],
+    [1, 'dialog', true, 'column', 2, { terminal: 't9' }]);
+  // Arriba, la cabecera de Piola: el mod herdr/mods/ayudante (lib/herdr_install.py lo instala como bk-ayudante)
+  assert.deepEqual(lay.children[0].content, { mod: 'bk-ayudante', props: { terminal: 't9' } });
+  assert.ok(lay.children[0].size.px >= 40 && lay.children[0].size.px <= 60 && !lay.children[1].size, 'la cabecera es una franja; el resto es de la terminal');
+  assert.ok(fs.existsSync(`${root}/herdr/mods/ayudante/main.js`) && fs.existsSync(`${root}/herdr/mods/ayudante/mod.json`));
+  assert.ok(st.overlays[0].width < 1 && st.overlays[0].height < 1, 'un popup sobre la ventana, no la ventana entera');
+  assert.deepEqual(st.shared['bk.pop'], { name: 'ayuda', id: 'o1', terminal: 't9', keep: true });
+  ok('ayuda: la muestra en un popup sobre la ventana, con la cabecera de Piola arriba de su terminal');
+  st.terms = [{ address: 't9', state: 'live', labels: { 'bk.kind': 'ayuda' } }];
+  await bk3.handle('ayuda');
+  assert.deepEqual([st.hcs.length, st.overlays.length, st.closed, st.shared['bk.pop']], [1, 1, ['o1'], null]);
+  ok('ayuda: otra vez la esconde, sin matar la terminal ni abrir otra');
+  await bk3.handle('ayuda');
+  assert.deepEqual([st.hcs.length, st.overlays.length, st.overlays[1].layout.children[1].content.terminal], [1, 2, 't9']);
+  ok('ayuda: la próxima vuelve a mostrar la misma sesión (no arranca otro Codex)');
+  await bk3.handle('ayuda');   // escondida
+  st.terms = [{ address: 't9', state: 'exited', labels: { 'bk.kind': 'ayuda' } }, { address: 't3', state: 'live', labels: { 'bk.kind': 'term' } }];
+  await bk3.handle('ayuda');
+  assert.deepEqual([st.hcs.length, st.overlays.length], [2, 3]);
+  ok('ayuda: si saliste de Codex, arranca una sesión nueva (y la terminal rápida no cuenta como ayudante)');
+  st.terms = [{ address: 't9', state: 'live', labels: { 'bk.kind': 'ayuda' } }];
+  await bk3.handle('ayuda');   // escondida
+  st.terms = []; st.hcCode = 1;
+  await assert.rejects(() => bk3.handle('ayuda'), /sin core/);
+  assert.equal(st.overlays.length, 3);
+  ok('ayuda: si hc no la arranca, lo dice y no abre un popup vacío');
+}
+// bk-pop: un panel del hub (alt+k → «Monitor de agentes», la radio, el editor de perfiles) pide un programa de
+// pantalla completa. El panel se cierra antes de que hc conteste, así que termPopup (mods/hub/kit.js) no espera
+// nada: deja el pedido en shared y abre bk-pop; este mod lo lee y abre el popup (2026-11-19).
+{
+  const kitSrc = fs.readFileSync(`${root}/herdr/mods/hub/kit.js`, 'utf8');
+  const fn = /^export function termPopup[\s\S]*?^}$/m.exec(kitSrc)[0].replace(/^export /, '');
+  const st = { shared: {}, runs: [], hcs: [], overlays: [], closed: false };
+  // Como en Herdr: lo que un panel escribe en shared después de cerrarse se pierde (2026-11-19)
+  const panel = { close() { st.closed = true; } };
+  // Sin hc ni exec a mano: si termPopup volviera a esperar a hc, esto tira ReferenceError
+  const termPopup = new Function('setShared', 'run', 'focused', 'cwd', 'PEDIDO', fn + '\nreturn termPopup;')(
+    (k, v) => { if (!st.closed) st.shared[k] = v; }, (n, a) => st.runs.push([n, a, st.closed]), () => ({ terminal: 't1' }), () => '/proj', 'bk.pop.pedido');
+  const back = termPopup(panel, 'monitor', "'bk' monitor", '/proj/sub');
+  assert.equal(back, undefined, 'termPopup no devuelve una promesa: no queda nada por esperar con el panel cerrado');
+  assert.equal(st.closed, true, 'cierra el panel que lo pidió');
+  assert.deepEqual(st.runs, [['mod.open', { name: 'bk-pop' }, true]], 'abre bk-pop con el panel ya cerrado');
+  assert.deepEqual(st.shared['bk.pop.pedido'], { name: 'monitor', cmd: "'bk' monitor", dir: '/proj/sub', from: 't1', w: 0.9, h: 0.85 },
+    'el pedido se escribe antes de cerrar el panel');
+  assert.ok(kitSrc.includes('const PEDIDO = "bk.pop.pedido"') && source.includes('const PEDIDO = "bk.pop.pedido"'), 'kit.js y mods/bk usan el mismo shared');
+  // Ningún panel cierra por su cuenta antes de pedir el popup: termPopup lo cierra después de dejar el pedido
+  for (const f of ['palette', 'song', 'profiles']) {
+    const src = fs.readFileSync(`${root}/herdr/mods/hub/${f}.js`, 'utf8');
+    const calls = src.match(/termPopup\(([^,]*),/g) ?? [];
+    assert.ok(calls.length && calls.every((c) => /termPopup\((p|this),/.test(c)), `${f}.js le pasa el panel a termPopup: ${calls}`);
+    assert.ok(!/close\(\);\s*\n?\s*(if \(.*\) return )?termPopup/.test(src), `${f}.js no cierra el panel antes de termPopup`);
+  }
+  ok('termPopup (mods/hub) deja el pedido en shared, después cierra el panel y abre bk-pop, sin esperar a hc');
+  const Bk4 = new Function('View', 'div', 'hc', 'exec', 'run', 'props', 'openOverlay', 'closeOverlay', 'focused', 'terminals',
+    'spaces', 'agents', 'home', 'notify', 'shared', 'setShared', 'readTextFile', source + '\nreturn Bk;')(
+    class {}, () => ({}), async (a) => { st.hcs.push(a); return { code: 0, stdout: '{"address":"t9"}', stderr: '' }; },
+    nope('exec'), nope('run'), () => ({}), (o) => { st.overlays.push(o); return 'o1'; }, () => {},
+    () => ({ space: 's1', tab: 'tb1', cwd: '/otro', terminal: 't5' }), () => [], () => [], () => [], () => '/home/yo',
+    nope('notify'), (k) => st.shared[k] ?? null, (k, v) => { st.shared[k] = v; }, nope('readTextFile'));
+  const bk4 = new Bk4();
+  await bk4.handle('pop');
+  const a = st.hcs[0] ?? [];
+  assert.equal(st.hcs.length, 1);
+  assert.deepEqual([a[a.indexOf('--cwd') + 1], a.includes('BK_FROM_TERM=t1'), a.at(-1).includes("'bk' monitor")], ['/proj/sub', true, true],
+    'corre el comando en la carpeta y desde la terminal que pidió el panel, no las de este mod');
+  assert.deepEqual([st.overlays.length, st.overlays[0].width, st.overlays[0].height, st.overlays[0].layout.content], [1, 0.9, 0.85, { terminal: 't9' }]);
+  assert.deepEqual([st.shared['bk.pop.pedido'], st.shared['bk.pop'].name], [null, 'monitor']);
+  ok('bk-pop abre el pedido en un popup sobre la ventana y lo borra');
+  await bk4.handle('pop');
+  assert.deepEqual([st.hcs.length, st.overlays.length], [1, 1]);
+  ok('bk-pop sin pedido no abre nada');
+}
 hcs = []; overlays = [];
 for (const v of views) {
   said = [];

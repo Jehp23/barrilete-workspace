@@ -131,8 +131,9 @@ uso: bk [comando] [--dry-run]
   learn             registra desvíos de los agentes en Obsidian y propone lecciones; los de proyectos con el kit
                     (y los hallazgos de review) van también a su store (.barrilete/learning, ADR-007)
   lessons           lecciones por revisar (status: proposed) en el vault
-  bitacora [repo...]  regenera la «Bitácora de agentes» de cada repo (los de ~/.config/bk/retros.json) con el
-                    scripts/agents/bitacora.py de su kit y la abre (.barrilete/bitacora.html)
+  bitacora [tema]   le pide /bitacora [tema] al chat que mirás si es un Claude, o al chat del espacio: la skill
+                    bitacora del kit guarda lo de esa conversación en docs/bitacora.html (sin tema, lo propone el
+                    chat). --to <terminal|pane>: el que mirás (alt+k se lo pasa)
   learn effect      ¿las reglas que aplica cada proyecto (rules.lock + .barrilete/rules/) bajan los hallazgos que
                     dicen evitar? antes/después por ronda de review y fallos de su check (agents/efecto.md)
   song [género]     radio por género (techno, house, rock, reggaeton, cachengue) o tuya (bk song help)
@@ -146,6 +147,7 @@ Con Herdr (bk backend herdr) cada chat y cada agente tiene un número fijo de ve
   alt+h resumen y seguir en un chat nuevo · alt+g cambios · alt+u uso y costo · alt+m radio
   alt+, aspecto · alt+/ la hoja de teclas · alt+1…9 la ventana N · alt+shift+1…9 el agente N del espacio
   alt+j el próximo que te espera · alt+0 donde estabas · alt+q el chat del espacio · alt+x terminal rápida
+  alt+y Piola, el ayudante del workspace (un Codex en un popup, para lo que no ande; también el botón de arriba)
   alt+. panel derecho · alt+z agrandar el pane
 Un agente abierto desde Herdr (sin etiquetas de bk) se adopta como chat de su proyecto y toma su número.
 
@@ -157,7 +159,8 @@ EOF
 project_root() {
   local root
   root=$(git rev-parse --show-toplevel 2>/dev/null) || die "no estás en un repo git"
-  [ -f "$root/scripts/agents/guardrails.py" ] || die "$root no es un proyecto Barrilete (falta scripts/agents/guardrails.py)"
+  # Sin los scripts del kit no se lanza: lib/kit_check.py dice por qué (sin kit, un kit 0.x, una instalación a medias)
+  [ -f "$root/scripts/agents/guardrails.py" ] || die "$(python3 "$WS/lib/kit_check.py" "$root" || true)"
   printf '%s' "$root"
 }
 
@@ -223,7 +226,8 @@ caller_session() {
 }
 
 # account_of <proveedor> -> la cuenta para lo que se lance desde acá (vacío: la principal)
-# Orden: bk … --account X (BK_ACCOUNT) > la del pane (la heredan los agentes) > la de la sesión de tmux.
+# Orden: bk … --account X (BK_ACCOUNT) > la del pane (la heredan los agentes) > la de la sesión de tmux o, con
+# Herdr, la del espacio del proyecto de acá (bk account use).
 account_of() {
   local prov="$1" v="" s
   if [ -n "${BK_ACCOUNT:-}" ]; then
@@ -231,7 +235,9 @@ account_of() {
     [ "$(python3 "$ACCOUNTS" provider "$BK_ACCOUNT")" = "$prov" ] && { printf '%s' "$BK_ACCOUNT"; return; }
   fi
   eval "v=\${BK_ACCOUNT_$(upper "$prov"):-}"
-  if [ -z "$v" ]; then
+  if [ -z "$v" ] && [ "$BACKEND" = herdr ]; then
+    v=$(python3 "$ACCOUNTS" space "$(project_of "$PWD")" "$prov")
+  elif [ -z "$v" ]; then
     s=$(caller_session)
     [ -z "$s" ] || v=$(tmux show-options -qv -t "$s" "@bk_account_$prov" 2>/dev/null || true)
   fi
@@ -259,7 +265,10 @@ cmd_account() {
     ""|ls|list)
       local s c x; s=$(caller_session)
       python3 "$ACCOUNTS" list
-      if [ -n "$s" ]; then
+      if [ "$BACKEND" = herdr ]; then
+        s=$(project_of "$PWD")
+        info "en el espacio $s: claude $(account_of claude | grep . || echo default) · codex $(account_of codex | grep . || echo default)"
+      elif [ -n "$s" ]; then
         c=$(tmux show-options -qv -t "$s" @bk_account_claude 2>/dev/null || true)
         x=$(tmux show-options -qv -t "$s" @bk_account_codex 2>/dev/null || true)
         info "en $s: claude ${c:-default} · codex ${x:-default}"
@@ -285,6 +294,7 @@ uso: bk account                       las cuentas (● con sesión iniciada) y l
      bk account use <nombre> [--relaunch]   usarla en esta sesión: lo que lances desde acá
                                        (agentes, chats) corre con ella. --relaunch: el chat principal
                                        también, retomando la misma conversación
+                                       (con Herdr, para el espacio del proyecto de acá)
      bk account use default [claude|codex]   volver a la de siempre
      bk run|fix|review|plan|orchestrate … --account <nombre>   solo para ese lanzamiento
 EOF
@@ -327,15 +337,28 @@ account_use() {
     shift
   done
   [ -n "$name" ] || die "bk account use <nombre> [--relaunch]"
-  local s; s=$(caller_session)
-  [ -n "$s" ] || die "bk account use va dentro de una sesión de bk (tmux)"
-  local provs=() p kv
+  local provs=() p kv s
   if [ "$name" = default ]; then
     if [ -n "$only" ]; then provs=("$only"); else provs=(claude codex); fi
   else
     p=$(python3 "$ACCOUNTS" provider "$name"); [ -n "$p" ] || die "no existe la cuenta $name (bk account)"
     provs=("$p")
   fi
+  # Herdr: la cuenta va con el espacio del proyecto de acá (no hay sesión de tmux donde anotarla)
+  if [ "$BACKEND" = herdr ]; then
+    s=$(project_of "$PWD")
+    [ "$DRY" -eq 1 ] && { info "(dry-run: el espacio $s usaría la cuenta $name)"; return 0; }
+    python3 "$ACCOUNTS" space-use "$s" "$name" ${only:+"$only"} || exit 1
+    info "el espacio $s usa la cuenta $name: los agentes y chats que lances desde ahí corren con ella"
+    if [ "$relaunch" = 1 ]; then
+      [[ " ${provs[*]} " == *" claude "* ]] && hd_relaunch_chat "$s"
+    else
+      info "el chat del espacio sigue con la anterior hasta relanzarlo (bk account use $name --relaunch)"
+    fi
+    return 0
+  fi
+  s=$(caller_session)
+  [ -n "$s" ] || die "bk account use va dentro de una sesión de bk (tmux o Herdr)"
   [ "$DRY" -eq 1 ] && { info "(dry-run: $s usaría la cuenta $name)"; return 0; }
   for p in "${provs[@]}"; do
     if [ "$name" = default ]; then
@@ -445,6 +468,24 @@ bot_env() {
         -e "GIT_CONFIG_KEY_0=credential.helper" -e "GIT_CONFIG_VALUE_0="
         -e "GIT_CONFIG_KEY_1=credential.helper" -e "GIT_CONFIG_VALUE_1=!python3 $WS/lib/ghapp.py credential")
   info "como el bot: $login"
+}
+
+# bk _ayuda: Piola, el ayudante del workspace (alt+y en Herdr, o el botón «Piola» de la franja de arriba; mods/bk):
+# una sesión de Codex en el repo de bk. El encargo de lib/ayudante.md (quién es, su voz, dónde mirar y qué no hacer
+# solo) va como instrucciones (-c developer_instructions, una cadena TOML: no se ve en el chat) y el primer mensaje
+# es un saludo, para que se presente. Codex corre con tu config de siempre (modelo, permisos): acá no se le da
+# ningún permiso de más. Temporal: hasta que el workspace quede pulido.
+AYUDA_SALUDO="Hola, Piola."
+cmd_ayuda() {
+  local brief="$WS/lib/ayudante.md" inst
+  command -v codex >/dev/null || die "el ayudante es una sesión de Codex: Codex CLI no está instalado"
+  [ -s "$brief" ] || die "falta el encargo del ayudante ($brief)"
+  if [ "$DRY" -eq 1 ]; then info "(dry-run: abriría codex en $WS con el encargo de $brief)"; return 0; fi
+  # El texto como cadena JSON, que también es una cadena básica de TOML: comillas, barras y saltos de línea escapados
+  inst=$(python3 -c 'import json, sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read(), ensure_ascii=False))' "$brief") \
+    || die "no pude leer el encargo del ayudante ($brief)"
+  cd "$WS" || die "no existe $WS"
+  exec codex -c "developer_instructions=$inst" "$AYUDA_SALUDO"
 }
 
 # Terminal rápida (alt+x): una sesión term-<proyecto> que sobrevive al popup. Se abre en la raíz del
@@ -720,6 +761,35 @@ open_menu() {
   local scr; scr=$(be_screen "$1" | grep -v '^[[:space:]]*$' | tail -n 25 || true)
   grep -qE 'Enter to (select|confirm)|Esc to (cancel|exit)|↑/↓ to navigate' <<<"$scr" || return 0
   grep -E '^[[:space:]]*(❯[[:space:]]*)?[0-9]+\.[[:space:]]' <<<"$scr" | sed -E 's/^[[:space:]]*//' | head -n 9
+}
+
+# bk bitacora [--to <terminal|pane>] [tema]: le escribe /bitacora [tema] a un chat de Claude, que guarda lo de su
+# conversación en docs/bitacora.html con la skill bitacora del kit (barrilete-kit#343). A cuál: al que mirás (--to;
+# sin él, la terminal o el pane desde donde corre) si es un Claude (el hook tiene su estado), si no al chat de bk de
+# ese espacio. Con un menú abierto no escribe: el Enter elegiría la opción marcada (como bk say).
+bitacora() {
+  need_backend
+  local to="" tp="" sp
+  [ "${1:-}" = --to ] && { to="${2:-}"; shift 2 || shift; }
+  local topic="$*"; topic="${topic#"${topic%%[![:space:]]*}"}"; topic="${topic%"${topic##*[![:space:]]}"}"
+  if [ "$BACKEND" = herdr ]; then to="${to:-${HC_TERMINAL_ID:-}}"
+  else to="${to:-${TMUX_PANE:-$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)}}"; fi
+  if [ -n "$to" ] && [ -n "$(pane_state "$to")" ]; then tp="$to"
+  elif [ "$BACKEND" = herdr ]; then
+    sp=$(hd_label "${to:-_}" herdr.space)
+    [ -n "$sp" ] && tp=$(hd_find bk.kind=chat "herdr.space=$sp" | head -1)
+  elif [ -n "$to" ]; then
+    # tmux: el chat del workspace es el pane de <sesión>:main que no es el riel ni la barra (sin crearlo)
+    sp=$(tmux display-message -p -t "$to" '#S' 2>/dev/null || true)
+    [ -n "$sp" ] && tp=$(tmux list-panes -t "$sp:main" -F '#{pane_id} #{pane_start_command}' 2>/dev/null \
+                         | grep -v -e 'bk rail' -e 'bk sidebar' | head -1 | cut -d' ' -f1)
+  fi
+  [ -n "$tp" ] || die "bitácora: lo que mirás no es un chat de Claude y su espacio no tiene un chat de bk"
+  local menu; menu=$(open_menu "$tp")
+  [ -z "$menu" ] || die "bitácora: el chat ($tp) tiene un menú abierto; respondelo y volvé a pedirla"
+  local msg="/bitacora${topic:+ $topic}"
+  be_type "$tp" "$msg" || die "no pude escribirle al chat ($tp)"
+  info "→ $tp: $msg"
 }
 
 say() {
@@ -1853,9 +1923,7 @@ case "${1:-}" in
   learn)       shift; [ "${1:-}" = effect ] && { shift; exec python3 "$WS/lib/effect.py" "$@"; }
                exec python3 "$WS/lib/learn.py" "$@" ;;
   lessons)     lessons ;;
-  bitacora)    shift; out=$(python3 -I "$WS/lib/bitacora.py" "$@") || exit 1
-               echo "$out"
-               [ -n "${BK_NO_OPEN:-}" ] || while IFS= read -r l; do open "${l#ok: }"; done <<<"$out" ;;
+  bitacora)    shift; bitacora "$@" ;;
   song)        shift; exec "$WS/lib/song.sh" "$@" ;;
   theme)       shift; theme "${1:-status}" ;;
   font)        shift; font "${1:-status}" ;;
@@ -1894,6 +1962,7 @@ case "${1:-}" in
   # (lib/agents.py) y el proyecto de una carpeta (hd_adopt)
   _states)     exec python3 "$WS/lib/agents.py" states ;;
   _project)    project_of "${2:?bk _project <carpeta>}" ;;
+  _ayuda)      cmd_ayuda ;;   # Piola, el ayudante del workspace: un Codex en el repo de bk (alt+y, herdr/mods/bk)
   _side)       shift; exec python3 "$WS/lib/herdr_side.py" "$@" ;;   # los datos del panel derecho en Herdr (herdr/mods/lado)
   _logo)       shift; exec python3 "$WS/lib/espacios.py" logo "$@" ;;   # la imagen de una carpeta o un espacio de la barra de Herdr, adonde Herdr la muestra
   _notice)     [ "$BACKEND" = herdr ] && hd_notice "${2:?bk _notice <título> <texto> [nivel]}" "${3:-}" "" "${4:-info}" || true ;;   # un aviso de Herdr (la limpieza de ramas)

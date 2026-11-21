@@ -706,7 +706,22 @@ def palette(args):
     d = PR.data()
     return {"items": [{"group": g, "label": label, "cmd": cmd, "arg": arg, "kind": kind}
                       for g, label, cmd, arg, kind in PAL.ENTRIES],
-            "profile": {"active": d["active"], "profiles": [{"name": p["name"], "summary": p["summary"], "models": p["models"]} for p in d["profiles"]]}}
+            "profile": {"active": d["active"], "profiles": [{"name": p["name"], "summary": p["summary"], "models": p["models"]} for p in d["profiles"]]},
+            "accounts": accounts_here()}
+
+
+def accounts_here():
+    """Las cuentas (sin preguntarle al CLI si tienen sesión: es lento) y cuál usa el espacio del proyecto de acá
+    (bk account use, lib/accounts.py)."""
+    import accounts as AC
+    try:
+        sp = project(os.getcwd())[0]
+    except Exception:
+        sp = ""
+    mine = AC.spaces().get(sp, {}) if sp else {}
+    mine = mine if isinstance(mine, dict) else {}
+    using = {p: (mine.get(p) if mine.get(p) and AC.provider(mine.get(p)) == p else "default") for p in AC.VAR}
+    return {"space": sp, "using": using, "list": [{"name": n, "provider": AC.provider(n)} for n in AC.names()]}
 
 
 # ---------- música ----------

@@ -37,6 +37,7 @@ const NAMES = {
   "mod.open:bk-branches": [VER, "Ramas de todos los proyectos"],
   "mod.open:bk-stats": [VER, "Uso y costo"],
   "mod.open:bk-term": [VER, "Terminal rápida"],
+  "mod.open:bk-ayuda": [VER, "Piola: el ayudante del workspace (Codex)"],
   "mod.open:bk-song": [VER, "Radio"],
   "mod.open:bk-look": [VER, "Aspecto"],
   "mod.open:bk-keys": [VER, "Esta hoja"],

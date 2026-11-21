@@ -31,13 +31,23 @@ const kidStatus = (k, listed) => {
   const s = listed.get(k.address) ?? k.status;
   return s === "error" ? "blocked" : s === "done" ? "idle" : s;
 };
+// Un turno que terminó dejando comandos en segundo plano (tests, CI…) no está listo: Herdr ve el chat quieto y lo
+// marca listo o quieto; el hook de bk lo anota (bk _subagents, "background": terminal → cuántos). Va con su marca y su
+// sección (En 2º plano, debajo de Trabajando), con «N en 2º plano» en su segunda línea. Si Herdr ve otra cosa
+// (te espera, trabajando), manda Herdr.
+const withBackground = (list, bg) => list.map((a) => {
+  const n = bg?.[a.address];
+  return typeof n === "number" && (a.status === "done" || a.status === "idle") ? { ...a, status: "background", bgCount: n } : a;
+});
+// Sin cuenta (0: el hook la perdió), sin número.
+const bgText = (a) => (typeof a.bgCount !== "number" ? null : a.bgCount > 0 ? `${a.bgCount} en 2º plano` : "en 2º plano");
 const SORTS = [
   { id: "priority", label: "Por prioridad", icon: "clock" },
   { id: "grouped", label: "Por espacio", icon: "layers" },
 ];
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
-const SECTION = { 4: "Te esperan", 3: "Listos", 2: "Trabajando", 1: "Quietos" };
-const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
+const SECTION = { 4: "Te esperan", 3: "Listos", 2: "Trabajando", 1.5: "En 2º plano", 1: "Quietos" };
+const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working", 1.5: "working" };
 // De dónde sale la épica de cada chat: la carpeta y la rama de su pane, su nombre (#123 en bk.name o bk.autotitle) y
 // su terminal (bk lee en su conversación de Claude el worktree donde trabajó). bk _epica (lib/herdr_epica.py) saca de ahí el issue y su épica.
 function epicQueries() {
@@ -157,6 +167,7 @@ export default class Agents extends View {
     this.folded = new Set();
     this.openPrev = new Set();   // las líneas «antes» desplegadas (plegadas por defecto)
     this.claudeSubs = {};
+    this.background = {};
     this.subsRaw = "";
     this.subError = null;
     const refresh = async (cx) => {
@@ -167,7 +178,9 @@ export default class Agents extends View {
         const r = await exec(bin(), ["_subagents"], { timeout: 8000 });
         if (r.code !== 0) throw new Error(r.stderr.trim() || "bk _subagents no respondió");
         if (r.stdout !== this.subsRaw) {
-          this.claudeSubs = JSON.parse(r.stdout).by_terminal ?? {};
+          const data = JSON.parse(r.stdout);
+          this.claudeSubs = data.by_terminal ?? {};
+          this.background = data.background ?? {};
           this.subsRaw = r.stdout;
           changed = true;
         }
@@ -380,11 +393,14 @@ export default class Agents extends View {
     // ⏎ (o clic): en AHORA va al agente; en un libre pide confirmar el lanzamiento. GitHub es solo g.
     const enter = (r) => {
       if (r?.agent) { close(); return run("pane.focus", { terminal: r.agent.address }); }
-      if (r?.kind === "free" && e.dirs?.[r.repo] && !this.launched.has(r.key)) this.confirm = r.key;
+      if (r?.kind === "free" && canLaunch(r) && !this.launched.has(r.key)) this.confirm = r.key;
     };
+    // Se lanza solo en un repo con carpeta y con un kit que bk sabe usar (nolaunch: bk _epica dice por qué no)
+    const noWhy = (r) => e.nolaunch?.[r.repo] ?? "";
+    const canLaunch = (r) => Boolean(e.dirs?.[r.repo]) && !noWhy(r);
     const launch = (r, cx) => {
       const dir = e.dirs?.[r.repo];
-      if (!dir || this.busy) return;
+      if (!canLaunch(r) || this.busy) return;
       this.busy = r.key;
       this.errors.delete(r.key);
       cx.spawn(async (cx) => {
@@ -412,6 +428,7 @@ export default class Agents extends View {
         : r.kind === "wait" ? [div().text_color(t.dim).child(`espera ${r.blocked_by.map((b) => p.label.get(ekey(b)) ?? `${short(b.repo)}#${b.number}`).join(", ")}`)]
         : r.kind === "free" ? [this.busy === r.key ? div().text_color(t.dim).child("lanzando…")
           : this.launched.has(r.key) ? div().text_color(t.done).tooltip("bk avisa cuando el agente arranca, o si falló").child("lanzado")
+          : on && noWhy(r) ? div().id(`nolaunch-${r.key}`).text_color(t.blocked).tooltip(noWhy(r)).child("no se puede lanzar")
           : on && e.dirs?.[r.repo] ? div().id(`launch-${r.key}`).px(8).py(2).rounded(5).bg(t.accent).text_color(t.accent_foreground ?? t.background).font_medium().cursor_pointer()
             .on_click((_ev, cx) => { cx.stop_propagation(); this.confirm = r.key; cx.notify(); }).child("Lanzar")
           : on ? div().text_color(t.dim).child(`sin carpeta para ${short(r.repo)}`) : div()]
@@ -426,6 +443,8 @@ export default class Agents extends View {
         .child(div().flex_1().min_w(0).truncate().text_color(r.kind === "wait" || r.kind === "done" ? t.dim : t.foreground).child(r.title))
         .child(h_flex().flex_none().gap(6).items_center().text_size(11).children(right));
       const extra = [];
+      // Elegido en un repo donde no se puede lanzar: el motivo entero, debajo (lo mismo que diría bk run)
+      if (on && r.kind === "free" && noWhy(r) && !err) extra.push(div().id("epic-nolaunch").mx(POP.pad).ml(indent).mb(4).text_size(11).text_color(t.blocked).truncate().tooltip(noWhy(r)).child(noWhy(r)));
       if (err) extra.push(div().mx(POP.pad).ml(indent).mb(4).text_size(11).text_color(t.blocked).truncate().tooltip(err).child(err));
       if (this.confirm === r.key) {
         // Un solo renglón: el comando y su carpeta a la izquierda, los botones a la derecha
@@ -584,7 +603,7 @@ export default class Agents extends View {
     if (props()?.epicPick) return this.epicPick(t);
     const collapsed = narrow();
     const sort = sortOf();
-    let list = agents();
+    let list = withBackground(agents(), this.background);
     this.listed = new Map(list.map((a) => [a.address, a.status]));
     const native = terminals();
     const numbers = ids(native);
@@ -639,11 +658,11 @@ export default class Agents extends View {
     const metaOf = (a, title, full) => {
       // En qué quedó el chat (lib/names.py, etiqueta bk.status) dice más que chat-3 o el nombre del programa
       const status = labelsOf.get(a.address)?.["bk.status"];
-      if (status) return [full ? a.space_name : null, status].filter(Boolean).join(" · ");
+      if (status) return [bgText(a), full ? a.space_name : null, status].filter(Boolean).join(" · ");
       const tab = tabs.get(a.tab);
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
       const tabName = tab?.named && tab.name !== title ? tab.name : null;
-      return [machine, full ? a.space_name : null, tabName ?? (a.program?.name !== title ? a.program?.name : null)].filter(Boolean).join(" · ");
+      return [bgText(a), machine, full ? a.space_name : null, tabName ?? (a.program?.name !== title ? a.program?.name : null)].filter(Boolean).join(" · ");
     };
 
     // «#324 de #321»: el issue del chat y su épica (la sección ÉPICAS); el chat que trabaja la épica misma, «épica #321»

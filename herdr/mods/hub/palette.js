@@ -9,8 +9,28 @@ import { run, openOverlay, focused, notify } from "herdr";
 import { Panel, rank, bk, bin, launch, goto, termPopup, chips, keyOf, lit, cwd, lastLine } from "./kit.js";
 
 const view = (name) => (p) => goto(`bk-${name}`);
+const bitacora = (topic) => {
+  const to = focused()?.terminal;
+  bk(["bitacora", ...(to ? ["--to", to] : []), ...(topic ? [topic] : [])]).then((r) => notify(r.code === 0
+    ? { title: "Bitácora", body: lastLine(r.stdout).replace(/\x1b\[[0-9;]*m/g, "").replace(/^→ /, ""), level: "success", timeout: 5000 }
+    : { title: "No pude pedir la bitácora", body: lastLine(r.stderr || r.stdout).replace(/^bk: /, ""), level: "error" }));
+};
 const herdr = (name, args) => (p) => { p.close(); run(name, args); };
 const out = (title, args) => (p) => goto("bk-out", { props: { title, args, dir: cwd() } });
+
+// Las cuentas (bk account), sin tipear el comando: pide el nombre y hace el login en una terminal sobre la ventana.
+// El nombre se valida como en lib/accounts.py antes de llegar al shell; uno que no sirve vuelve a preguntar.
+const NOMBRE = /^[a-z0-9][a-z0-9-]{0,30}$/;
+const cuenta = ({ title, help, verb, ok = (n) => n !== "default" && NOMBRE.test(n), cmd }) => {
+  const ask = (p, error) => p.askFor({ label: "cuenta", title, help: error ?? help, verb, run: (text) => {
+    if (!ok(text)) return ask(p, `«${text}» no sirve: minúsculas, números y guiones, empezando con letra o número.`);
+    termPopup(p, "account", `'${bin()}' ${cmd(text)}`, cwd(), [0.7, 0.6]);
+  } });
+  return (p) => ask(p);
+};
+const nuevaCuenta = (prov, Prov) => cuenta({ title: `Nombre de la cuenta nueva de ${Prov}`, verb: "crear e iniciar sesión",
+  help: `Minúsculas, números y guiones (p. ej. trabajo). Después se abre el login de ${Prov}; las conversaciones son las mismas de siempre.`,
+  cmd: (n) => `account new ${prov} ${n}` });
 
 // [id, grupo, título, comando que se ve a la derecha, tecla (acción de keys.json) | null, palabras, acción]
 const NATIVE = [
@@ -24,8 +44,18 @@ const NATIVE = [
   ["profiles", "Agentes", "Perfiles de modelos y tareas…", "bk profile · bk ask", null, "perfil modelos proveedor codex claude gemini editar nuevo tarea imagenes investigar", view("profiles")],
   ["next", "Agentes", "Ir al que te espera", "bk go", "mod.open:bk-next", "saltar bloqueado terminó", view("next")],
   ["chat", "Chats", "Chat nuevo en este proyecto", "bk chat", "mod.open:bk-chat", "claude otro", view("chat")],
+  // /bitacora <tema> al chat que mirás (o al del espacio): bk bitacora decide a cuál y avisa si no pudo
+  ["bitacora", "Sesión", "Bitácora: guardar lo de este chat…", "bk bitacora", null, "bitacora tema guardar registro docs", (p) => p.askFor({
+    label: "bitacora", title: "¿Sobre qué tema?", help: "Le pide /bitacora <tema> al chat que mirás (o al del espacio). Vacío: el chat propone uno.",
+    verb: "pedirla", optional: true,
+    run: (text) => { p.close(); bitacora(text); } })],
   ["new", "Chats", "Nuevo… (rama, suelto, otro proyecto)", "bk new", "mod.open:bk-new", "workspace abrir proyecto worktree", view("new")],
   ["sessions", "Chats", "Sesiones: saltar o retomar", "bk s", "mod.open:bk-sessions", "resume recientes orca", view("sessions")],
+  ["account-claude", "Sesión", "Agregar una cuenta de Claude…", "bk account new claude", null, "cuenta login anthropic usuario mail nueva sumar", nuevaCuenta("claude", "Claude")],
+  ["account-codex", "Sesión", "Agregar una cuenta de Codex…", "bk account new codex", null, "cuenta login openai chatgpt usuario nueva sumar", nuevaCuenta("codex", "Codex")],
+  ["account-login", "Sesión", "Volver a iniciar sesión en una cuenta…", "bk account login", null, "cuenta login sesión vencida credenciales",
+    cuenta({ title: "¿En qué cuenta?", verb: "iniciar sesión", ok: (n) => NOMBRE.test(n),
+      help: "Su nombre, como lo muestra «Cuentas de Claude y Codex» (default: la de siempre de Claude).", cmd: (n) => `account login ${n}` })],
   ["handoff", "Chats", "Pedir el resumen y seguir en un chat nuevo", "bk handoff", "mod.open:bk-handoff", "contexto clear", view("handoff")],
   ["context", "Chats", "Umbral de contexto: con cuánto seguir en un chat nuevo…", "bk context", "mod.open:bk-handoff", "contexto ventana tokens umbral límite 200k handoff resumen",
     // alt+h ya parado en el umbral en uso; la forma del popup es la de "handoff" en views.json
@@ -36,6 +66,7 @@ const NATIVE = [
   ["branches", "Ver", "Ramas de todos los proyectos", "", "mod.open:bk-branches", "ramas branch worktree limpiar borrar", view("branches")],
   ["stats", "Ver", "Uso y costo", "bk stats · tokens", "mod.open:bk-stats", "estadísticas tokens modelos", view("stats")],
   ["term", "Ver", "Terminal rápida", "bk term", "mod.open:bk-term", "shell", view("term")],
+  ["ayuda", "Ver", "Piola: el ayudante del workspace (Codex)", "", "mod.open:bk-ayuda", "piola ayudante ayuda codex problema no anda arreglar soporte", view("ayuda")],
   ["keys", "Ver", "Teclas", "", "mod.open:bk-keys", "atajos ayuda shortcuts", view("keys")],
   ["music", "Ver", "Radio", "bk song", "mod.open:bk-song", "música song", view("song")],
   ["look", "Ventana", "Aspecto: tema, fuente y paneles", "", "mod.open:bk-look", "customize colores theme", view("look")],
@@ -52,7 +83,10 @@ const NATIVE = [
 ];
 
 // Comandos de lib/palette.py que ya tienen entrada nativa arriba (no se repiten)
-const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|context|chat|song|profile|ask|models)\b/;
+const COVERED = /^(run|review|fix|plan|orchestrate|stop|watch|changes|term|s|stats|customize|peek|ls|handoff|context|chat|song|profile|ask|models|bitacora)\b/;
+// Lo que en Herdr no va: el tema y la fuente de Ghostty (los de Herdr están en «Aspecto»), y elegir la cuenta
+// escribiendo su nombre (cada cuenta tiene su fila, accountEntries)
+const NOT_HERE = /^(theme|font)\b|^account use$/;
 const GROUPS = ["Recientes", "Perfil", "Agentes", "Chats", "Ver", "GitHub", "Sesión", "Barra", "Facultad", "Música", "Ventana"];
 
 export default class Palette extends Panel {
@@ -66,7 +100,8 @@ export default class Palette extends Panel {
   async load() {
     const d = await bk(["_hub", "palette"], { json: true, timeout: 8000 });
     this.profiles = d.profile ?? { active: null, profiles: [] };
-    this.extra = (d.items ?? []).filter((e) => !COVERED.test(e.cmd)).map((e) => ({
+    this.accounts = d.accounts ?? { space: "", using: {}, list: [] };
+    this.extra = (d.items ?? []).filter((e) => !COVERED.test(e.cmd) && !NOT_HERE.test(e.cmd)).map((e) => ({
       id: `bk:${e.cmd}`, group: GROUPS.includes(e.group) ? e.group : "Sesión", title: e.label, hint: `bk ${e.cmd}`, key: null, words: e.cmd,
       go: (p) => this.generic(p, e),
     }));
@@ -77,8 +112,8 @@ export default class Palette extends Panel {
     const go = (extra) => {
       const all = [...args, ...extra];
       if (e.kind === "show") return goto("bk-out", { props: { title: e.label, args: all, dir: cwd() } });
+      if (e.kind === "view") return termPopup(p, args[0], `'${bin()}' ${all.join(" ")}`, cwd());
       p.close();
-      if (e.kind === "view") return termPopup(args[0], `'${bin()}' ${all.join(" ")}`, cwd()).catch((err) => notify({ title: "bk", body: String(err?.message ?? err), level: "error" }));
       launch(e.label, all);
     };
     if (e.arg) return p.askFor({ label: args[0], title: e.label, help: `Falta: ${e.arg}`, run: (text) => go(text.split(/\s+/)) });
@@ -87,7 +122,25 @@ export default class Palette extends Panel {
 
   entries() {
     const native = NATIVE.map(([id, group, title, hint, action, words, go]) => ({ id, group, title, hint, key: action ? keyOf(action) : null, words, go }));
-    return [...native, ...this.profileEntries(), ...this.extra];
+    return [...native, ...this.profileEntries(), ...this.accountEntries(), ...this.extra];
+  }
+
+  // Un renglón por cuenta (bk account use, por espacio): la de siempre y las de bk account de cada proveedor que
+  // tenga alguna. Enter la elige para el espacio de acá; la que usa, marcada. El chat abierto sigue con la que
+  // tenía hasta relanzarlo («Usar otra cuenta y relanzar el chat»).
+  accountEntries() {
+    const { space, using = {}, list = [] } = this.accounts ?? {};
+    const PROV = { claude: "Claude", codex: "Codex" };
+    return Object.keys(PROV).filter((prov) => list.some((a) => a.provider === prov)).flatMap((prov) =>
+      ["default", ...list.filter((a) => a.provider === prov).map((a) => a.name)].map((name) => {
+        const shown = name === "default" ? "la de siempre" : name, on = (using[prov] ?? "default") === name;
+        return {
+          id: `account:${prov}:${name}`, group: "Sesión", key: null, hint: `bk account use ${name}${name === "default" ? ` ${prov}` : ""}`,
+          title: on ? `Cuenta de ${PROV[prov]}: ${shown} · en uso${space ? ` en ${space}` : ""}` : `Usar la cuenta de ${PROV[prov]} ${shown}${space ? ` en ${space}` : ""}`,
+          words: `cuenta usar cambiar ${prov} ${name} ${shown}`,
+          go: out(`Cuenta de ${PROV[prov]}`, ["account", "use", name, ...(name === "default" ? [prov] : [])]),
+        };
+      }));
   }
 
   // Un renglón por perfil de modelos (bk profile): escribir «barato» y enter lo cambia. El activo, marcado.

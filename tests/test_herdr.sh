@@ -241,6 +241,9 @@ check_eq "$(jq -r .pane "$STATE/s1.json")" "t9" "hook: en Herdr el pane es HC_TE
 check_eq "$([ -f "$STATE/bk-i99.json" ] && echo queda || echo borrado)" "borrado" "hook: al arrancar la sesión borra el pre-registro de esa terminal"
 ev s2 SessionStart | TMUX_PANE=%3 HC_TERMINAL_ID=t9 bash "$HOOK"
 check_eq "$(jq -r .pane "$STATE/s2.json")" "%3" "hook: dentro de tmux manda TMUX_PANE"
+echo '{"pane": "t9", "state": "background", "background": 2, "subagents": 1}' >"$STATE/s5.json"
+ev s5 SubagentStop | HC_TERMINAL_ID=t9 bash "$HOOK"
+check_eq "$(jq -r '.state + " " + (.background|tostring)' "$STATE/s5.json")" "background 2" "hook: un SubagentStop después del turno no borra la cuenta de lo que sigue en 2º plano"
 ev s3 SessionStart | bash "$HOOK"
 check_eq "$(jq -r '.pane // "nada"' "$STATE/s3.json")" "nada" "hook: fuera de tmux y de Herdr no anota pane"
 # ~/.claude/settings.json llega al hook por la ruta de cuando era un plugin de Sketchybar (~/.config/sketchybar apunta
@@ -311,11 +314,11 @@ check_eq "$sin_mod$(jq -r '[.. | objects | .content?.mod? // empty | select(star
 # su copia. Todas iguales (la de agentes es la referencia), y cada una se instala al lado del main.js que la importa
 KITS=$(cd "$ROOT/herdr/mods" && for d in *; do [ "$d" = hub ] || [ ! -f "$d/kit.js" ] || printf '%s ' "$d"; done)
 distintos=$(for m in $KITS; do cmp -s "$ROOT/herdr/mods/agentes/kit.js" "$ROOT/herdr/mods/$m/kit.js" || printf '%s ' "$m"; done)
-check_eq "$KITS| $distintos" "agentes cabecera lado marca pestanas | " "kit.js: las copias de agentes, cabecera, lado, marca y pestanas son el mismo archivo"
+check_eq "$KITS| $distintos" "agentes cabecera cerrar lado marca pestanas | " "kit.js: las copias de agentes, cabecera, cerrar, lado, marca y pestanas son el mismo archivo"
 # La lista de espacios en carpetas: lo suyo se instala con cada mod (el modelo va en los dos que lo usan)
 check_eq "$(for f in bk-agentes/lista.js bk-agentes/editar.js bk-agentes/espacios.js bk-menu/espacios.js bk-menu/chevron-up.svg; do [ -f "$APP/mods/$f" ] || printf '%s ' "$f"; done)$(cmp -s "$APP/mods/bk-agentes/espacios.js" "$APP/mods/bk-menu/espacios.js" && echo igual)" "igual" "espacios: la lista, su diálogo, el modelo (en agentes y en el menú) y el icono de Subir se instalan"
 sin_kit=$(grep -l 'from "./kit.js"' "$ROOT"/herdr/mods/*/main.js | while read -r f; do m=$(basename "$(dirname "$f")"); [ "$m" = hub ] || cmp -s "$ROOT/herdr/mods/$m/kit.js" "$APP/mods/bk-$m/kit.js" || printf '%s ' "$m"; done)
-check_eq "$(grep -l 'from "./kit.js"' "$ROOT"/herdr/mods/*/main.js | grep -vc '/hub/') $sin_kit" "5 " "kit.js: cada panel que lo importa lo tiene instalado en su carpeta"
+check_eq "$(grep -l 'from "./kit.js"' "$ROOT"/herdr/mods/*/main.js | grep -vc '/hub/') $sin_kit" "6 " "kit.js: cada panel que lo importa lo tiene instalado en su carpeta"
 # Los temas de bk: se instalan, siguen al repo mientras nadie los retoque y no pisan uno tuyo
 T1=$(ls "$ROOT/herdr/themes" | head -1)
 check_eq "$(ls "$ROOT/herdr/themes" | while read -r f; do cmp -s "$ROOT/herdr/themes/$f" "$APP/themes/$f" || printf '%s ' "$f"; done)$(jq -r --arg f "$T1" '.[$f]' "$APP/bk-temas.json")" "$(sha "$ROOT/herdr/themes/$T1")" "temas: instala los de herdr/themes y anota qué instaló"

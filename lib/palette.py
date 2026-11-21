@@ -47,7 +47,7 @@ ENTRIES = [
     ("Sesión", "Umbral de contexto: con cuánto seguir en un chat nuevo", "context", None, "show"),
     ("Sesión", "Cambiar el umbral de contexto", "context", "tokens (300k, 1m o default)", "show"),
     ("Sesión", "Lecciones por revisar", "lessons", None, "show"),
-    ("Sesión", "Bitácora de agentes: regenerar y abrir", "bitacora", None, "show"),
+    ("Sesión", "Bitácora: guardar lo de este chat (/bitacora)", "bitacora", "tema (vacío: lo propone el chat)", "show"),
     ("Sesión", "Registrar desvíos (learn)", "learn", None, "show"),
     ("Apariencia","Tema de día", "theme day", None, "show"),
     ("Apariencia","Tema de noche", "theme night", None, "show"),
@@ -114,7 +114,7 @@ def ui(scr):
             if k == "\x1b":
                 ask, arg = False, ""
             elif k in ("\n", curses.KEY_ENTER):
-                if arg.strip():
+                if arg.strip() or "vacío" in chosen[3]:   # «(vacío: …)»: el argumento es opcional
                     return chosen, arg.strip()
             elif k in (curses.KEY_BACKSPACE, "\x7f", "\b"):
                 arg = arg[:-1]

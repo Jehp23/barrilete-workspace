@@ -35,7 +35,7 @@ calls() { wc -l <"$TMP/gh.log" | tr -d ' '; }
 REPO="$TMP/proj"; git init -q -b main "$REPO"; git -C "$REPO" remote add origin "git@github.com:o/r.git"
 mkdir -p "$TMP/proj-wt"; git -C "$REPO" commit -q --allow-empty -m x; git -C "$REPO" worktree add -q -b w "$TMP/proj-wt/11"
 
-check_eq "$(ep "$REPO" claude/11-algo | jq -c '{issue, repo, epic: (.epic | del(.subs, .dirs))}')" '{"issue":11,"repo":"o/r","epic":{"repo":"o/r","number":10,"title":"La épica","done":2,"total":5}}' "rama claude/<n>-…: la épica es el padre del issue, con su avance"
+check_eq "$(ep "$REPO" claude/11-algo | jq -c '{issue, repo, epic: (.epic | del(.subs, .dirs, .nolaunch))}')" '{"issue":11,"repo":"o/r","epic":{"repo":"o/r","number":10,"title":"La épica","done":2,"total":5}}' "rama claude/<n>-…: la épica es el padre del issue, con su avance"
 check_eq "$(ep "$REPO" claude/feat/11-algo | jq -c '[.issue, .epic.number]')" '[11,10]' "rama claude/<tipo>/<n>-…"
 check_eq "$(ep "$TMP/proj-wt/11" w | jq -c '[.issue, .epic.number]')" '[11,10]' "worktree <repo>-wt/<n>: el issue sale de la carpeta"
 check_eq "$(ep "$REPO" main 'Arreglar el login #11' | jq -c '[.issue, .epic.number]')" '[11,10]' "en main, el #<n> del nombre del chat"
@@ -83,6 +83,10 @@ check_eq "$(jq -c '[.epic.subs[] | [.repo, .number, .state, .title, .blocked_by]
 check_eq "$(grep -c 'issues/12/dependencies' "$TMP/gh.log")" "0" "de un sub-issue cerrado no pide bloqueos"
 check_eq "$(jq -c .repo <<<"$E")" '"o/r"' "cada chat dice el repo de su issue"
 check_eq "$(jq -cS .epic.dirs <<<"$E")" "{\"o/r\":\"$REPO\",\"o/x\":\"$HOME/x\"}" "dirs: el checkout principal del chat (no su worktree) y ~/<nombre> para un repo sin chat"
+check_eq "$(jq -cS '.epic.nolaunch | keys' <<<"$E")" '["o/r","o/x"]' "nolaunch: los repos sin barrilete-kit no se ofrecen para lanzar"
+check_eq "$(jq -r '.epic.nolaunch["o/x"]' <<<"$E")" "x no es un proyecto Barrilete: no tiene barrilete-kit (.agent-kit.json)" "nolaunch: con el motivo en palabras"
+mkdir -p "$HOME/x/scripts/agents" && : >"$HOME/x/scripts/agents/guardrails.py"
+check_eq "$(ep "$TMP/proj-wt/11" w | jq -c '.epic.nolaunch | keys')" '["o/r"]' "nolaunch: un repo con el kit 2 (scripts/agents/guardrails.py) sí se puede lanzar"
 rm -rf "$HOME/x"
 check_eq "$(ep "$TMP/proj-wt/11" w | jq -c .epic.dirs)" "{\"o/r\":\"$REPO\"}" "…un repo sin chat ni carpeta en ~: sin dir (no se puede lanzar ahí)"
 check_eq "$(ep "$REPO" claude/21-x | jq -c '[.epic.repo, .epic.number]')" '["o/k",20]' "la épica en otro repo: el repo sale de su repository_url, no del chat"
@@ -304,6 +308,16 @@ key('up'); key('enter');
 assert.ok(text(find(o, 'epic-confirm')).includes('bk run 5 · en ~/x'), '⏎ en un libre: la confirmación con el comando y la carpeta de su repo');
 key('escape');
 assert.equal(find(o, 'epic-confirm'), undefined, 'esc cancela la confirmación (no cierra)');
+// Un repo con un kit viejo (nolaunch): ni «Lanzar» ni confirmación, y el motivo a la vista
+const sharedE = () => shared['bk.epics'].epics['o/r#10'].e;
+sharedE().nolaunch = { 'o/x': 'x tiene el kit 0.9.0: para lanzar agentes hace falta barrilete-kit 2 o más nuevo. Actualizá el kit de x' };
+o = pop.render(cx);
+const tried = execs.length;
+assert.ok(!find(o, 'launch-o/x#5') && text(o).includes('no se puede lanzar') && text(find(o, 'epic-nolaunch')).join(' ').startsWith('x tiene el kit 0.9.0: para lanzar'), 'kit viejo: la fila dice que no se puede y debajo, por qué');
+key('enter'); key('enter');
+assert.deepEqual([find(o, 'epic-confirm'), execs.length], [undefined, tried], 'kit viejo: ⏎ no pide confirmar ni lanza');
+delete sharedE().nolaunch; o = pop.render(cx);
+assert.ok(find(o, 'launch-o/x#5') && !find(o, 'epic-nolaunch'), 'con el kit al día, vuelve «Lanzar»');
 key('enter'); runReply = { code: 1, stdout: '', stderr: 'algo\nprepare.sh rechazó #5\n' };
 key('enter');
 const shut = closed.length; for (let i = 0; i < 2; i++) { o.$key({ key: 'escape' }, cx); o = pop.render(cx); }

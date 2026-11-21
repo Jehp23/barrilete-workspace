@@ -230,8 +230,7 @@ export default class Profiles extends Panel {
     if (ctrl && k === "u" && this.editing && !this.role) { this.use(cx, this.editing); return true; }
     if (ctrl && k === "o") {
       const cmd = row?.t || row?.newTask ? "ask" : "profile";
-      this.close();
-      termPopup("profiles", `'${bin()}' ${cmd} edit`, cwd()).catch((err) => notify({ title: "bk", body: String(err?.message ?? err), level: "error" }));
+      termPopup(this, "profiles", `'${bin()}' ${cmd} edit`, cwd());
       return true;
     }
     if (this.editing || this.picking()) return false;

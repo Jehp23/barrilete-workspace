@@ -39,6 +39,15 @@ const placing = (ref) => [
   ["Bajar", "espacios", { op: "bajar", ref }, "chevron-down"],
 ];
 
+// ¿Este chat siguió de otro que sigue abierto (bk.from, sin fijar)? Entonces «Cerrar…» abre bk-cerrar con la cadena
+// entera (herdr/mods/cerrar; la misma regla que su chain(), un test las compara). Copia en hub/sessions.js.
+export const before = (term, all) => {
+  const from = term?.labels?.["bk.from"];
+  const old = from && from !== term.address && all.find((x) => x.address === from && x.state === "live");
+  return Boolean(old && !old.pinned && !old.labels?.["herdr.pinned"]);
+};
+const CERRAR = { kind: "dialog", width: 540, height: 400 };   // el SIZE de herdr/mods/cerrar
+
 export function items(p, git) {
   p = p ?? {};
   const tg = p.target ?? {};
@@ -79,7 +88,7 @@ export function items(p, git) {
         ? ["Clic derecho: menú de Herdr", "terminal.right_click", { terminal: term.address, to: "menu" }, "terminal"]
         : ["Clic derecho: al programa", "terminal.right_click", { terminal: term.address, to: "program" }, "terminal"]] : []),
       ...(parent ? [[`Devolver a ${parent.name || parent.address}`, "terminal.park", { terminal: term.address }, "archive"]] : []),
-      ...(inTab ? [["Cerrar", "pane.close", { pane: tg.pane }, "x"]] : []),
+      ...(inTab ? [before(term, all) ? ["Cerrar…", "cadena.close", { terminal: term.address }, "x"] : ["Cerrar", "pane.close", { pane: tg.pane }, "x"]] : []),
     ];
   }
   if (p.tab === "space") {
@@ -156,7 +165,8 @@ export default class Menu extends View {
     const it = items(props(), this.git)[i];
     if (!it) return;
     closeOverlay(props()?.overlay);
-    if (it[1] === "espacios") arrange(it[2]);
+    if (it[1] === "cadena.close") openOverlay({ mod: "bk-cerrar", ...CERRAR, props: it[2] });
+    else if (it[1] === "espacios") arrange(it[2]);
     else if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
     else run(it[1], it[2]);
   }
