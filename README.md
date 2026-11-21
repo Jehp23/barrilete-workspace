@@ -10,6 +10,7 @@ bk ls              bk go <ventana>  bk stop <ventana>  bk clean [--yes]
 bk peek [ventana]  bk say <ventana> "…"   bk watch [ventana|--all]
 bk monitor         bk checkpoints   bk tasks         bk done <resultado>   bk approve <tarea>
 bk account         bk account use <cuenta> [--relaunch]   bk run … --account <cuenta>
+bk machines sync [--dry-run]
 bk roles           bk mode <rol>    bk profile [perfil]  bk song [estación]   bk theme [day|night|auto]
 bk ask [tarea "…"] bk models [provider]
 ```
@@ -358,6 +359,19 @@ las mismas (`/resume` y `alt+s` ven todas).
   dice cuál usa. `--relaunch` abre el chat del espacio de nuevo con esa cuenta, retomando la conversación, y cierra el
   viejo. En `alt+k` cada cuenta tiene su fila («Usar la cuenta de Claude trabajo en abra»; la que usa, marcada); los
   temas y las fuentes de Ghostty no aparecen (los de Herdr están en «Aspecto»).
+
+## La misma versión en cada máquina (`bk machines sync`)
+Con Herdr y más de una máquina (`hc machine ls`), `bk machines sync` deja en cada máquina conectada el mismo commit
+de bk que tiene esta y corre `bk backend herdr` allá. `bk machines sync --dry-run` (o `bk --dry-run machines sync`)
+dice qué haría y solo mira.
+- Los commits que a la otra máquina le faltan viajan en un `git bundle` por `hc exec -i`: anda sin pushear y sin que
+  la otra llegue a GitHub.
+- Allá no se toca el checkout de la persona: el commit queda en un worktree propio, `<repo>-wt/bk-sync`, sin rama
+  (`<repo>` es el repo del bk que esa máquina ya tiene instalado), y `~/.local/bin/bk` pasa a apuntar ahí.
+- Frena antes de empezar si el bk de acá tiene cambios sin commitear: la otra máquina no quedaría igual.
+- Una máquina desconectada se saltea. Una que no tiene bk en `~/.local/bin/bk` (se instala una vez a mano), o cuyo
+  `bk-sync` tiene cambios sin commitear, no se toca y se avisa; las demás siguen.
+- Sale con 0 si quedaron todas al día, con 3 si alguna no, y con 1 si no pudo empezar.
 
 ## Lo que te espera (`bk monitor` · `bk checkpoints`)
 - `bk monitor`: pantalla para el otro monitor. Arriba *Te esperan* (preguntas, permisos y checkpoints, con el comando

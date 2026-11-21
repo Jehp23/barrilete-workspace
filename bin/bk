@@ -127,6 +127,9 @@ uso: bk [comando] [--dry-run]
   account           cuentas de Claude o Codex por sesión, con las mismas conversaciones (bk account help):
                     new <claude|codex> <nombre> · use <nombre> [--relaunch] · --account <nombre> en
                     cualquier lanzamiento
+  machines sync     (con Herdr) deja en cada máquina conectada el mismo commit de bk que esta y corre bk backend
+                    herdr allá; usa un worktree propio (<repo>-wt/bk-sync), sin tocar el checkout de allá.
+                    --dry-run: solo dice qué haría
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
   learn             registra desvíos de los agentes en Obsidian y propone lecciones; los de proyectos con el kit
                     (y los hallazgos de review) van también a su store (.barrilete/learning, ADR-007)

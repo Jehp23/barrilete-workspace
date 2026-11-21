@@ -8,6 +8,7 @@ Cada archivo de `lib/` dice en su encabezado qué hace y cómo se usa; esta tabl
 |---|---|---|
 | Entrada | `bin/bk` | ayuda, despacho de comandos, lanzamiento de agentes, workspace de tmux |
 | Backend Herdr | `lib/herdr.sh`, `lib/herdr_install.py`, `herdr/` | espacios, pestañas y etiquetas en Herdr; instalar mods, teclas, temas y layout |
+| Varias máquinas | `lib/machines.py` | `bk machines sync`: el mismo commit de bk en cada máquina conectada a Herdr |
 | Datos para Herdr | `lib/herdr_hub.py`, `lib/herdr_side.py`, `lib/herdr_epica.py` (con `lib/kit_check.py`: dónde se puede lanzar y por qué no), `lib/herdr_todo.py`, `lib/herdr_tasks.py`, `lib/herdr_subagents.py` | el JSON de cada panel (`bk _hub`, `_side`, `_epica`, `_todo`, `_tasks`, `_subagents`) |
 | Agentes y estado | `hooks/agent_state.sh`, `lib/agents.py`, `lib/gentle.py`, `lib/names.py` | estado de cada sesión, quién es quién, glifos y colores, nombres vivos |
 | Tareas | `lib/tasks.py`, `lib/checkpoints.py` | tareas del kit (ADR-005), `bk done`, `bk approve`; lo que te espera |
