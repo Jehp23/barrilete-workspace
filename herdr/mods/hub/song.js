@@ -144,8 +144,7 @@ export default class Song extends Panel {
 
   // bk song ui queda en primer plano hasta que salís: va en una terminal sobre la ventana, y este panel se cierra
   screen() {
-    this.close();
-    termPopup("song", quote(bin()) + " song ui").catch((err) => notify({ title: "Radio", body: String(err?.message ?? err), level: "error" }));
+    termPopup(this, "song", quote(bin()) + " song ui");
   }
 
   enter(r, cx) {

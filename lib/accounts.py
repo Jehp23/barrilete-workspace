@@ -12,6 +12,8 @@ La cuenta "default" es la de siempre (~/.claude, ~/.codex) y no tiene carpeta.
   accounts.py provider <nombre>          claude | codex (default: vacío)
   accounts.py env <nombre>               VAR=valor para lanzar con esa cuenta (repara los symlinks)
   accounts.py email [nombre]             el mail de esa cuenta de Claude (sin nombre: la de siempre)
+  accounts.py space <espacio> <claude|codex>       en Herdr: la cuenta que eligió ese espacio (vacío: la de siempre)
+  accounts.py space-use <espacio> <nombre> [prov]  en Herdr: elegirla para ese espacio (default: volver a la de siempre)
 """
 import json
 import os
@@ -36,6 +38,8 @@ SHARED = {
 # De ~/.claude.json, lo que no es de la cuenta: proyectos confiados, MCP del usuario, tema.
 SEED_KEYS = ("projects", "mcpServers", "theme")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
+# Con Herdr no hay sesión de tmux donde anotar la cuenta (bk account use): va por espacio, que es el proyecto
+SPACES = os.path.join(ROOT, ".espacios.json")
 
 
 def die(msg):
@@ -170,6 +174,43 @@ def listing(as_json):
         print(f"{mark} {r['name']:<14} {r['provider']:<7} {r['who'] or 'sin sesión'}")
 
 
+def spaces():
+    try:
+        with open(SPACES) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def space(sp, prov):
+    v = spaces().get(sp, {})
+    name = v.get(prov, "") if isinstance(v, dict) else ""
+    print(name if name and provider(name) == prov else "")
+
+
+def space_use(sp, name, only=""):
+    d = spaces()
+    cur = d.get(sp) if isinstance(d.get(sp), dict) else {}
+    if name == "default":
+        for p in ([only] if only else list(VAR)):
+            cur.pop(p, None)
+    else:
+        prov = provider(name)
+        if not prov:
+            die(f"no existe la cuenta {name} (bk account)")
+        cur[prov] = name
+    if cur:
+        d[sp] = cur
+    else:
+        d.pop(sp, None)
+    os.makedirs(ROOT, exist_ok=True)
+    tmp = f"{SPACES}.{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, SPACES)
+
+
 def main(argv):
     cmd = argv[0] if argv else "list"
     if cmd == "list":
@@ -185,6 +226,10 @@ def main(argv):
         print(e)
     elif cmd == "env" and len(argv) == 2:
         env(argv[1])
+    elif cmd == "space" and len(argv) == 3:
+        space(argv[1], argv[2])
+    elif cmd == "space-use" and len(argv) in (3, 4) and (len(argv) == 3 or argv[3] in VAR):
+        space_use(argv[1], argv[2], argv[3] if len(argv) == 4 else "")
     else:
         print(__doc__, file=sys.stderr)
         sys.exit(2)

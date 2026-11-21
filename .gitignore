@@ -3,3 +3,18 @@ __pycache__/
 # los genera herdr-app check en la carpeta del mod que revisa
 herdr/**/gpui-kit.d.ts
 herdr/**/jsconfig.json
+
+# barrilete
+.env
+.env.*
+!.env.example
+__pycache__
+*.pyc
+.agent-kit/
+.claude/worktrees/
+
+# Store local de aprendizaje del proyecto (ADR-007, scripts/agents/learning.py)
+.barrilete/learning/
+
+# Bitácora de agentes (scripts/agents/bitacora.py, #339): se genera, no se versiona
+.barrilete/bitacora.html

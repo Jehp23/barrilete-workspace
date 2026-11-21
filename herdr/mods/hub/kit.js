@@ -4,11 +4,11 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { exec, hc, theme, props, closeOverlay, openOverlay, focused, home, notify, keys, settings, run, terminals, setShared, shared } from "herdr";
+import { exec, theme, props, closeOverlay, openOverlay, focused, home, notify, keys, settings, run, terminals, setShared, shared } from "herdr";
 
 export const ROW_H = 34;
 export const HEAD_H = 28;
-const POP = "bk.pop";   // el popup de terminal abierto (lo comparte con mods/bk)
+const PEDIDO = "bk.pop.pedido";   // el popup de terminal que pide un panel: lo abre mods/bk (bk-pop)
 
 export const cwd = () => focused()?.cwd || home();
 // El bk que corren los paneles: el del PATH, salvo que shared "bk.bin" diga otro (la ventana de prueba)
@@ -75,27 +75,22 @@ export async function launch(title, args, dir) {
 }
 
 // Otra vista de bk (issues, prs…) o un mod de Herdr, en lugar de esta.
+// Con props abre un overlay (dialog, salvo que extra.overlay diga otra forma: la de views.json de ese panel).
 export function goto(name, extra = {}) {
   closeOverlay(props().overlay);
-  if (extra.props) openOverlay({ mod: name, props: extra.props, kind: "dialog", width: extra.width ?? 0.86, height: extra.height ?? 0.82 });
+  if (extra.props) openOverlay({ mod: name, props: extra.props, kind: "dialog", width: extra.width ?? 0.86, height: extra.height ?? 0.82, ...(extra.overlay ?? {}) });
   else run("mod.open", { name });
 }
 
 // Un programa de pantalla completa (bk monitor, la radio) en una terminal sobre la ventana; se cierra al salir.
-export async function termPopup(name, cmd, dir, size = [0.9, 0.85]) {
-  const old = shared(POP);
-  if (old) {
-    setShared(POP, null);
-    closeOverlay(old.id);
-    if (!old.keep && terminals().some((t) => t.address === old.terminal && t.state === "live")) await hc(["kill", old.terminal]);
-  }
-  const sh = `{ ${cmd}; } || { printf '\\n  (falló: enter para cerrar) '; read -r _; }`;
-  const r = await hc(["run", "--json", "--bg", "--no-parent", "--rm", "--cwd", dir || cwd(), "--label", "bk.kind=popup",
-    "--", "env", "BK_BACKEND=herdr", `BK_FROM_TERM=${focused()?.terminal ?? ""}`, "sh", "-c", sh]);
-  if (r.code !== 0) throw new Error(lastLine(r.stderr) || "hc no abrió la terminal");
-  const terminal = JSON.parse(r.stdout).address;
-  const id = openOverlay({ kind: "dialog", modal: true, width: size[0], height: size[1], layout: { type: "block", content: { terminal } } });
-  setShared(POP, { name, id, terminal, keep: false });
+// Lo abre mods/bk (bk-pop), no el panel: un panel cerrado no termina lo que esperaba (con el await de hc run acá,
+// alt+k → «Monitor de agentes» no abría nada) ni guarda lo que escribe en shared después de cerrarse (con el pedido
+// después de p.close(), bk-pop lo encontraba vacío; 2026-11-19). Por eso el orden es este: el pedido, cerrar el
+// panel que lo pide (panel) y abrir bk-pop, todo sin esperar nada.
+export function termPopup(panel, name, cmd, dir, size = [0.9, 0.85]) {
+  setShared(PEDIDO, { name, cmd, dir: dir || cwd(), from: focused()?.terminal ?? "", w: size[0], h: size[1] });
+  panel?.close();
+  run("mod.open", { name: "bk-pop" });
 }
 
 // "alt-shift-1" → ["⌥", "⇧", "1"]
@@ -206,16 +201,20 @@ export class Panel extends View {
     this.input.focus();
   }
 
+  // Enter: lo que haga la vista (abrir una pregunta, cambiar de nivel) se redibuja siempre. Si el buscador estaba
+  // vacío, set_value("") no avisa nada y una pregunta nueva quedaba sin verse (pasó con «Nueva tarea…»)
   submit(cx, e) {
     if (this.ask) {
       const a = this.ask, text = (a.value ?? "").trim();
       if (!text && !a.optional) return;
       this.ask = null;
       this.input.set_value("");
-      return a.run(text, cx);
+      a.run(text, cx);
+    } else {
+      const row = this.current();
+      if (row) this.enter(row, cx, e);
     }
-    const row = this.current();
-    if (row) this.enter(row, cx, e);
+    if (!this.closed) cx.notify();
   }
 
   // Corre algo corto mostrando "…" y deja el error a la vista si falla

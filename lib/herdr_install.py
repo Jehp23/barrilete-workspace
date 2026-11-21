@@ -13,7 +13,7 @@ nuevo no cambia nada.
 import filecmp, hashlib, json, os, shutil, sys
 
 
-NO_KEY = ("bk-aviso", "bk-seguir")   # mods sin tecla: los abre bk (un aviso de Herdr) o el clic en ese aviso
+NO_KEY = ("bk-aviso", "bk-seguir", "bk-pop")   # mods sin tecla: los abre bk (un aviso de Herdr), el clic en ese aviso o un panel (bk-pop)
 HUB = "hub"   # herdr/mods/hub: los paneles nativos (paleta, issues, PRs…), un mismo paquete instalado una vez por vista
 
 
@@ -49,7 +49,7 @@ def panels(src, home):
 
 
 # Temas que bk instaló con otro nombre: si la copia sigue igual a lo que bk instaló, se va (el nuevo la reemplaza)
-RENAMED_THEMES = {"bk-noche.json": "bk-neon.json"}
+RENAMED_THEMES = {"bk-noche.json": "bk-neon.json", "bk-tinta.json": "bk-papel-night.json"}
 
 
 def themes(src, home):

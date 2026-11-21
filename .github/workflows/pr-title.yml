@@ -1,0 +1,43 @@
+# .github/workflows/pr-title.yml — barrilete-workspace
+# Validates that the PR title is a Conventional Commit (docs/github-naming-convention.md §2–3).
+# With squash merge, the title becomes a commit on the base branch.
+name: PR title
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      # It does not check out the PR code: safe with pull_request_target.
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            refactor
+            perf
+            test
+            docs
+            style
+            build
+            ci
+            chore
+            revert
+          # TODO: closed list of scopes (§2). While it is empty, any scope is valid.
+          # scopes: |
+          #   api
+          #   db
+          #   docs
+          requireScope: false
+          # Description in lowercase, without a trailing period.
+          subjectPattern: ^(?![A-ZÁÉÍÓÚÑ]).+[^.]$
+          subjectPatternError: |
+            The description "{subject}" of the title "{title}" must start in lowercase and not end with a period.

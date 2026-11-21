@@ -1,0 +1,75 @@
+# .github/workflows/docs.yml — barrilete-workspace
+# Documentation is infrastructure for agents: it is tested too.
+# Validates that the generated rules match rules.lock (sync-rules --check), links, mentioned paths, ADRs and required documents (scripts/agents/check-docs.py),
+# runs shellcheck and the script tests, and on PRs warns which docs should be reviewed according to docs/agents-map.json
+# and which X.md / X.es.md pair changed on one side only.
+name: Docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generated rules match rules.lock
+        # ADR-006 D7: what sync-rules generates (rules in AGENTS.md and .claude/agents/, classes.yml, checks.json) is what
+        # rules.lock gives, so nobody edits a generated section by hand. Without a rules.lock the project consumes no rules.
+        # If it fails: run scripts/agents/sync-rules and commit the result (or fix the lock); the rule itself changes in barrilete-rules.
+        run: |
+          if [ -f .barrilete/rules.lock ]; then
+            python3 scripts/agents/sync-rules --check
+          else
+            echo "No .barrilete/rules.lock: nothing generated to check."
+          fi
+      - name: Validate documentation
+        run: python3 scripts/agents/check-docs.py
+      - name: Agent script tests
+        run: python3 -m unittest discover -s scripts/agents -p 'test_*.py'
+      - name: Instalar shellcheck 0.11.0
+        # Pinned version (the ubuntu-latest one is older and reports other codes than the local one).
+        # To bump it: change the version and the sha256 (it is in the koalaman/shellcheck release).
+        run: |
+          v=0.11.0; sum=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+          curl -fsSL -o /tmp/sc.tar.xz "https://github.com/koalaman/shellcheck/releases/download/v$v/shellcheck-v$v.linux.x86_64.tar.xz"
+          echo "$sum  /tmp/sc.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/sc.tar.xz -C /tmp && sudo install /tmp/shellcheck-v$v/shellcheck /usr/local/bin/shellcheck
+          shellcheck --version
+      - name: Shellcheck of the scripts
+        # Only the kit ones: in a repo with .agent-kit.json, the project .sh files are not checked.
+        run: |
+          # The list first: if it fails, the step fails (in a pipe, xargs without input would pass in green).
+          lista=$(python3 scripts/agents/check-docs.py --list '*.sh')
+          echo "$lista" | xargs -r shellcheck
+      - name: Script tests
+        # Isolated from the runner git config: they cannot depend on init.defaultBranch or other config.
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: "1"
+        run: |
+          lista=$(python3 scripts/agents/check-docs.py --list '*test-*.sh')
+          fallas=0
+          while read -r t; do [ -n "$t" ] || continue; echo "▶ $t"; bash "$t" || fallas=1; done <<<"$lista"
+          exit $fallas
+      - name: Docs to review according to the map (warning, does not block)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          salida=$(python3 scripts/agents/agents_map.py)
+          echo "$salida"
+          { echo "## Docs and sensitive paths"; echo; echo "$salida"; } >> "$GITHUB_STEP_SUMMARY"
+          if echo "$salida" | grep -q "NOT MODIFIED"; then
+            echo "::warning::There are docs that the map suggests reviewing and the PR does not modify. See the job summary."
+          fi
+          if echo "$salida" | grep -q "UNPAIRED"; then
+            echo "::warning::The PR changes a document in one language (X.md or X.es.md) without its sibling. See the job summary."
+          fi
