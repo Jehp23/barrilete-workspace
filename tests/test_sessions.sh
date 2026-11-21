@@ -73,5 +73,49 @@ check_eq "$(grep -c '^tmux' "$TMP/log") $(grep '^bk' "$TMP/log")" "0 bk chat | h
 BACK=tmux hpy resume "$TMP/dir con espacio" >/dev/null
 check_eq "$(grep -c '^bk' "$TMP/log") $(grep -c '^tmux has-session' "$TMP/log")" "0 1" "con tmux, retomar sigue siendo una ventana de tmux"
 check_eq "$(hpy close)" "vive en Herdr" "x sobre una sesión de Herdr: no cierra nada y dice dónde cerrarla"
+# --- bk revive: los chats que murieron sin avisar quedan anotados y se retoman todos juntos ---
+# Estado, transcripts y registro en la carpeta temporal; el hc falso dice qué terminales hay y qué corre en cada una
+R="$TMP/r"; mkdir -p "$R/state" "$R/projects/-proj"
+cat >"$TMP/hc" <<EOF
+#!/bin/sh
+echo "hc \$*" >>"$TMP/log"
+case "\$1 \$2" in
+  "ls --json") echo '{"terminals":[{"address":"t7","state":"live","agent":"claude-code","status":"idle","where":"proj / chat"},{"address":"t6","state":"live","agent":"zsh","where":"proj / 2"},{"address":"t5","state":"live","agent":"zsh","where":"proj / 3"}]}' ;;
+esac
+EOF
+seed() {   # sid pane hace-cuántos-segundos: una sesión con su estado y su transcript
+  printf '{"state":"working","pane":"%s","cwd":"%s","ts":%s}\n' "$2" "$TMP/dir con espacio" "$(( $(date +%s) - $3 ))" >"$R/state/$1.json"
+  printf '{"type":"user","cwd":"%s","message":{"content":"hola %s"}}\n' "$TMP/dir con espacio" "$1" >"$R/projects/-proj/$1.jsonl"
+}
+rpy() { : >"$TMP/log"; PATH="$TMP:$PATH" BK_HC="$TMP/hc" BK_HERDR_APP="$TMP/herdr-app" BK_BACKEND="${BACK:-herdr}" python3 - "$ROOT/lib" "$TMP" "$@" <<'PY3'
+import sys; sys.path.insert(0, sys.argv[1]); import sessions as S
+tmp, cmd, a = sys.argv[2], sys.argv[3], sys.argv[4:]
+S.BK, S.STATE, S.PROJECTS, S.CACHE, S.DEAD = tmp + "/bk", tmp + "/r/state", tmp + "/r/projects", tmp + "/r/cache.json", tmp + "/r/dead.json"
+if cmd == "open":   # las abiertas; con "look", sin anotar ni borrar (como bk _hub)
+    print(*sorted(r["sid"] for r in S.load(prune=a[:1] != ["look"])[0]))
+elif cmd == "dead":
+    print(*[f"{d['sid']}:{d['why']}" for d in S.dead()])
+elif cmd == "revive":
+    sys.exit(S.revive(a))
+PY3
+}
+seed viva t7 500; seed cerrada t9 500; seed vacia t6 500; seed nueva t5 5
+check_eq "$(rpy open look)" "nueva viva" "una sesión con la terminal en consola vacía (o cerrada) no figura como abierta; una recién lanzada sí"
+check_eq "$(rpy dead) $(ls "$R/state" | wc -l | tr -d ' ')" " 4" "mirar (bk _hub) no anota ni borra nada"
+check_eq "$(rpy open)" "nueva viva" "bk s: las mismas abiertas"
+check_eq "$(rpy dead)" "cerrada:cerrada vacia:vacia" "las que murieron sin avisar quedan anotadas, con el motivo"
+check_eq "$(ls "$R/state" | tr '\n' ' ')" "nueva.json viva.json " "y su estado viejo se borra, como antes"
+check_eq "$(rpy revive --dry-run | grep -c 'cerrada\|vacia') $(grep -c '^bk' "$TMP/log") $(rpy dead | wc -w | tr -d ' ')" "2 0 2" "bk revive --dry-run: las lista y no abre ni olvida nada"
+check_eq "$(rpy revive nada >/dev/null 2>&1; echo $?) $(grep -c '^bk' "$TMP/log")" "1 0" "bk revive <algo que no está anotado>: error y no abre nada"
+rpy revive cerr >/dev/null
+check_eq "$(grep '^bk' "$TMP/log")" "bk chat | herdr | $TMP/dir con espacio | cd '$TMP/dir con espacio' && claude --resume cerrada" "bk revive <principio del id>: retoma solo esa, como Enter sobre una reciente"
+check_eq "$(rpy dead)" "vacia:vacia" "la retomada sale de la lista"
+seed otra t9 500; rpy open >/dev/null; rpy revive >/dev/null
+check_eq "$(grep -c '^bk chat' "$TMP/log") $(rpy dead | wc -w | tr -d ' ')" "2 0" "bk revive: retoma todas las anotadas y la lista queda vacía"
+check_eq "$(rpy revive)" "no hay chats muertos anotados" "sin nada anotado, lo dice"
+seed vuelve t9 500; rpy open >/dev/null; seed vuelve t7 5
+check_eq "$(rpy dead)" "" "una anotada que volvió a abrirse (por otro lado) deja de estar muerta"
+seed adios t9 500; rpy open >/dev/null; rpy revive --forget >/dev/null
+check_eq "$(grep -c '^bk' "$TMP/log") $(rpy dead | wc -w | tr -d ' ')" "0 0" "bk revive --forget: las saca de la lista sin abrir nada"
 echo "1..$N"
 [ "$FAILED" -eq 0 ]

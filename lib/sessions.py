@@ -37,6 +37,12 @@ RECENT = 80
 # sentía como si el selector tardara en irse. 25 ms alcanza para las flechas; si la persona definió ESCDELAY, queda.
 os.environ.setdefault("ESCDELAY", "25")
 SKIP_DIRS = re.compile(r"-private-tmp-|scratch-workspaces|scratchpad")
+# bk revive: las sesiones que murieron sin avisar (sid -> cwd, pane, estado, cuándo y por qué)
+DEAD = os.path.expanduser("~/.cache/bk/dead.json")
+DEAD_DAYS = 7
+SHELLS = {"zsh", "bash", "fish", "sh", "dash", "nu"}   # lo que Herdr dice que corre en una terminal sin agente
+GRACE = 60   # segundos desde el último evento de la sesión antes de creerle a Herdr que no hay agente
+WHY = {"cerrada": "terminal cerrada", "vacia": "consola vacía"}
 
 
 def sh(*args):
@@ -70,7 +76,7 @@ def herdr_panes():
         if addr and t.get("state") == "live":
             # el id de la terminal (t2d) delante de "espacio / pestaña": es el que usan bk say, bk peek y hc
             out[addr] = {"session": "herdr", "target": addr, "window": f"{addr} {t['where']}" if t.get("where") else addr,
-                         "dead": False,
+                         "dead": False, "agent": t.get("agent") or "",
                          "wsid": "", "herdr": True}
     return out
 
@@ -82,6 +88,57 @@ def gone(pane, panes, hpanes):
         return False
     mine = panes if pane.startswith("%") else hpanes
     return bool(mine) and pane not in mine
+
+
+def hollow(s, hpanes):
+    """¿Su terminal de Herdr sigue viva pero ya no corre un agente, solo el shell? Claude murió sin mandar
+    SessionEnd y quedó la consola vacía. Una sesión recién lanzada no cuenta: Herdr tarda en ver al agente."""
+    pane = hpanes.get(s.get("pane") or "")
+    return bool(pane) and pane.get("agent") in SHELLS and time.time() - (s.get("ts") or 0) > GRACE
+
+
+def read_dead():
+    try:
+        d = json.load(open(DEAD))
+    except Exception:
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def write_dead(d):
+    try:
+        os.makedirs(os.path.dirname(DEAD), exist_ok=True)
+        tmp = f"{DEAD}.{os.getpid()}"
+        json.dump(d, open(tmp, "w"))
+        os.replace(tmp, DEAD)
+    except OSError:
+        pass
+
+
+def note_dead(sid, s, why):
+    """Anota una sesión que murió sin avisar (why: "cerrada" su terminal, o "vacia" la consola)."""
+    d = read_dead()
+    d[sid] = {"cwd": s.get("cwd") or "", "pane": s.get("pane") or "", "state": s.get("state") or "",
+              "at": int(time.time()), "why": why}
+    write_dead(d)
+
+
+def dead():
+    """Las sesiones anotadas como muertas, de la más vieja a la más nueva. Salen de la lista las que volvieron a
+    abrirse (tienen estado otra vez) y las de hace más de DEAD_DAYS días."""
+    d, rows = read_dead(), []
+    keep = {sid: x for sid, x in d.items() if isinstance(x, dict)
+            and not os.path.exists(os.path.join(STATE, sid + ".json"))
+            and time.time() - (x.get("at") or 0) < DEAD_DAYS * 86400}
+    if keep != d:
+        write_dead(keep)
+    for sid, x in sorted(keep.items(), key=lambda kv: (kv[1].get("at") or 0, kv[0])):
+        path = next(iter(glob.glob(os.path.join(PROJECTS, "*", sid + ".jsonl"))), None)
+        meta = transcript_meta(path, {}) if path else {}
+        cwd = meta.get("cwd") or x.get("cwd") or ""
+        rows.append({"sid": sid, "cwd": cwd, "proj": project_name(cwd) if cwd else "", "why": x.get("why") or "cerrada",
+                     "at": x.get("at") or 0, "title": meta.get("title") or meta.get("first") or "(sin mensajes)"})
+    return rows
 
 
 def transcript_meta(path, cache):
@@ -149,8 +206,12 @@ def load(prune=True):
         # Stop/SessionEnd y el estado quedó congelado ("trabajando" para siempre). Está muerta:
         # va a recientes (enter la retoma) y se borra el estado para que nadie la cuente.
         # Solo si tmux (o Herdr, si el pane es una terminal suya) respondió: una lista vacía no prueba nada.
-        if gone(s.get("pane"), panes, hpanes):
+        # Lo mismo si su terminal de Herdr sigue pero quedó en consola vacía (Claude murió y quedó el shell).
+        # Antes de borrar el estado se anota en el registro de muertas, que es lo que retoma bk revive.
+        why = "cerrada" if gone(s.get("pane"), panes, hpanes) else "vacia" if hollow(s, hpanes) else None
+        if why:
             if prune:
+                note_dead(sid, s, why)
                 try:
                     os.remove(f)
                 except OSError:
@@ -312,6 +373,64 @@ def herdr_resume(r, cwd):
     return True
 
 
+def tmux_resume(r, cwd):
+    """Retomar una sesión cerrada con tmux: una ventana nueva de la sesión "agents" con claude --resume, en su
+    carpeta, sin saltar a ella. Devuelve (pane, nombre de la ventana); pane vacío si tmux no la abrió."""
+    name = "r-" + re.sub(r"[^A-Za-z0-9#-]", "", r["proj"])[:12]
+    has = subprocess.run(["tmux", "has-session", "-t", SESSION], capture_output=True).returncode == 0
+    new = (["tmux", "new-window", "-d", "-t", SESSION + ":", "-n", name] if has
+           else ["tmux", "new-session", "-d", "-s", SESSION, "-n", name])
+    pane = sh(*new, "-P", "-F", "#{pane_id}", "-c", cwd, f"claude --resume {r['sid']}").strip()
+    if pane:
+        subprocess.run(["tmux", "set-option", "-w", "-t", pane, "remain-on-exit", "on"], capture_output=True)
+    return pane, name
+
+
+def revive(args):
+    """bk revive [--dry-run] [--forget] [<id>…]: retoma todos juntos los chats que murieron sin avisar (los que
+    anota load()), cada uno como Enter sobre una reciente. Con ids (o su principio), solo esos; --forget los saca
+    de la lista sin retomarlos. Devuelve el código de salida."""
+    dry = "--dry-run" in args or bool(os.environ.get("BK_DRY"))
+    forget = "--forget" in args
+    want = [a for a in args if not a.startswith("--")]
+    load()   # anota las que murieron desde la última vez que alguien miró
+    rows = dead()
+    if want:
+        picked = []
+        for w in want:
+            found = [r for r in rows if r["sid"].startswith(w)]
+            if len(found) != 1:
+                print(f"bk: {'no hay un' if not found else 'hay más de un'} chat muerto anotado que empiece con {w}"
+                      " (bk revive --dry-run los lista)", file=sys.stderr)
+                return 1
+            picked += [r for r in found if r not in picked]
+        rows = picked
+    if not rows:
+        print("no hay chats muertos anotados")
+        return 0
+    print(f"{len(rows)} {'chat muerto' if len(rows) == 1 else 'chats muertos'}:")
+    for r in rows:
+        print(f"  {r['sid'][:8]}  {r['proj']:<24} {ago(r['at']):<11} {WHY.get(r['why'], r['why']):<17} {r['title'][:60]}")
+    if dry:
+        print("(dry-run: no se retomó ni se olvidó nada)")
+        return 0
+    failed = []
+    if not forget:
+        herdr = backend() == "herdr"
+        for r in rows:
+            cwd = r["cwd"] if r["cwd"] and os.path.isdir(r["cwd"]) else os.path.expanduser("~")
+            if not (herdr_resume(r, cwd) if herdr else tmux_resume(r, cwd)[0]):
+                failed.append(r["sid"])
+    d = read_dead()
+    for r in rows:
+        if r["sid"] not in failed:
+            d.pop(r["sid"], None)
+    write_dead(d)
+    done = len(rows) - len(failed)
+    print(f"{'olvidados' if forget else 'retomados'}: {done}" + (f" · no se pudo: {' '.join(s[:8] for s in failed)}" if failed else ""))
+    return 1 if failed else 0
+
+
 def open_row(r):
     """Devuelve (mensaje_error | None, pasos a ejecutar después de cerrar curses).
 
@@ -347,16 +466,10 @@ def open_row(r):
     cwd = r["cwd"] if r["cwd"] and os.path.isdir(r["cwd"]) else os.path.expanduser("~")
     if backend() == "herdr":
         return None, [lambda: herdr_resume(r, cwd)]
-    name = "r-" + re.sub(r"[^A-Za-z0-9#-]", "", r["proj"])[:12]
-
     def resume():
-        has = subprocess.run(["tmux", "has-session", "-t", SESSION], capture_output=True).returncode == 0
-        new = (["tmux", "new-window", "-d", "-t", SESSION + ":", "-n", name] if has
-               else ["tmux", "new-session", "-d", "-s", SESSION, "-n", name])
-        pane = sh(*new, "-P", "-F", "#{pane_id}", "-c", cwd, f"claude --resume {r['sid']}").strip()
+        pane, name = tmux_resume(r, cwd)
         if not pane:
             return
-        subprocess.run(["tmux", "set-option", "-w", "-t", pane, "remain-on-exit", "on"], capture_output=True)
         steps = show(pane, f"{SESSION}:{name}")
         for cmd in steps:
             if cmd[:2] == ["tmux", "attach"]:
@@ -497,6 +610,8 @@ def ui(scr):
 
 
 def main():
+    if sys.argv[1:2] == ["revive"]:
+        sys.exit(revive(sys.argv[2:]))
     if not sys.stdout.isatty():
         o, r = load()
         for x in o:

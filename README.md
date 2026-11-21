@@ -240,6 +240,14 @@ es. `x` sobre un workspace lo cierra entero (chat, riel y tira) después de conf
 recientes. El workspace donde estás no se cierra desde ahí. Por comando: `tmux kill-session -t '=bk-<nombre>'` (con comillas
 en zsh, que expande el `=`).
 
+Una sesión cuya terminal se cerró sin que Claude avisara (o que quedó en consola vacía: la terminal sigue, pero ya
+solo corre el shell) no figura como abierta: pasa a recientes y queda anotada en `~/.cache/bk/dead.json` con el
+motivo. `bk revive` las lista y las retoma todas juntas, cada una como Enter sobre una reciente (un chat más de su
+proyecto con Herdr, una ventana de `agents` con tmux); `bk revive <id>…` solo esas (alcanza el principio del id),
+`bk revive --forget [<id>…]` las saca de la lista sin retomarlas y `bk --dry-run revive` solo las muestra. Una
+anotada sale sola de la lista si vuelve a abrirse o a los 7 días. Un cierre tuyo de la pestaña se ve igual que una
+caída, así que la lista puede traer chats que cerraste a propósito: para eso están los ids y `--forget`.
+
 ## Hablar con los agentes sin entrar
 - `bk peek [ventana]`: la pantalla de un agente (sin ventana: las últimas líneas de todos).
 - `bk say <ventana> "…"`: escribe en su ventana como si fuera tu teclado, así que vale como tu respuesta
