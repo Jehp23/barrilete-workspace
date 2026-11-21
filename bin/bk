@@ -262,7 +262,13 @@ account_args() {
 cmd_account() {
   local sub="${1:-}"; shift || true
   case "$sub" in
-    ""|ls|list)
+    ""|ls|list|--json)
+      if [ "$sub" = --json ] || [ "${1:-}" = --json ]; then
+        # El panel Cuentas de Herdr: con el espacio de acá, para marcar la que usa
+        if [ "$BACKEND" = herdr ]; then python3 "$ACCOUNTS" list --json --space "$(project_of "$PWD")"
+        else python3 "$ACCOUNTS" list --json; fi
+        return
+      fi
       local s c x; s=$(caller_session)
       python3 "$ACCOUNTS" list
       if [ "$BACKEND" = herdr ]; then
@@ -275,9 +281,13 @@ cmd_account() {
       fi ;;
     new)
       local prov="${1:-}" name="${2:-}"
-      [ -n "$prov" ] && [ -n "$name" ] || die "bk account new <claude|codex> <nombre>"
-      [ "$DRY" -eq 1 ] && { info "(dry-run: crearía la cuenta $prov/$name)"; return 0; }
-      python3 "$ACCOUNTS" new "$prov" "$name" >/dev/null || exit 1
+      [ -n "$prov" ] || die "bk account new <claude|codex> [nombre]"
+      if [ "$DRY" -eq 1 ]; then
+        if [ -n "$name" ]; then info "(dry-run: crearía la cuenta $prov/$name)"; else info "(dry-run: crearía una cuenta de $prov)"; fi
+        return 0
+      fi
+      name=$(python3 "$ACCOUNTS" new "$prov" "$name") || exit 1
+      name=$(basename "$name")
       info "cuenta $name creada: ahora el login de $prov (las conversaciones son las mismas de siempre)"
       account_login "$name" ;;
     login)
@@ -287,14 +297,16 @@ cmd_account() {
       account_use "$@" ;;
     -h|--help|help)
       cat <<'EOF'
-uso: bk account                       las cuentas (● con sesión iniciada) y las de esta sesión
-     bk account new <claude|codex> <nombre>   crear una cuenta y hacer su login
+uso: bk account [--json]              las cuentas (● con sesión iniciada) y las de esta sesión
+     bk account new <claude|codex> [nombre]   crear una cuenta y hacer su login (sin nombre: claude-2…)
      bk account login <nombre>        volver a hacer el login de una cuenta
      bk account login default [claude|codex]   el login de la de siempre (~/.claude, ~/.codex)
      bk account use <nombre> [--relaunch]   usarla en esta sesión: lo que lances desde acá
                                        (agentes, chats) corre con ella. --relaunch: el chat principal
                                        también, retomando la misma conversación
-                                       (con Herdr, para el espacio del proyecto de acá)
+                                       (con Herdr, para el espacio del proyecto de acá; es lo que hace
+                                       un clic en el panel Cuentas, el clic en la cuenta de la barra)
+                                       --relaunch --terminal tX (Herdr): ese chat de Claude, en su lugar
      bk account use default [claude|codex]   volver a la de siempre
      bk run|fix|review|plan|orchestrate … --account <nombre>   solo para ese lanzamiento
 EOF
@@ -327,10 +339,11 @@ account_login() {
 }
 
 account_use() {
-  local name="" relaunch=0 only=""
+  local name="" relaunch=0 only="" term=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --relaunch) relaunch=1 ;;
+      --terminal) term="${2:-}"; [ -n "$term" ] || die "--terminal necesita una terminal de Herdr (t7)"; shift ;;
       claude|codex) only="$1" ;;
       *) name="$1" ;;
     esac
@@ -347,10 +360,13 @@ account_use() {
   # Herdr: la cuenta va con el espacio del proyecto de acá (no hay sesión de tmux donde anotarla)
   if [ "$BACKEND" = herdr ]; then
     s=$(project_of "$PWD")
-    [ "$DRY" -eq 1 ] && { info "(dry-run: el espacio $s usaría la cuenta $name)"; return 0; }
+    [ "$DRY" -eq 1 ] && { info "(dry-run: el espacio $s usaría la cuenta $name${term:+ y relanzaría $term})"; return 0; }
     python3 "$ACCOUNTS" space-use "$s" "$name" ${only:+"$only"} || exit 1
     info "el espacio $s usa la cuenta $name: los agentes y chats que lances desde ahí corren con ella"
-    if [ "$relaunch" = 1 ]; then
+    if [ "$relaunch" = 1 ] && [ -n "$term" ]; then
+      # --terminal (el panel Cuentas): ese chat, en su misma terminal; si no se puede, la cuenta cambió igual
+      [[ " ${provs[*]} " == *" claude "* ]] && { hd_relaunch "$term" "$name" || true; }
+    elif [ "$relaunch" = 1 ]; then
       [[ " ${provs[*]} " == *" claude "* ]] && hd_relaunch_chat "$s"
     else
       info "el chat del espacio sigue con la anterior hasta relanzarlo (bk account use $name --relaunch)"
