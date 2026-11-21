@@ -42,6 +42,8 @@ const deps = {
   ICONS: '', PROSE: '', RANK, al: (c) => c, find: () => null, narrow: () => false, ago: () => '1m',
   ids: (all) => new Map(all.map((t, i) => [t.address, i + 1])), said: (t) => t, picto: () => null,
   mark: (_t, s) => `[${s}]`, keycap: (_t, n) => `#${n}`, iconButton: node, rule: node,
+  // La lista de espacios (lista.js) y su diálogo (editar.js) tienen su test (test_espacios.sh): acá, vacíos
+  Lista: class { section() { return []; } railSection() { return []; } }, menu: () => {}, Editar: class {},
 };
 const Agents = new Function(...Object.keys(deps), src + '\nreturn Agents;')(...Object.values(deps));
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };

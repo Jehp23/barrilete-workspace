@@ -1,5 +1,5 @@
-// La barra izquierda de bk-lavanda: los espacios, las épicas (sección ÉPICAS; con props { epic }, este mod es su
-// popup de detalle) y, debajo, los agentes con sus sub-agentes (quién lanzó a
+// La barra izquierda de bk-lavanda: los espacios (sueltos o en carpetas: lista.js), las épicas (sección ÉPICAS; con
+// props { epic }, este mod es su popup de detalle) y, debajo, los agentes con sus sub-agentes (quién lanzó a
 // quién). Cada agente lleva el chip con su número fijo de ventana (alt+N), su título, dónde está y la marca
 // de estado, la misma que usan las pestañas, la cabecera de cada pane y la barra de abajo.
 // Dos vistas (el botón de la derecha de "AGENTES"): por prioridad (te esperan, listos, trabajando, quietos)
@@ -10,6 +10,8 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, terminals, focused, panes, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, exec, home, settings } from "herdr";
 import { ICONS, PROSE, RANK, al, find, narrow, ago, ids, said, picto, mark, keycap, iconButton, rule } from "./kit.js";
+import { Lista, menu } from "./lista.js";
+import { Editar } from "./editar.js";
 
 const SUBS_EVERY = 4000;
 const EPIC_EVERY = 60000;   // bk _epica guarda lo de GitHub unos minutos: esto solo vuelve a leer su caché
@@ -46,14 +48,6 @@ const SORTS = [
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
 const SECTION = { 4: "Te esperan", 3: "Listos", 2: "Trabajando", 1.5: "En 2º plano", 1: "Quietos" };
 const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working", 1.5: "working" };
-// El color de cada espacio: el que eligió Herdr (shared "space.colors", un nombre del tema) o uno fijo por su id.
-const TINTS = ["ansi4", "ansi5", "ansi6", "ansi13", "ansi3", "ansi2"];
-const hash = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
-// El menú del clic derecho de bk (mods/bk-menu): ancho para el texto y las teclas, del alto justo
-// (alto: 6 px arriba y abajo, 32 por opción y 9 por raya; el de un espacio cuenta los tres de worktree)
-// El alto de bk-menu para el más largo de cada tipo (tests/test_herdr_mods.sh lo compara con height() de bk-menu)
-const MENU_H = { space: 12 + 5 * 32 + 9, pane: 12 + 6 * 32 + 2 * 9 };
-const menu = (tab, target) => openOverlay({ mod: "bk-menu", kind: "popup", width: 300, height: MENU_H[tab], props: { tab, target } });
 // De dónde sale la épica de cada chat: la carpeta y la rama de su pane, su nombre (#123 en bk.name o bk.autotitle) y
 // su terminal (bk lee en su conversación de Claude el worktree donde trabajó). bk _epica (lib/herdr_epica.py) saca de ahí el issue y su épica.
 function epicQueries() {
@@ -155,6 +149,7 @@ const subMark = (t, st) => (typeof mark === "function" ? mark(t, st, 12) : div()
 export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
+    if (props()?.editar) { this.editar = new Editar(cx); return; }
     if (props()?.epic || props()?.epicPick) {
       this.at = 0;
       this.doneOpen = false;
@@ -168,6 +163,7 @@ export default class Agents extends View {
       cx.timer.after(300, () => this.handle.focus());
       return;
     }
+    this.lista = new Lista();
     this.folded = new Set();
     this.openPrev = new Set();   // las líneas «antes» desplegadas (plegadas por defecto)
     this.claudeSubs = {};
@@ -599,35 +595,10 @@ export default class Agents extends View {
       .child(div().ml(6).child(subMark(t, st)));
   }
 
-  // Los espacios: color y letra, nombre, la rama si no es la de siempre, y la marca si algo ahí te necesita.
-  spaceRow(t, s, collapsed) {
-    const name = (shared("space.colors") ?? {})[s.id];
-    const color = (name?.startsWith?.("#") ? name : t[name]) ?? t[TINTS[hash(s.id) % TINTS.length]] ?? t.accent;
-    const loud = s.status && s.status !== "idle";
-    const tile = div().size(collapsed ? 22 : 18).flex_none().rounded(collapsed ? 6 : 5).bg(al(color, s.active ? "40" : "26")).flex().items_center().justify_center()
-      .text_size(collapsed ? 11.5 : 10.5).line_height(1).font_bold().text_color(color).child([...s.name][0]?.toUpperCase() ?? "?");
-    const act = (el) => el.cursor_pointer()
-      .on_click(() => run("space.select", { id: s.id }))
-      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); menu("space", { id: s.id }); });
-    if (collapsed) {
-      return act(h_flex().id(`sp-${s.id}`).relative().h(30).flex_none().justify_center().items_center().tooltip(s.name)
-        .child(div().p(3).rounded(8).when(s.active, (el) => el.bg(t.selected)).child(tile))
-        .when(loud, (el) => el.child(div().absolute().top(0).right(15).rounded_full().bg(t.chrome).child(mark(t, s.status, 12)))));
-    }
-    const usual = !s.branch || s.branch === "main" || s.branch === "master" || s.branch.toLowerCase() === s.name.toLowerCase();
-    return act(h_flex().id(`sp-${s.id}`).h(28).px(8).gap(9).flex_none().rounded(8).items_center()
-      .when(s.active, (el) => el.bg(t.selected))
-      .when(!s.active, (el) => el.hover((x) => x.bg(t.hover)))
-      .child(tile)
-      .child(div().flex_shrink(0).max_w(usual ? 190 : 130).truncate().text_color(s.active ? t.foreground : t.muted).when(s.active, (el) => el.font_medium()).child(s.name))
-      .when(Boolean(s.machine), (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(`@${s.machine}`)))
-      .child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(usual ? "" : s.branch))
-      .when(loud, (el) => el.child(mark(t, s.status, 12))));
-  }
-
   render(cx) {
     const t = theme();
     if (props()?.sortMenu) return this.sortMenu(t);
+    if (this.editar) return this.editar.render(t);
     if (props()?.epic) return this.epicPopup(t);
     if (props()?.epicPick) return this.epicPick(t);
     const collapsed = narrow();
@@ -846,21 +817,20 @@ export default class Agents extends View {
 
     if (collapsed) {
       return v_flex().size_full().min_h(0).bg(t.chrome).pt(4)
-        .child(v_flex().flex_none().max_h(200).overflow_hidden().children(sp.map((s) => this.spaceRow(t, s, true))))
+        .child(v_flex().flex_none().max_h(200).overflow_hidden().children(this.lista.railSection(t)))
         .child(div().flex_none().mx(22).my(6).h(1).bg(t.border))
         .child(v_flex().id("ag-list").flex_1().min_h(0).overflow_y_scrollbar().children(rows))
         .child(h_flex().h(30).flex_none().items_center().justify_center()
           .child(iconButton(t, "collapse", "sidebar", toggleSidebar, { tip: "Abrir la barra", size: 15 })));
     }
     this.epicRefresh(cx);
-    const spaceRows = sp.map((s) => this.spaceRow(t, s, false));
     const epics = this.epicList();
     this.share(epics);
     const epicsOpen = !this.folded.has("epicas");
     return v_flex().size_full().min_h(0).bg(t.chrome).pl(8).pr(4).pt(8).text_size(12.5)
-      .child(rule(t, "ESPACIOS", [iconButton(t, "space-new", "plus", () => run("space.new"), { tip: "Espacio nuevo" })]))
-      // Hasta ocho espacios, la lista mide lo que ocupa; con más, se desplaza dentro de ese alto.
-      .child((spaceRows.length > 8 ? v_flex().id("sp-list").h(8 * 29).overflow_y_scrollbar() : v_flex().id("sp-list")).flex_none().gap(1).pr(4).children(spaceRows))
+      // Soltar lo que se arrastraba de la lista de espacios fuera de ella no mueve nada
+      .on_mouse_up("left", (_e, cx) => { if (this.lista.drag) { this.lista.drag = null; cx.notify(); } })
+      .children(this.lista.section(t))
       .child(div().h(6).flex_none())
       // ÉPICAS: una tarjeta por épica; se pliega como los grupos de AGENTES. Sin épicas, no está.
       .when(epics.length > 0, (el) => el

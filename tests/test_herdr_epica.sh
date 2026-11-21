@@ -190,6 +190,8 @@ const deps = {
   find: () => ({ size: { px: 300 } }),
   narrow: () => narrowNow, ago: () => '1m', ids: () => new Map(), said: (t) => t, picto: () => null, mark: () => '', keycap: () => '',
   iconButton: (t, id, icon, action) => node().id(id).on_click(action), rule: (t, label, right = []) => node().id(`rule-${label}`).child(label).children(right),
+  // La lista de espacios (lista.js) y su diálogo (editar.js) tienen su test (test_espacios.sh): acá, con su regla y su lista, sin filas
+  Lista: class { section(t) { return [deps.rule(t, 'ESPACIOS'), node().id('sp-list')]; } railSection() { return []; } }, menu: () => {}, Editar: class {},
 };
 const Agents = new Function(...Object.keys(deps), load('agentes', 'Agents') + '\nreturn Agents;')(...Object.values(deps));
 globalThis.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; }, removeItem: (k) => { delete store[k]; } };
