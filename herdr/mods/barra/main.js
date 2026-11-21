@@ -49,15 +49,20 @@ export default class Barra extends View {
     this.adopting = false;
     const load = async (cx) => {
       const dir = focused()?.cwd || home();
-      if (this.busy || (dir === this.cwd && Date.now() - this.at < EVERY - 500)) return;
+      const term = focused()?.terminal ?? null;
+      if (this.busy || (dir === this.cwd && term === this.term && Date.now() - this.at < EVERY - 500)) return;
       this.busy = true;
       try {
-        const r = await exec(bin(), ["_hub", "status", dir], { cwd: home(), timeout: 8000 });
+        // La cuenta es la de la terminal que mirás si es un chat o agente de bk; si no, la del chat del proyecto
+        const term = focused()?.terminal;
+        const mine = term && terminals().find((x) => x.address === term)?.labels?.["bk.kind"] ? ["--terminal", term] : [];
+        const r = await exec(bin(), ["_hub", "status", dir, ...mine], { cwd: home(), timeout: 8000 });
         this.data = r.code === 0 ? JSON.parse(r.stdout) : null;
       } catch (_e) {
         this.data = null;
       }
       this.cwd = dir;
+      this.term = term;
       this.at = Date.now();
       this.busy = false;
       cx.notify();
@@ -72,7 +77,7 @@ export default class Barra extends View {
     // De fondo y sin redibujar: el rastro y la adopción
     cx.timer.every(1500, (cx) => {
       this.trail();
-      if ((focused()?.cwd || home()) !== this.cwd) cx.spawn(load);
+      if ((focused()?.cwd || home()) !== this.cwd || (focused()?.terminal ?? null) !== this.term) cx.spawn(load);
       cx.spawn(async () => this.adopt());
     });
   }
@@ -151,7 +156,7 @@ export default class Barra extends View {
         .child(div().font_medium().text_color(t.foreground).child(project)))
       .when(Boolean(branch), (el) => el.child(seg("b-branch", "bk-cambios", "Rama y cambios sin commitear: la pestaña Cambios").child(icon("git-branch")).child(div().max_w(260).truncate().child(branch ?? ""))
         .when(Boolean(d?.dirty), (x) => x.child(div().text_color(t.blocked).child("±" + d.dirty)))))
-      .when(Boolean(d?.account || d?.email), (el) => el.child(seg("b-account", null, `Cuenta de Claude de esta terminal${d?.account ? ` (bk account ${d.account})` : ""}`)
+      .when(Boolean(d?.account || d?.email), (el) => el.child(seg("b-account", "bk-cuentas", `Cuenta de Claude de esta terminal${d?.account ? ` (bk account ${d.account})` : ""} · cambiarla`)
         .child(svg("mods/bk-barra/cuenta.svg").size(12).flex_none().text_color(d?.account ? t.working : t.dim))
         .when(Boolean(d?.account), (x) => x.child(div().font_medium().text_color(t.working).child(d.account)))
         .when(Boolean(d?.email), (x) => x.child(div().max_w(240).truncate().text_color(t.dim).child(d.email)))))

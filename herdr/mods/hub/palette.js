@@ -22,6 +22,7 @@ const NATIVE = [
   ["todo", "Agentes", "TODO del panel derecho: los pasos del issue de este chat", "bk _todo", "mod.open:bk-todo", "pasos casillas hecho cuando checklist tareas issue", view("todo")],
   ["agents", "Agentes", "Agentes: ver, escribirles, cerrar", "bk ls · say · stop", "mod.open:bk-agents", "peek watch lista", view("agents")],
   ["profiles", "Agentes", "Perfiles de modelos y tareas…", "bk profile · bk ask", null, "perfil modelos proveedor codex claude gemini editar nuevo tarea imagenes investigar", view("profiles")],
+  ["cuentas", "Sesión", "Cuentas: cambiar de cuenta con un clic…", "bk account", null, "cuenta mail correo login sesion claude codex cambiar usar", view("cuentas")],
   ["next", "Agentes", "Ir al que te espera", "bk go", "mod.open:bk-next", "saltar bloqueado terminó", view("next")],
   ["chat", "Chats", "Chat nuevo en este proyecto", "bk chat", "mod.open:bk-chat", "claude otro", view("chat")],
   ["new", "Chats", "Nuevo… (rama, suelto, otro proyecto)", "bk new", "mod.open:bk-new", "workspace abrir proyecto worktree", view("new")],

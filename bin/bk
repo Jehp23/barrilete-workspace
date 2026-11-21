@@ -223,7 +223,8 @@ caller_session() {
 }
 
 # account_of <proveedor> -> la cuenta para lo que se lance desde acá (vacío: la principal)
-# Orden: bk … --account X (BK_ACCOUNT) > la del pane (la heredan los agentes) > la de la sesión de tmux.
+# Orden: bk … --account X (BK_ACCOUNT) > la del pane (la heredan los agentes) > la de la sesión de tmux > la
+# activa de esa IA (la del panel Cuentas de Herdr o bk account use fuera de tmux; accounts.py active).
 account_of() {
   local prov="$1" v="" s
   if [ -n "${BK_ACCOUNT:-}" ]; then
@@ -235,6 +236,7 @@ account_of() {
     s=$(caller_session)
     [ -z "$s" ] || v=$(tmux show-options -qv -t "$s" "@bk_account_$prov" 2>/dev/null || true)
   fi
+  [ -n "$v" ] || v=$(python3 "$ACCOUNTS" active "$prov" 2>/dev/null || true)
   [ "$v" = default ] || printf '%s' "$v"
 }
 
@@ -256,7 +258,8 @@ account_args() {
 cmd_account() {
   local sub="${1:-}"; shift || true
   case "$sub" in
-    ""|ls|list)
+    ""|ls|list|--json)
+      [ "$sub" = --json ] || [ "${1:-}" = --json ] && { python3 "$ACCOUNTS" list --json; return; }
       local s c x; s=$(caller_session)
       python3 "$ACCOUNTS" list
       if [ -n "$s" ]; then
@@ -278,13 +281,16 @@ cmd_account() {
       account_use "$@" ;;
     -h|--help|help)
       cat <<'EOF'
-uso: bk account                       las cuentas (● con sesión iniciada) y las de esta sesión
+uso: bk account [--json]              las cuentas (● con sesión iniciada) y las de esta sesión
      bk account new <claude|codex> <nombre>   crear una cuenta y hacer su login
      bk account login <nombre>        volver a hacer el login de una cuenta
      bk account login default [claude|codex]   el login de la de siempre (~/.claude, ~/.codex)
      bk account use <nombre> [--relaunch]   usarla en esta sesión: lo que lances desde acá
                                        (agentes, chats) corre con ella. --relaunch: el chat principal
                                        también, retomando la misma conversación
+                                       Fuera de tmux (Herdr) la deja activa para todo bk: es lo que hace
+                                       un clic en el panel Cuentas (el clic en la cuenta de la barra).
+                                       --relaunch --terminal tX: ese chat de Claude pasa a la cuenta nueva
      bk account use default [claude|codex]   volver a la de siempre
      bk run|fix|review|plan|orchestrate … --account <nombre>   solo para ese lanzamiento
 EOF
@@ -317,10 +323,11 @@ account_login() {
 }
 
 account_use() {
-  local name="" relaunch=0 only=""
+  local name="" relaunch=0 only="" term=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --relaunch) relaunch=1 ;;
+      --terminal) term="${2:-}"; [ -n "$term" ] || die "--terminal necesita una terminal de Herdr (t7)"; shift ;;
       claude|codex) only="$1" ;;
       *) name="$1" ;;
     esac
@@ -328,7 +335,7 @@ account_use() {
   done
   [ -n "$name" ] || die "bk account use <nombre> [--relaunch]"
   local s; s=$(caller_session)
-  [ -n "$s" ] || die "bk account use va dentro de una sesión de bk (tmux)"
+  if [ -z "$s" ]; then account_use_global "$name" "$only" "$relaunch" "${term:-${HC_TERMINAL_ID:-}}"; return; fi
   local provs=() p kv
   if [ "$name" = default ]; then
     if [ -n "$only" ]; then provs=("$only"); else provs=(claude codex); fi
@@ -340,7 +347,8 @@ account_use() {
   for p in "${provs[@]}"; do
     if [ "$name" = default ]; then
       [ "$p" = claude ] && kv=CLAUDE_CONFIG_DIR || kv=CODEX_HOME
-      tmux set-option -u -t "$s" "@bk_account_$p" 2>/dev/null || true
+      # default y no vacío: vacío dejaría pasar la activa de todo bk (accounts.py active)
+      tmux set-option -t "$s" "@bk_account_$p" default 2>/dev/null || true
       tmux set-environment -u -t "$s" "BK_ACCOUNT_$(upper "$p")" 2>/dev/null || true
       tmux set-environment -u -t "$s" "$kv" 2>/dev/null || true
     else
@@ -357,6 +365,26 @@ account_use() {
   else
     info "el chat principal sigue con la anterior hasta relanzarlo (bk account use $name --relaunch)"
   fi
+}
+
+# account_use_global <nombre> <proveedor|""> <relanzar 0|1> <terminal de Herdr|"">: sin sesión de tmux, la cuenta
+# queda activa para todo bk (accounts.py set-active). Con relanzar y una terminal de Herdr, ese chat de Claude
+# pasa a la cuenta nueva (hd_relaunch). Si no se puede relanzar, la activa cambia igual y lo dice.
+account_use_global() {
+  local name="$1" only="$2" relaunch="$3" term="$4" p
+  if [ "$name" = default ]; then
+    [ -n "$only" ] || die "bk account use default <claude|codex>: ¿la de siempre de qué IA?"
+    p="$only"
+  else
+    p=$(python3 "$ACCOUNTS" provider "$name"); [ -n "$p" ] || die "no existe la cuenta $name (bk account)"
+  fi
+  [ "$DRY" -eq 1 ] && { info "(dry-run: $p usaría la cuenta $name${term:+ y relanzaría $term})"; return 0; }
+  python3 "$ACCOUNTS" set-active "$name" "$p" || exit 1
+  local who; who=$(python3 "$ACCOUNTS" email "$name" 2>/dev/null || true)
+  info "$p usa la cuenta $name${who:+ ($who)}: lo que lances de ahora en más corre con ella"
+  [ "$relaunch" = 1 ] && [ "$p" = claude ] && [ -n "$term" ] || return 0
+  [ "$BACKEND" = herdr ] || { info "(--terminal es de Herdr: no relanzo nada)"; return 0; }
+  hd_relaunch "$term" "$name" || true
 }
 
 # relaunch_chat <sesión>: el chat principal vuelve a arrancar con la cuenta de la sesión, retomando su

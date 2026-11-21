@@ -12,6 +12,12 @@ La cuenta "default" es la de siempre (~/.claude, ~/.codex) y no tiene carpeta.
   accounts.py provider <nombre>          claude | codex (default: vacío)
   accounts.py env <nombre>               VAR=valor para lanzar con esa cuenta (repara los symlinks)
   accounts.py email [nombre]             el mail de esa cuenta de Claude (sin nombre: la de siempre)
+  accounts.py active <claude|codex>      la cuenta activa de esa IA (default si no se eligió otra)
+  accounts.py set-active <nombre> [claude|codex]   elegirla (default necesita decir de qué IA)
+
+La activa es la que usa lo que se lanza sin una cuenta propia (ni --account, ni la de la terminal, ni la de la
+sesión de tmux): la elige un clic en el panel Cuentas de Herdr o bk account use fuera de tmux. Vive en
+<carpeta de cuentas>/activas.json.
 """
 import json
 import os
@@ -35,6 +41,7 @@ SHARED = {
 }
 # De ~/.claude.json, lo que no es de la cuenta: proyectos confiados, MCP del usuario, tema.
 SEED_KEYS = ("projects", "mcpServers", "theme")
+ACTIVE = os.path.join(ROOT, "activas.json")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
 
 
@@ -79,6 +86,44 @@ def names():
         return sorted(n for n in os.listdir(ROOT) if provider(n))
     except OSError:
         return []
+
+
+def actives():
+    try:
+        with open(ACTIVE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def active(prov):
+    """La cuenta activa de esa IA: la elegida si todavía existe y es de esa IA; si no, default."""
+    name = actives().get(prov)
+    return name if isinstance(name, str) and name and provider(name) == prov else "default"
+
+
+def set_active(name, prov=""):
+    if name == "default":
+        if prov not in VAR:
+            die("set-active default <claude|codex>: ¿la de siempre de qué IA?")
+    else:
+        p = provider(name)
+        if not p:
+            die(f"no existe la cuenta {name} (bk account)")
+        if prov and prov != p:
+            die(f"la cuenta {name} es de {p}, no de {prov}")
+        prov = p
+    d = actives()
+    if name == "default":
+        d.pop(prov, None)
+    else:
+        d[prov] = name
+    os.makedirs(ROOT, mode=0o700, exist_ok=True)
+    tmp = ACTIVE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    os.replace(tmp, ACTIVE)
 
 
 def link_shared(name):
@@ -160,14 +205,20 @@ def status(prov, d):
 def listing(as_json):
     rows = [{"name": "default", "provider": p, "dir": MAIN[p]} for p in ("claude", "codex")]
     rows += [{"name": n, "provider": provider(n), "dir": path(n)} for n in names()]
-    for r in rows:
-        r["logged_in"], r["who"] = status(r["provider"], None if r["name"] == "default" else r["dir"])
+    # En paralelo: cada status le pregunta al CLI y el panel Cuentas espera la lista entera
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        got = list(ex.map(lambda r: status(r["provider"], None if r["name"] == "default" else r["dir"]), rows))
+    act = {p: active(p) for p in VAR}
+    for r, (logged, who) in zip(rows, got):
+        r["logged_in"], r["who"], r["active"] = logged, who, act[r["provider"]] == r["name"]
+        r["email"] = email(r["name"]) if r["provider"] == "claude" else None
     if as_json:
         print(json.dumps(rows, ensure_ascii=False))
         return
     for r in rows:
         mark = "●" if r["logged_in"] else "○"
-        print(f"{mark} {r['name']:<14} {r['provider']:<7} {r['who'] or 'sin sesión'}")
+        print(f"{mark} {r['name']:<14} {r['provider']:<7} {r['who'] or 'sin sesión'}{'  ← activa' if r['active'] else ''}")
 
 
 def main(argv):
@@ -183,6 +234,10 @@ def main(argv):
         if not e:
             sys.exit(1)
         print(e)
+    elif cmd == "active" and len(argv) == 2 and argv[1] in VAR:
+        print(active(argv[1]))
+    elif cmd == "set-active" and len(argv) in (2, 3):
+        set_active(argv[1], argv[2] if len(argv) == 3 else "")
     elif cmd == "env" and len(argv) == 2:
         env(argv[1])
     else:

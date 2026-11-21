@@ -5,6 +5,7 @@ Guarda espacios, pestañas y terminales en $HD_FAKE/state.json y anota en $HD_FA
 (app do …, hc send/kill/label). Nunca toca el Herdr real.
   $HD_FAKE/closed          si existe, la ventana está cerrada: herdr-app status / ls / do salen con 1
   $HD_FAKE/screen-<t>      lo que devuelve `hc read <t>`
+  $HD_FAKE/stuck           si existe, `hc send <t> /exit` no cierra el Claude de esa terminal
   $HD_FAKE/fail-label      si existe, `hc label` falla (para probar que bk no deja un agente sin etiquetas)
   $HD_FAKE/machines        las otras máquinas de `hc machine ls`, una por línea: <nombre> [estado]
   $HD_FAKE/exec-<m>-<sub>  lo que imprime `hc exec --on <m> bk <sub> …`; si no está, la máquina no responde
@@ -143,6 +144,9 @@ def hc(args):
         sys.exit(0)
     if cmd == "send":
         log("hc send " + " ".join(rest))
+        if rest[1:] == ["/exit"] and rest[0] in st["terms"] and not os.path.exists(os.path.join(FAKE, "stuck")):   # Claude sale: la terminal queda en la shell
+            st["terms"][rest[0]]["status"] = None
+            save(st)
         out({"started": True})
     if cmd == "machine":   # hc machine ls: una máquina por línea en $HD_FAKE/machines ("pc" o "pc disconnected")
         ms = []

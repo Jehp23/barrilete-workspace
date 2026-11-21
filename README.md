@@ -109,7 +109,7 @@ pisan con los del repo (se editan acá).
   estado. `BK_NAMES_OFF=1` lo apaga.
 - `bk ls`, `go`, `peek`, `say`, `stop`, `handoff`, `name`, `open` y `term` andan igual; `bk watch <agente>` muestra
   su pestaña. Lo que es del workspace de tmux (`rail`, `sidebar`) avisa y no
-  corre: herdr-core ya mantiene vivas las terminales. `bk account use` sigue siendo de tmux; `--account X` anda.
+  corre: herdr-core ya mantiene vivas las terminales. `bk account use` elige la cuenta activa (clic en la cuenta de la barra: el panel Cuentas); `--account X` anda.
   `bk palette`, `new`, `changes`, `stats` y `s` en una terminal siguen siendo las pantallas de siempre; en Herdr
   sus teclas abren los paneles de abajo.
 - **Número fijo de ventana**: cada chat y cada agente toma al nacer el número libre más chico (la etiqueta `bk.id`
@@ -298,7 +298,7 @@ cabecera (número, programa, qué hace, carpeta y rama). A la derecha, tres pest
 cada archivo en un popup al hacerle clic (`alt+g`). `alt+.` esconde el panel. Abajo, la barra de estado: proyecto, rama, cuenta, qué te espera, uso de hoy, CPU y memoria de cada computadora, radio y las
 teclas de comandos y de la hoja de teclas. La cuenta es la de Claude de la terminal que mirás: su mail (de su
 `.claude.json`, sin preguntarle a Claude) y, si no es la de siempre, el nombre de `bk account` delante; el panel
-derecho muestra lo mismo. La marca de estado es la misma en todos, con los colores `blocked`, `done` y `working`
+derecho muestra lo mismo. Un clic en ella abre el panel Cuentas para cambiarla. La marca de estado es la misma en todos, con los colores `blocked`, `done` y `working`
 del tema: en `bk-neon`, ámbar te espera, verde listo y rosa trabajando.
 
 **Espacios en carpetas.** La lista de espacios se ordena a mano y se agrupa en carpetas de un nivel. El botón de
@@ -370,6 +370,14 @@ las mismas (`/resume` y `alt+s` ven todas).
 - `bk run … --account X` solo para un lanzamiento. El riel muestra en Status el mail de la cuenta de la sesión,
   también el de la default. Es la que eligió la sesión: con `bk account use` sin `--relaunch`, el chat que ya estaba
   abierto sigue con la anterior hasta relanzarlo.
+- **Con un clic, en Herdr**: un clic en la cuenta de la barra de abajo (o `alt+k` → «Cuentas») abre el panel Cuentas:
+  las de Claude y las de Codex, con su mail y si tienen la sesión iniciada. Un clic en una la deja **activa** para esa
+  IA (`~/.local/state/bk/accounts/activas.json`): todo lo que lances después corre con ella, y el chat de Claude que
+  mirás se relanza con ella retomando la misma conversación (`/exit` y `claude --resume`; no si está trabajando o te
+  espera). Cada cuenta guarda su login, así que cambiar no pide iniciar sesión otra vez. «Agregar una cuenta…» la crea
+  y abre su login; `ctrl+l` lo rehace. Por comando: `bk account use <cuenta>` fuera de tmux
+  (`--relaunch --terminal tX` relanza ese chat). Orden para elegir la cuenta de un lanzamiento: `--account X`, la de la
+  terminal de donde se lanza, la de la sesión de tmux y, al final, la activa.
 - `bk account login <cuenta>` rehace el login de una cuenta; `bk account login default` el de la de siempre (`~/.claude`),
   aunque esta sesión use otra. Si dos cuentas muestran el mismo email en `bk account`, en la práctica son una sola.
 
