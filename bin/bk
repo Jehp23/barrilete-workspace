@@ -130,6 +130,9 @@ uso: bk [comando] [--dry-run]
   account           cuentas de Claude o Codex por sesión, con las mismas conversaciones (bk account help):
                     new <claude|codex> <nombre> · use <nombre> [--relaunch] · --account <nombre> en
                     cualquier lanzamiento
+  machines sync     (con Herdr) deja en cada máquina conectada el mismo commit de bk que esta y corre bk backend
+                    herdr allá; usa un worktree propio (<repo>-wt/bk-sync), sin tocar el checkout de allá.
+                    --dry-run: solo dice qué haría
   tokens            tokens del día y costo equivalente en API, por modelo y proyecto
   learn             registra desvíos de los agentes en Obsidian y propone lecciones; los de proyectos con el kit
                     (y los hallazgos de review) van también a su store (.barrilete/learning, ADR-007)
@@ -1932,6 +1935,7 @@ case "${1:-}" in
   ask)         shift; exec python3 "$WS/lib/ask.py" "$@" ;;
   models)      shift; exec python3 "$WS/lib/models.py" "$@" ;;
   account|accounts) shift; cmd_account "$@" ;;
+  machines)    shift; [ "$DRY" -eq 0 ] || set -- "$@" --dry-run; exec python3 "$WS/lib/machines.py" "$@" ;;
   mode)        shift; [ -n "${1:-}" ] || die "bk mode <rol>"
                role_mode "$1" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; echo ;;
   tokens)      exec python3 "$WS/lib/usage.py" ;;

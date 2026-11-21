@@ -26,3 +26,9 @@ No hace falta ADR para cosas que se revierten con un PR sin costo.
 1. Sumarlo al índice en `docs/README.md` y en `docs/llms.txt`.
 2. Si cambia una regla ya definida, el PR lleva el label `business-logic`.
 3. Si contradice código existente, abrir el issue para alinear el código (skill `create-issue`).
+
+## ADRs del proyecto
+
+- [ADR-001 — La lista de espacios compartida entre máquinas](ADR-001-lista-de-espacios-entre-maquinas.md) (propuesto)
+
+Los del kit están en [`kit/`](kit/).
